@@ -8,10 +8,20 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/fang"
 	"github.com/ionut-t/bark/internal/config"
+	"github.com/ionut-t/bark/internal/version"
 	"github.com/ionut-t/bark/tui"
 	"github.com/ionut-t/coffee/styles"
 	"github.com/spf13/cobra"
 )
+
+const logo = `
+__________               __    
+\______   \_____ _______|  | __
+ |    |  _/\__  \\_  __ \  |/ /
+ |    |   \ / __ \|  | \/    < 
+ |______  /(____  /__|  |__|_ \
+        \/      \/           \/
+`
 
 var rootCmd = &cobra.Command{
 	Use:   "bark",
@@ -70,6 +80,8 @@ func Execute() error {
 		return err
 	}
 
+	rootCmd.SetVersionTemplate(versionTemplate())
+
 	rootCmd.AddCommand(configCmd())
 	rootCmd.AddCommand(resetCmd())
 	rootCmd.AddCommand(addCmd())
@@ -90,4 +102,13 @@ func Execute() error {
 		fang.WithColorSchemeFunc(styles.FangColorScheme),
 		fang.WithoutCompletions(),
 	)
+}
+
+func versionTemplate() string {
+	versionTpl := styles.Primary.Margin(0, 2).Render(logo) + `
+  Version        %s
+  Commit         %s
+  Release date   %s
+`
+	return fmt.Sprintf(versionTpl, version.Version(), version.Commit(), version.Date())
 }
