@@ -141,3 +141,18 @@ func Add(storage string, assetDirName string, name string) error {
 
 	return nil
 }
+
+// Delete removes an asset by name from storage.
+func Delete(storage string, assetDirName string, name string) error {
+	return os.Remove(filepath.Join(storage, assetDirName, name+".md"))
+}
+
+// GetPath returns the full path of an asset by name if it exists.
+// If the asset does not exist, it returns an error.
+func GetPath(storage string, assetDirName string, name string) (string, error) {
+	if _, err := os.Stat(filepath.Join(storage, assetDirName, name+".md")); err != nil {
+		return "", err
+	}
+
+	return filepath.Join(storage, assetDirName, name+".md"), nil
+}

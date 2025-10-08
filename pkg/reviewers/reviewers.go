@@ -55,3 +55,11 @@ func Find(name string, reviewersList []Reviewer) (*Reviewer, error) {
 func RemoveDir(storage string) error {
 	return assets.RemoveAssetDir(storage, assetDirName)
 }
+
+func Delete(storage, name string) error {
+	return assets.Delete(storage, assetDirName, name)
+}
+
+func GetPath(storage, name string) (string, error) {
+	return assets.GetPath(storage, assetDirName, name)
+}

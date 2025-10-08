@@ -58,3 +58,11 @@ func RemoveDir(storage string) error {
 func Add(storage, name string) error {
 	return assets.Add(storage, assetDirName, name)
 }
+
+func Delete(storage, name string) error {
+	return assets.Delete(storage, assetDirName, name)
+}
+
+func GetPath(storage, name string) (string, error) {
+	return assets.GetPath(storage, assetDirName, name)
+}
