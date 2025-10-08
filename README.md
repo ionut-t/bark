@@ -27,7 +27,7 @@ To review the changes in the current working directory, simply run `bark`:
 bark
 ```
 
-By default, `bark` will review all changes in the working directory (including untracked). To review only the staged changes, use the `--staged` or `-s` flag:
+By default, `bark` will review all tracked changes in the working directory. To review only the staged changes, use the `--staged` or `-s` flag:
 
 ```bash
 bark --staged

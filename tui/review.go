@@ -395,7 +395,7 @@ func reviewHelp(width int, forCommits bool) string {
 	}{
 		{"tab", "toggle between editor view and markdown view"},
 		{"c", "generate commit message (for staged changes)"},
-		{"C", "generate commit message for all changes (staged, unstaged, untracked)"},
+		{"C", "generate commit message for all changes (staged and unstaged)"},
 		{"?", "toggle help"},
 		{"ctrl+c", "quit"},
 	}

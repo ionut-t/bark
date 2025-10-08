@@ -336,7 +336,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if diff == "" {
 					m.message = "No changes to commit.\n"
 					if !commitAll {
-						m.message += "Tip: use 'C' to commit all changes, including unstaged and untracked ones.\n"
+						m.message += "Tip: use 'C' to commit all changes, including unstaged ones.\n"
 					}
 
 					m.message += "Press Esc to go back."
