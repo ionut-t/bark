@@ -8,11 +8,6 @@ import (
 	"github.com/ionut-t/coffee/styles"
 )
 
-var (
-	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
-	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(styles.Primary.GetForeground()).Bold(true)
-)
-
 type listReviewersMsg struct{}
 
 type reviewerSelectedMsg struct {
@@ -51,6 +46,13 @@ func newReviewersModel(reviewers []reviewers.Reviewer) reviewersModel {
 
 	l.InfiniteScrolling = true
 	l.SetShowStatusBar(false)
+
+	l.KeyMap = listKeyMap()
+
+	l.AdditionalShortHelpKeys = additionalHelpKeysFunc()
+	l.AdditionalFullHelpKeys = additionalHelpKeysFunc()
+
+	l.SetFilteringEnabled(true)
 
 	return reviewersModel{
 		list:      l,

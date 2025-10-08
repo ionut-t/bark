@@ -39,6 +39,13 @@ func newInstructionsModel(instructions []instructions.Instruction, storage strin
 	l.InfiniteScrolling = true
 	l.SetShowStatusBar(false)
 
+	l.KeyMap = listKeyMap()
+
+	l.AdditionalShortHelpKeys = additionalHelpKeysFunc()
+	l.AdditionalFullHelpKeys = additionalHelpKeysFunc()
+
+	l.SetFilteringEnabled(true)
+
 	return instructionsModel{
 		list:    l,
 		storage: storage,
