@@ -1,0 +1,68 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: go
+          package-name: bark
+          version-file: internal/version/version.go
+          
+      # The following steps will only run if a release was created
+      - name: Checkout code
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          check-latest: true
+
+      - name: Build binaries
+        if: ${{ steps.release.outputs.release_created }}
+        run: |
+          mkdir -p dist
+          
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date -u +%d/%m/%Y)
+          VERSION=${{ steps.release.outputs.tag_name }}
+          LDFLAGS="-X 'github.com/ionut-t/bark/internal/version.version=$VERSION' -X 'github.com/ionut-t/bark/internal/version.commit=$COMMIT' -X 'github.com/ionut-t/bark/internal/version.date=$BUILD_DATE'"
+          
+          # Build for macOS (Apple Silicon)
+          GOOS=darwin GOARCH=arm64 go build -ldflags="$LDFLAGS" -o dist/bark-darwin-arm64
+
+          # Build for macOS (Intel)
+          GOOS=darwin GOARCH=amd64 go build -ldflags="$LDFLAGS" -o dist/bark-darwin-amd64
+                    
+          # Build for Linux (64-bit)
+          GOOS=linux GOARCH=amd64 go build -ldflags="$LDFLAGS" -o dist/bark-linux-amd64
+          
+          # Build for Windows (64-bit)
+          GOOS=windows GOARCH=amd64 go build -ldflags="$LDFLAGS" -o dist/bark-windows-amd64.exe
+          
+          chmod +x dist/*
+          
+          cd dist
+          sha256sum * > checksums.txt
+          cd ..
+
+      - name: Upload Release Artifacts
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ steps.release.outputs.tag_name }} dist/*
