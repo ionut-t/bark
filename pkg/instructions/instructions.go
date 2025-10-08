@@ -18,8 +18,8 @@ type Instruction struct {
 	Prompt string
 }
 
-func ConfigInstructions(storage string, reset bool) error {
-	return assets.ConfigAssets(assets.ConfigOptions{
+func Config(storage string, reset bool) error {
+	return assets.Config(assets.ConfigOptions{
 		Storage:  storage,
 		Reset:    reset,
 		AssetDir: assetDirName,

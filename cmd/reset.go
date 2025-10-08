@@ -58,7 +58,7 @@ func handleReset(cmd *cobra.Command) (string, error) {
 			}
 		}
 
-		if err := reviewers.ConfigReviewers(storage, true); err != nil {
+		if err := reviewers.Config(storage, true); err != nil {
 			return "", fmt.Errorf("error resetting reviewers: %w", err)
 		}
 	}
@@ -70,7 +70,7 @@ func handleReset(cmd *cobra.Command) (string, error) {
 			}
 		}
 
-		if err := instructions.ConfigInstructions(storage, true); err != nil {
+		if err := instructions.Config(storage, true); err != nil {
 			return "", fmt.Errorf("error resetting instructions: %w", err)
 		}
 

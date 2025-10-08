@@ -25,8 +25,8 @@ type ConfigOptions struct {
 	EmbedFS  embed.FS
 }
 
-// ConfigAssets unpacks the embedded assets into the storage directory.
-func ConfigAssets(opts ConfigOptions) error {
+// Config unpacks the embedded assets into the storage directory.
+func Config(opts ConfigOptions) error {
 	assetsDir := filepath.Join(opts.Storage, opts.AssetDir)
 
 	fs := opts.EmbedFS

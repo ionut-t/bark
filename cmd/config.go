@@ -73,11 +73,11 @@ func initConfig() error {
 		return fmt.Errorf("error getting storage path: %w", err)
 	}
 
-	if err := reviewers.ConfigReviewers(storage, false); err != nil {
+	if err := reviewers.Config(storage, false); err != nil {
 		return fmt.Errorf("error initializing reviewers: %w", err)
 	}
 
-	if err := instructions.ConfigInstructions(storage, false); err != nil {
+	if err := instructions.Config(storage, false); err != nil {
 		return fmt.Errorf("error initializing instructions: %w", err)
 	}
 
