@@ -2,10 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 
 	"github.com/ionut-t/bark/internal/config"
+	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/instructions"
 	"github.com/ionut-t/bark/pkg/reviewers"
 	"github.com/ionut-t/coffee/styles"
@@ -49,7 +48,7 @@ func configCmd() *cobra.Command {
 					fmt.Println(styles.Error.Render("error writing config: " + err.Error()))
 				}
 			} else {
-				if err := openInEditor(configPath); err != nil {
+				if err := utils.OpenEditor(configPath); err != nil {
 					fmt.Println(styles.Error.Render("error opening editor: " + err.Error()))
 				}
 			}
@@ -61,21 +60,6 @@ func configCmd() *cobra.Command {
 	cmd.Flags().StringP(config.LLMModelKey, "m", "", "Set the LLM model")
 
 	return cmd
-}
-
-func openInEditor(configPath string) error {
-	editor := config.GetEditor()
-
-	cmd := exec.Command(editor, configPath)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func initConfig() error {

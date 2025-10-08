@@ -72,6 +72,7 @@ func Execute() error {
 
 	rootCmd.AddCommand(configCmd())
 	rootCmd.AddCommand(resetCmd())
+	rootCmd.AddCommand(addCmd())
 
 	rootCmd.Flags().StringP("config", "c", "", "config file (default is $HOME/.bark/config.toml)")
 	rootCmd.Flags().StringP("as", "r", "", "Specify the reviewer to use directly")

@@ -1,8 +1,12 @@
 package utils
 
 import (
+	"os"
+	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/ionut-t/bark/internal/config"
 )
 
 // NormaliseCodeFences ensures code blocks and diff lines are not unnecessarily indented.
@@ -50,4 +54,20 @@ func RemoveCodeFences(message string) string {
 	message = codeBlockRegex.ReplaceAllString(message, "$1")
 
 	return strings.TrimSpace(message)
+}
+
+// OpenEditor opens the specified file in the user's preferred text editor.
+func OpenEditor(path string) error {
+	editor := config.GetEditor()
+
+	cmd := exec.Command(editor, path)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	return nil
 }

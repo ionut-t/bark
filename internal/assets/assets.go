@@ -2,9 +2,13 @@ package assets
 
 import (
 	"embed"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ionut-t/bark/internal/utils"
 )
 
 // Asset holds the name and prompt for a given asset.
@@ -95,4 +99,45 @@ func GetAssets(storage string, assetDirName string) ([]Asset, error) {
 // RemoveAssetDir removes the asset directory from storage.
 func RemoveAssetDir(storage string, assetDirName string) error {
 	return os.RemoveAll(filepath.Join(storage, assetDirName))
+}
+
+func Add(storage string, assetDirName string, name string) error {
+	assetsDir := filepath.Join(storage, assetDirName)
+
+	if err := os.MkdirAll(assetsDir, 0755); err != nil {
+		return fmt.Errorf("error creating assets directory: %w", err)
+	}
+
+	finalPath := filepath.Join(assetsDir, name+".md")
+
+	if _, err := os.Stat(finalPath); err == nil {
+		return os.ErrExist
+	}
+
+	tmpFile, err := os.CreateTemp("", name+"-*.md")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	if err := utils.OpenEditor(tmpPath); err != nil {
+		return fmt.Errorf("error opening editor: %w", err)
+	}
+
+	content, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return fmt.Errorf("error reading temporary file: %w", err)
+	}
+
+	if len(content) == 0 {
+		return errors.New("content cannot be empty")
+	}
+
+	if err := os.WriteFile(finalPath, content, 0644); err != nil {
+		return err
+	}
+
+	return nil
 }

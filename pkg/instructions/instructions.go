@@ -54,3 +54,7 @@ func Find(name string, instructionsList []Instruction) (*Instruction, error) {
 func RemoveDir(storage string) error {
 	return assets.RemoveAssetDir(storage, assetDirName)
 }
+
+func Add(storage, name string) error {
+	return assets.Add(storage, assetDirName, name)
+}
