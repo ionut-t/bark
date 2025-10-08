@@ -1,0 +1,15 @@
+# This is the configuration file for bark
+
+# The keys are case insensitive
+
+# Auto-update feature can be enabled or disabled
+AUTO_UPDATE_ENABLED = false
+
+# The editor will be used to edit the config file and LLM instructions
+EDITOR = '{{.Editor}}'
+
+# It can be set to 'Gemini' or 'VertexAI' (case insensitive)
+LLM_PROVIDER = ''
+
+# The LLM model is required for both Gemini and VertexAI. Ex: 'gemini-2.5-pro'
+LLM_MODEL = ''

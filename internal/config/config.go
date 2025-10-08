@@ -1,0 +1,224 @@
+package config
+
+import (
+	"bytes"
+	_ "embed"
+	"fmt"
+	"os"
+	"path/filepath"
+	"text/template"
+
+	"github.com/spf13/viper"
+)
+
+//go:embed commit.md
+var defaultCommitInstructions string
+
+//go:embed config.toml
+var defaultConfig string
+
+const (
+	EditorKey      = "EDITOR"
+	LLMProviderKey = "LLM_PROVIDER"
+	LLMModelKey    = "LLM_MODEL"
+	AutoUpdateKey  = "AUTO_UPDATE_ENABLED"
+
+	rootDir                    = ".bark"
+	configFileName             = ".config.toml"
+	commitInstructionsFileName = "commit.md"
+)
+
+type Config interface {
+	GetEditor() string
+	Storage() string
+	GetLLMProvider() (string, error)
+	GetLLMModel() (string, error)
+	GetCommitInstructions() string
+	AutoUpdateEnabled() bool
+}
+
+type config struct {
+	storage string
+}
+
+func New() (Config, error) {
+	storage, err := GetStorage()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &config{
+		storage: storage,
+	}, nil
+}
+
+func (c *config) AutoUpdateEnabled() bool {
+	return viper.GetBool(AutoUpdateKey)
+}
+
+func (c *config) GetEditor() string {
+	return GetEditor()
+}
+
+func (c *config) Storage() string {
+	return c.storage
+}
+
+func (c *config) GetLLMProvider() (string, error) {
+	provider := viper.GetString(LLMProviderKey)
+
+	if provider == "" {
+		return "", fmt.Errorf("%s not set in config", LLMProviderKey)
+	}
+
+	return provider, nil
+}
+
+func (c *config) GetLLMModel() (string, error) {
+	model := viper.GetString(LLMModelKey)
+
+	if model == "" {
+		return "", fmt.Errorf("%s not set in config", LLMModelKey)
+	}
+
+	return model, nil
+}
+
+func (c *config) GetCommitInstructions() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return defaultCommitInstructions
+	}
+
+	commitInstructionsPath := filepath.Join(home, rootDir, commitInstructionsFileName)
+
+	content, err := os.ReadFile(commitInstructionsPath)
+	if err != nil || len(content) == 0 {
+		return defaultCommitInstructions
+	}
+
+	return string(content)
+}
+
+func getDefaultEditor() string {
+	if editor := os.Getenv("EDITOR"); editor != "" {
+		return editor
+	}
+
+	if os.Getenv("WINDIR") != "" {
+		return "notepad"
+	}
+
+	return "vim"
+}
+
+func GetEditor() string {
+	editor := viper.GetString(EditorKey)
+
+	if editor == "" {
+		return getDefaultEditor()
+	}
+
+	return editor
+}
+
+func InitialiseConfigFile() (string, error) {
+	configPath := viper.ConfigFileUsed()
+
+	if configPath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+
+		dir := filepath.Join(home, rootDir)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", err
+		}
+
+		configPath = filepath.Join(dir, configFileName)
+		viper.SetConfigFile(configPath)
+
+		if _, err := os.Stat(configPath); os.IsNotExist(err) {
+			viper.SetDefault(AutoUpdateKey, true)
+			viper.SetDefault(EditorKey, GetEditor())
+			viper.SetDefault(LLMProviderKey, "")
+			viper.SetDefault(LLMModelKey, "")
+
+			if err := writeDefaultConfig(); err != nil {
+				return "", err
+			}
+
+			fmt.Println("Created config at", configPath)
+		} else {
+			viper.SetConfigFile(configPath)
+			return "", viper.ReadInConfig()
+		}
+	}
+
+	return configPath, nil
+}
+
+func InitialiseCommitInstructions() error {
+	path := GetCommitFilePath()
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := os.WriteFile(path, []byte(defaultCommitInstructions), 0644); err != nil {
+			return fmt.Errorf("failed to write commit instructions: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func GetConfigFilePath() string {
+	return viper.ConfigFileUsed()
+}
+
+func GetStorage() (string, error) {
+	storage := viper.GetString("storage")
+
+	if storage != "" {
+		return storage, nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	dir := filepath.Join(home, rootDir)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+
+	return dir, nil
+}
+
+func GetCommitFilePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	return filepath.Join(home, rootDir, commitInstructionsFileName)
+}
+
+func writeDefaultConfig() error {
+	tmpl, err := template.New("config").Parse(defaultConfig)
+	if err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	data := map[string]any{
+		"Editor": GetEditor(),
+	}
+
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return err
+	}
+
+	return os.WriteFile(GetConfigFilePath(), buf.Bytes(), 0644)
+}
