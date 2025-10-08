@@ -40,7 +40,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		}
 	}
 
-	fmt.Fprint(w, fn(i.title))
+	_, _ = fmt.Fprint(w, fn(i.title))
 }
 
 func listKeyMap() list.KeyMap {

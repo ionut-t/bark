@@ -225,7 +225,7 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		content := utils.NormaliseCodeFences(m.contentBuilder.String())
 
 		m.editor.SetContent(content)
-		m.editor.SetCursorPositionEnd()
+		_ = m.editor.SetCursorPositionEnd()
 		ed, edCmd := m.editor.Update(msg)
 		m.editor = ed.(editor.Model)
 
@@ -244,7 +244,7 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingChunks = false
 		currentContent := m.editor.GetCurrentContent() + "\n\n"
 		m.editor.SetContent(currentContent)
-		m.editor.SetCursorPosition(0, 0)
+		_ = m.editor.SetCursorPosition(0, 0)
 		if out, err := m.markdown.Render(currentContent); err != nil {
 			m.viewport.SetContent(currentContent)
 		} else {

@@ -4,6 +4,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,8 +120,16 @@ func Add(storage string, assetDirName string, name string) error {
 		return err
 	}
 	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
+
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("error closing temporary file: %w", err)
+	}
+
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil {
+			log.Printf("ERROR: Failed to remove temporary file %s: %v", tmpPath, err)
+		}
+	}()
 
 	if err := utils.OpenEditor(tmpPath); err != nil {
 		return fmt.Errorf("error opening editor: %w", err)
