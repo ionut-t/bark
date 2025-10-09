@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/ionut-t/bark/compare/v1.0.0...v1.0.1) (2025-10-09)
+
+
+### Bug Fixes
+
+* **version:** improve version string generation ([813a2ff](https://github.com/ionut-t/bark/commit/813a2ffacec989e9eb8fc1db0fb308eb2b568ada))
+
 ## 1.0.0 (2025-10-09)
 
 
