@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/ionut-t/bark/internal/config"
+	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/git"
 	"github.com/ionut-t/bark/pkg/instructions"
 	"github.com/ionut-t/bark/pkg/llm"
@@ -115,17 +116,9 @@ func (m Model) Init() tea.Cmd {
 	}
 
 	if m.selectCommit {
-		cmd := func() tea.Msg {
-			return listCommitsMsg{}
-		}
-
-		cmds = append(cmds, cmd)
+		cmds = append(cmds, utils.DispatchMsg(listCommitsMsg{}))
 	} else {
-		cmd := func() tea.Msg {
-			return listReviewersMsg{}
-		}
-
-		cmds = append(cmds, cmd)
+		cmds = append(cmds, utils.DispatchMsg(listReviewersMsg{}))
 	}
 
 	cmds = append(cmds, tea.SetWindowTitle("Bark - AI Code Reviewer"))
@@ -168,9 +161,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case commitSelectedMsg:
 		m.selectedCommit = &msg.commit
-		return m, func() tea.Msg {
-			return listReviewersMsg{}
-		}
+		return m, utils.DispatchMsg(listReviewersMsg{})
 
 	case listReviewersMsg:
 		listReviewers, err := reviewers.Get(m.storage)
@@ -183,9 +174,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if reviewer, err := reviewers.Find(m.reviewerName, listReviewers); err == nil {
 				m.selectedReviewer = reviewer
 				m.reviewers = newReviewersModel(listReviewers)
-				return m, func() tea.Msg {
-					return reviewerSelectedMsg{Reviewer: reviewer}
-				}
+				return m, utils.DispatchMsg(reviewerSelectedMsg{Reviewer: reviewer})
 			}
 		}
 
@@ -197,17 +186,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		listInstructions, err := instructions.Get(m.storage)
 
 		if m.skipInstruction {
-			return m, func() tea.Msg {
-				return instructionSelectedMsg{Instruction: ""}
-			}
+			return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: ""})
 		}
 
 		if m.instructionName != "" {
 			if instruction, err := instructions.Find(m.instructionName, listInstructions); err == nil {
 				m.selectedInstruction = instruction.Prompt
-				return m, func() tea.Msg {
-					return instructionSelectedMsg{Instruction: instruction.Prompt}
-				}
+				return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: instruction.Prompt})
 			}
 		}
 
@@ -216,9 +201,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if len(listInstructions) == 0 {
-			return m, func() tea.Msg {
-				return instructionSelectedMsg{Instruction: ""}
-			}
+			return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: ""})
 		}
 
 		m.instructions = newInstructionsModel(listInstructions, m.storage)

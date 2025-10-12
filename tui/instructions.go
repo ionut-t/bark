@@ -4,6 +4,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/instructions"
 	"github.com/ionut-t/coffee/styles"
 )
@@ -84,12 +85,12 @@ func (m instructionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			if selectedItem, ok := m.list.SelectedItem().(item); ok {
-				return m, m.dispatchInstruction(selectedItem.prompt)
+				return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: selectedItem.prompt})
 			}
 			return m, nil
 
 		case "x":
-			return m, m.dispatchInstruction("")
+			return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: ""})
 		}
 	}
 
@@ -101,10 +102,4 @@ func (m instructionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m instructionsModel) View() string {
 	return m.list.View()
-}
-
-func (m instructionsModel) dispatchInstruction(prompt string) tea.Cmd {
-	return func() tea.Msg {
-		return instructionSelectedMsg{Instruction: prompt}
-	}
 }

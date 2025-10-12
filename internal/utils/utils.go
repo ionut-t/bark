@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ionut-t/bark/internal/config"
 )
 
@@ -70,4 +71,10 @@ func OpenEditor(path string) error {
 	}
 
 	return nil
+}
+
+func DispatchMsg(msg tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		return msg
+	}
 }
