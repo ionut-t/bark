@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ionut-t/bark/pkg/instructions"
@@ -41,8 +42,21 @@ func newInstructionsModel(instructions []instructions.Instruction, storage strin
 
 	l.KeyMap = listKeyMap()
 
-	l.AdditionalShortHelpKeys = additionalHelpKeysFunc()
-	l.AdditionalFullHelpKeys = additionalHelpKeysFunc()
+	additionalKeys := func() []key.Binding {
+		return []key.Binding{
+			key.NewBinding(
+				key.WithKeys("enter"),
+				key.WithHelp("enter", "select"),
+			),
+			key.NewBinding(
+				key.WithKeys("x"),
+				key.WithHelp("x", "skip"),
+			),
+		}
+	}
+
+	l.AdditionalShortHelpKeys = additionalKeys
+	l.AdditionalFullHelpKeys = additionalKeys
 
 	l.SetFilteringEnabled(true)
 
@@ -70,11 +84,12 @@ func (m instructionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			if selectedItem, ok := m.list.SelectedItem().(item); ok {
-				return m, func() tea.Msg {
-					return instructionSelectedMsg{Instruction: selectedItem.prompt}
-				}
+				return m, m.dispatchInstruction(selectedItem.prompt)
 			}
 			return m, nil
+
+		case "x":
+			return m, m.dispatchInstruction("")
 		}
 	}
 
@@ -86,4 +101,10 @@ func (m instructionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m instructionsModel) View() string {
 	return m.list.View()
+}
+
+func (m instructionsModel) dispatchInstruction(prompt string) tea.Cmd {
+	return func() tea.Msg {
+		return instructionSelectedMsg{Instruction: prompt}
+	}
 }

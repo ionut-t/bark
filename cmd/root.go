@@ -55,15 +55,17 @@ func handleRootCmd(cmd *cobra.Command) error {
 	instruction, _ := cmd.Flags().GetString("instructions")
 	branch, _ := cmd.Flags().GetString("branch")
 	staged, _ := cmd.Flags().GetBool("staged")
+	skipInstruction, _ := cmd.Flags().GetBool("skip-instruction")
 
 	m := tui.New(tui.Options{
-		Storage:      storage,
-		ReviewerName: reviewerName,
-		Instruction:  instruction,
-		Branch:       branch,
-		SelectCommit: commit,
-		Config:       cfg,
-		StagedOnly:   staged,
+		Storage:         storage,
+		ReviewerName:    reviewerName,
+		Instruction:     instruction,
+		Branch:          branch,
+		SelectCommit:    commit,
+		Config:          cfg,
+		StagedOnly:      staged,
+		SkipInstruction: skipInstruction,
 	})
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
@@ -94,6 +96,7 @@ func Execute() error {
 	rootCmd.Flags().StringP("instructions", "i", "", "Custom instructions to guide the reviewer's feedback")
 	rootCmd.Flags().StringP("branch", "b", "", "Provide a branch name to diff against the current branch")
 	rootCmd.Flags().BoolP("staged", "s", false, "Review only staged changes")
+	rootCmd.Flags().Bool("skip-instruction", false, "Skip the instructions selection step")
 
 	return fang.Execute(
 		context.Background(),

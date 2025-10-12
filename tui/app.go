@@ -57,19 +57,21 @@ type Model struct {
 	showHelp            bool
 	stagedOnly          bool
 	message             string
+	skipInstruction     bool
 
 	reviewCancelFunc context.CancelFunc
 	commitCancelFunc context.CancelFunc
 }
 
 type Options struct {
-	Storage      string
-	ReviewerName string
-	Instruction  string
-	Branch       string
-	SelectCommit bool
-	Config       config.Config
-	StagedOnly   bool
+	Storage         string
+	ReviewerName    string
+	Instruction     string
+	Branch          string
+	SelectCommit    bool
+	Config          config.Config
+	StagedOnly      bool
+	SkipInstruction bool
 }
 
 func New(options Options) *Model {
@@ -101,6 +103,7 @@ func New(options Options) *Model {
 		instructionName: options.Instruction,
 		branch:          options.Branch,
 		stagedOnly:      options.StagedOnly,
+		skipInstruction: options.SkipInstruction,
 	}
 }
 
@@ -192,6 +195,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reviewerSelectedMsg:
 		m.selectedReviewer = msg.Reviewer
 		listInstructions, err := instructions.Get(m.storage)
+
+		if m.skipInstruction {
+			return m, func() tea.Msg {
+				return instructionSelectedMsg{Instruction: ""}
+			}
+		}
 
 		if m.instructionName != "" {
 			if instruction, err := instructions.Find(m.instructionName, listInstructions); err == nil {
