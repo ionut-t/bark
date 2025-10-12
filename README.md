@@ -100,6 +100,6 @@ Bark is built with the help of these amazing open-source libraries:
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea)
 - [Lip Gloss](https://github.com/charmbracelet/lipgloss)
 - [Glamour](https://github.com/charmbracelet/glamour)
-- [Google Generative AI for Go](https://github.com/google/generative-ai-go)
+- [Google Gen AI Go SDK](https://github.com/googleapis/go-genai)
 - [goeditor](https://github.com/ionut-t/goeditor)
 
