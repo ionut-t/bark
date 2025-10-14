@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.0](https://github.com/ionut-t/bark/compare/v1.0.1...v1.1.0) (2025-10-14)
+
+
+### Features
+
+* **edit:** allow editing commit message instruction ([6aa9199](https://github.com/ionut-t/bark/commit/6aa9199c67f9fc7952f672174178b6793d988bc5))
+* **reviewers:** add Go co-creators reviewer prompts ([dfd7def](https://github.com/ionut-t/bark/commit/dfd7def03efe73726be3cb58d622231981d86a6a))
+* **tui:** add option to skip instruction selection ([80edb31](https://github.com/ionut-t/bark/commit/80edb31bf6fc582aa8a21703dbe02432878ce4a8))
+
 ## [1.0.1](https://github.com/ionut-t/bark/compare/v1.0.0...v1.0.1) (2025-10-09)
 
 
