@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/ionut-t/bark/compare/v1.1.0...v2.0.0) (2025-10-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** Review flags previously available directly on the root `bark` command (e.g., `--as`, `--commit`, `--instructions`, `--branch`, `--staged`) have been moved to the new `bark review` subcommand. Users must now explicitly use `bark review` for all code review operations. For example, `bark --as "Linus"` is now `bark review --as "Linus"`.
+
+### Features
+
+* **cli:** introduce commit and PR message generation ([6f718b7](https://github.com/ionut-t/bark/commit/6f718b70c58c2f7255146cc5867a534d77b312c0))
+
 ## [1.1.0](https://github.com/ionut-t/bark/compare/v1.0.1...v1.1.0) (2025-10-14)
 
 
