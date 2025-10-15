@@ -281,7 +281,10 @@ func GetBranchStats(baseBranch string) (additions, deletions int, err error) {
 	// Try to parse insertions and deletions
 	// The format can vary (might not have deletions if only additions, etc.)
 	if strings.Contains(statsLine, "insertion") {
-		fmt.Sscanf(statsLine, "%*d files changed, %d insertion", &additions)
+		_, err := fmt.Sscanf(statsLine, "%*d files changed, %d insertion", &additions)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to parse additions: %w", err)
+		}
 	}
 	if strings.Contains(statsLine, "deletion") {
 		// Find the deletions part
@@ -290,7 +293,10 @@ func GetBranchStats(baseBranch string) (additions, deletions int, err error) {
 			before := statsLine[:idx]
 			parts := strings.Fields(before)
 			if len(parts) > 0 {
-				fmt.Sscanf(parts[len(parts)-1], "%d", &deletions)
+				_, err := fmt.Sscanf(parts[len(parts)-1], "%d", &deletions)
+				if err != nil {
+					return 0, 0, fmt.Errorf("failed to parse deletions: %w", err)
+				}
 			}
 		}
 	}
