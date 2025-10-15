@@ -198,12 +198,17 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 
 		switch msg.String() {
 		case "alt+enter", "ctrl+s":
-			return m, func() tea.Msg {
-				return commitChangesMsg{
-					message:   m.editor.GetCurrentContent(),
-					commitAll: m.commitAll,
-				}
-			}
+			m.loading = true
+			m.loadingMsg = "Committing changes..."
+			return m, tea.Batch(
+				m.spinner.Tick,
+				utils.DispatchMsg(
+					commitChangesMsg{
+						message:   m.editor.GetCurrentContent(),
+						commitAll: m.commitAll,
+					},
+				),
+			)
 		}
 	}
 

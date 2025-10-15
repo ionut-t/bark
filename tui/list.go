@@ -15,6 +15,7 @@ import (
 var (
 	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
 	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(styles.Primary.GetForeground()).Bold(true)
+	renderList        = lipgloss.NewStyle().MarginTop(1).Render
 )
 
 type item struct {
@@ -75,4 +76,27 @@ func additionalHelpKeysFunc() func() []key.Binding {
 			),
 		}
 	}
+}
+
+func newListModel(title string, items []list.Item) list.Model {
+	l := list.New(items, itemDelegate{}, 80, 20)
+	l.Title = title
+
+	l.Styles = styles.ListStyles()
+	l.Styles.Title = l.Styles.Title.MarginLeft(2)
+
+	l.FilterInput.PromptStyle = styles.Accent
+	l.FilterInput.Cursor.Style = styles.Accent
+
+	l.InfiniteScrolling = true
+	l.SetShowStatusBar(false)
+
+	l.KeyMap = listKeyMap()
+
+	l.AdditionalShortHelpKeys = additionalHelpKeysFunc()
+	l.AdditionalFullHelpKeys = additionalHelpKeysFunc()
+
+	l.SetFilteringEnabled(true)
+
+	return l
 }

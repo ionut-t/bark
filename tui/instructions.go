@@ -82,7 +82,14 @@ func (m instructionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.list.SetSize(msg.Width, msg.Height-4)
 	case tea.KeyMsg:
+		if m.list.FilterState() == list.Filtering {
+			break
+		}
+
 		switch msg.String() {
+		case "esc":
+			return m, utils.DispatchMsg(changeViewMsg{view: viewReviewers})
+
 		case "enter":
 			if selectedItem, ok := m.list.SelectedItem().(item); ok {
 				return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: selectedItem.prompt})
@@ -101,5 +108,5 @@ func (m instructionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m instructionsModel) View() string {
-	return m.list.View()
+	return renderList(m.list.View())
 }

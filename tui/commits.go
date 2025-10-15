@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/git"
 	"github.com/ionut-t/coffee/styles"
 )
@@ -40,44 +41,46 @@ func newCommitsModel(commits []git.Commit) commitsModel {
 	}
 }
 
-func (c *commitsModel) setSize(width, height int) {
-	c.list.SetSize(width, height-4)
+func (m *commitsModel) setSize(width, height int) {
+	m.list.SetSize(width, height-4)
 }
 
-func (c commitsModel) Init() tea.Cmd {
+func (m commitsModel) Init() tea.Cmd {
 	return nil
 }
 
-func (c commitsModel) Update(msg tea.Msg) (commitsModel, tea.Cmd) {
+func (m commitsModel) Update(msg tea.Msg) (commitsModel, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		c.list.SetSize(msg.Width, msg.Height)
+		m.list.SetSize(msg.Width, msg.Height)
 	case tea.KeyMsg:
-		if c.list.FilterState() == list.Filtering {
+		if m.list.FilterState() == list.Filtering {
 			break
 		}
-		switch keypress := msg.String(); keypress {
+
+		switch msg.String() {
+		case "esc":
+			return m, utils.DispatchMsg(changeViewMsg{view: viewReviewOptions})
+
 		case "enter":
-			i, ok := c.list.SelectedItem().(commitItem)
+			i, ok := m.list.SelectedItem().(commitItem)
 			if ok {
-				return c, func() tea.Msg {
-					return commitSelectedMsg{commit: git.Commit(i)}
-				}
+				return m, utils.DispatchMsg(commitSelectedMsg{commit: git.Commit(i)})
 			}
 		}
 	}
 
 	var cmd tea.Cmd
-	c.list, cmd = c.list.Update(msg)
+	m.list, cmd = m.list.Update(msg)
 	cmds = append(cmds, cmd)
 
-	return c, tea.Batch(cmds...)
+	return m, tea.Batch(cmds...)
 }
 
-func (c commitsModel) View() string {
-	return c.list.View()
+func (m commitsModel) View() string {
+	return renderList(m.list.View())
 }
 
 type commitItem git.Commit

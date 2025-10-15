@@ -14,6 +14,9 @@ import (
 //go:embed commit.md
 var defaultCommitInstructions string
 
+//go:embed pull_request_description.md
+var defaultPRInstructions string
+
 //go:embed config.toml
 var defaultConfig string
 
@@ -26,6 +29,7 @@ const (
 	rootDir                    = ".bark"
 	configFileName             = ".config.toml"
 	commitInstructionsFileName = "commit.md"
+	prInstructionsFileName     = "pull_request_description.md"
 )
 
 type Config interface {
@@ -34,6 +38,7 @@ type Config interface {
 	GetLLMProvider() (string, error)
 	GetLLMModel() (string, error)
 	GetCommitInstructions() string
+	GetPRInstructions() string
 	AutoUpdateEnabled() bool
 }
 
@@ -86,19 +91,16 @@ func (c *config) GetLLMModel() (string, error) {
 }
 
 func (c *config) GetCommitInstructions() string {
-	home, err := os.UserHomeDir()
+	return getInstructions(commitInstructionsFileName, defaultCommitInstructions)
+}
+
+func (c *config) GetPRInstructions() string {
+	content, err := getInstructionsFromCurrentDir(prInstructionsFileName)
 	if err != nil {
-		return defaultCommitInstructions
+		return getInstructions(prInstructionsFileName, defaultPRInstructions)
 	}
 
-	commitInstructionsPath := filepath.Join(home, rootDir, commitInstructionsFileName)
-
-	content, err := os.ReadFile(commitInstructionsPath)
-	if err != nil || len(content) == 0 {
-		return defaultCommitInstructions
-	}
-
-	return string(content)
+	return content
 }
 
 func getDefaultEditor() string {
@@ -161,11 +163,18 @@ func InitialiseConfigFile() (string, error) {
 }
 
 func InitialiseCommitInstructions() error {
-	path := GetCommitFilePath()
+	commitPath := GetCommitFilePath()
+	prPath := GetPRFilePath()
 
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.WriteFile(path, []byte(defaultCommitInstructions), 0644); err != nil {
+	if _, err := os.Stat(commitPath); os.IsNotExist(err) {
+		if err := os.WriteFile(commitPath, []byte(defaultCommitInstructions), 0644); err != nil {
 			return fmt.Errorf("failed to write commit instructions: %w", err)
+		}
+	}
+
+	if _, err := os.Stat(prPath); os.IsNotExist(err) {
+		if err := os.WriteFile(prPath, []byte(defaultPRInstructions), 0644); err != nil {
+			return fmt.Errorf("failed to write PR instructions: %w", err)
 		}
 	}
 
@@ -205,6 +214,15 @@ func GetCommitFilePath() string {
 	return filepath.Join(home, rootDir, commitInstructionsFileName)
 }
 
+func GetPRFilePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	return filepath.Join(home, rootDir, prInstructionsFileName)
+}
+
 func writeDefaultConfig() error {
 	tmpl, err := template.New("config").Parse(defaultConfig)
 	if err != nil {
@@ -221,4 +239,38 @@ func writeDefaultConfig() error {
 	}
 
 	return os.WriteFile(GetConfigFilePath(), buf.Bytes(), 0644)
+}
+
+func getInstructions(filePath, defaultContent string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return defaultContent
+	}
+
+	path := filepath.Join(home, rootDir, filePath)
+	content, err := os.ReadFile(path)
+	if err != nil || len(content) == 0 {
+		return defaultContent
+	}
+
+	return string(content)
+}
+
+func getInstructionsFromCurrentDir(fileName string) (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	path := filepath.Join(dir, fileName)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	if len(content) == 0 {
+		return "", fmt.Errorf("file %s is empty", path)
+	}
+
+	return string(content), nil
 }

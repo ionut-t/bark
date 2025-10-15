@@ -28,40 +28,64 @@ type view int
 
 const (
 	viewInit view = iota
+	viewTasks
+	viewReviewOptions
 	viewCommits
 	viewReviewers
 	viewInstructions
 	viewReview
 	viewCommitChanges
+	viewPRDescription
 )
 
+type changeViewMsg struct {
+	view view
+}
+
 type Model struct {
-	width, height       int
-	error               error
-	commits             commitsModel
-	selectedCommit      *git.Commit
-	reviewers           reviewersModel
-	selectedReviewer    *reviewers.Reviewer
-	review              reviewModel
-	currentView         view
-	llm                 llm.LLM
-	config              config.Config
-	storage             string
-	selectCommit        bool
-	reviewerName        string
+	width, height int
+
+	error       error
+	currentView view
+
+	llm     llm.LLM
+	config  config.Config
+	storage string
+
+	tasks          tasksModel
+	selectedTask   Task
+	individualTask bool
+
+	commits        commitsModel
+	selectedCommit *git.Commit
+	selectCommit   bool
+
+	stagedOnly bool
+
+	reviewOptions        reviewOptionsModel
+	selectedReviewOption ReviewOption
+	reviewers            reviewersModel
+	selectedReviewer     *reviewers.Reviewer
+	review               reviewModel
+	reviewerName         string
+
 	instructions        instructionsModel
 	selectedInstruction string
 	instructionName     string
-	branch              string
-	commitChanges       commitChangesModel
-	diff                string
-	showHelp            bool
-	stagedOnly          bool
-	message             string
 	skipInstruction     bool
 
-	reviewCancelFunc context.CancelFunc
-	commitCancelFunc context.CancelFunc
+	branch        string
+	commitChanges commitChangesModel
+
+	pr prModel
+
+	// diff string
+
+	showHelp bool
+	message  string
+
+	reviewCancelFunc    context.CancelFunc
+	operationCancelFunc context.CancelFunc
 }
 
 type Options struct {
@@ -73,6 +97,8 @@ type Options struct {
 	Config          config.Config
 	StagedOnly      bool
 	SkipInstruction bool
+	Task            Task
+	ReviewOption    ReviewOption
 }
 
 func New(options Options) *Model {
@@ -91,37 +117,48 @@ func New(options Options) *Model {
 	}
 
 	currentView := viewInit
+	if options.Task == TaskNone {
+		currentView = viewTasks
+	}
 
 	return &Model{
-		width:           80,
-		height:          24,
-		currentView:     currentView,
-		llm:             llm,
-		config:          options.Config,
-		storage:         options.Storage,
-		selectCommit:    options.SelectCommit,
-		reviewerName:    options.ReviewerName,
-		instructionName: options.Instruction,
-		branch:          options.Branch,
-		stagedOnly:      options.StagedOnly,
-		skipInstruction: options.SkipInstruction,
+		width:                80,
+		height:               24,
+		currentView:          currentView,
+		llm:                  llm,
+		config:               options.Config,
+		storage:              options.Storage,
+		selectCommit:         options.SelectCommit,
+		reviewerName:         options.ReviewerName,
+		instructionName:      options.Instruction,
+		branch:               options.Branch,
+		stagedOnly:           options.StagedOnly,
+		skipInstruction:      options.SkipInstruction,
+		tasks:                newTasksModel(),
+		selectedTask:         options.Task,
+		reviewOptions:        newReviewOptionsModel(),
+		selectedReviewOption: options.ReviewOption,
+		individualTask:       options.Task != TaskNone,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 
-	if m.error != nil {
-		return nil
+	title := "Bark AI"
+	switch m.selectedTask {
+	case TaskReview:
+		cmds = append(cmds, utils.DispatchMsg(taskSelectedMsg{task: TaskReview}))
+		title += " - Code Review"
+	case TaskCommit:
+		cmds = append(cmds, utils.DispatchMsg(taskSelectedMsg{task: TaskCommit}))
+		title += " - Commit Changes"
+	case TaskPRDescription:
+		cmds = append(cmds, utils.DispatchMsg(taskSelectedMsg{task: TaskPRDescription}))
+		title += " - PR Description"
 	}
 
-	if m.selectCommit {
-		cmds = append(cmds, utils.DispatchMsg(listCommitsMsg{}))
-	} else {
-		cmds = append(cmds, utils.DispatchMsg(listReviewersMsg{}))
-	}
-
-	cmds = append(cmds, tea.SetWindowTitle("Bark - AI Code Reviewer"))
+	cmds = append(cmds, tea.SetWindowTitle(title))
 
 	return tea.Batch(cmds...)
 }
@@ -145,7 +182,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.review.setSize(m.width, m.height)
 		case viewCommitChanges:
 			m.commitChanges.setSize(m.width, m.height)
+		case viewPRDescription:
+			m.pr.setSize(m.width, m.height)
 		}
+
+	case taskSelectedMsg:
+		return m.handleSelectedTask(msg.task)
+
+	case reviewOptionSelectedMsg:
+		return m.handleSelectedReviewOption(msg.option)
 
 	case listCommitsMsg:
 		commits, err := git.GetCommits(defaultCommitLimit)
@@ -182,77 +227,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reviewers = newReviewersModel(listReviewers)
 
 	case reviewerSelectedMsg:
-		m.selectedReviewer = msg.Reviewer
-		listInstructions, err := instructions.Get(m.storage)
-
-		if m.skipInstruction {
-			return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: ""})
-		}
-
-		if m.instructionName != "" {
-			if instruction, err := instructions.Find(m.instructionName, listInstructions); err == nil {
-				m.selectedInstruction = instruction.Prompt
-				return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: instruction.Prompt})
-			}
-		}
-
-		if err != nil {
-			m.error = err
-		}
-
-		if len(listInstructions) == 0 {
-			return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: ""})
-		}
-
-		m.instructions = newInstructionsModel(listInstructions, m.storage)
-		m.currentView = viewInstructions
-
-		return m, nil
+		return m.handleSelectedReviewer(msg.Reviewer)
 
 	case instructionSelectedMsg:
-		var err error
-
-		if m.branch != "" {
-			m.diff, err = git.GetBranchDiff(m.branch)
-		} else if m.selectCommit {
-			m.diff, err = git.GetDiff(m.selectedCommit.Hash)
-		} else {
-			m.diff, err = git.GetWorkingTreeDiff(!m.stagedOnly)
-		}
-
-		if err != nil {
-			m.error = err
-
-			return m, nil
-		}
-
-		var prompt string
-		prompt = fmt.Sprintf("%s\n\n%s", formatingRequirements, m.selectedReviewer.Prompt)
-
-		if msg.Instruction != "" {
-			m.selectedInstruction = msg.Instruction
-			prompt = fmt.Sprintf("%s\n\nFollow the instructions below when analysing code:\n\n%s", prompt, msg.Instruction)
-		}
-
-		prompt = fmt.Sprintf("%s\n\n---\n\n**Code to review:**\n\n%s", prompt, m.diff)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-
-		if m.reviewCancelFunc != nil {
-			m.reviewCancelFunc()
-		}
-		m.reviewCancelFunc = cancel
-
-		m.review = newReviewModel(*m.selectedReviewer, prompt, m.width, m.height, m.llm)
-		m.currentView = viewReview
-
-		return m, m.review.startReview(ctx)
+		return m.handleSelectedInstruction(msg.Instruction)
 
 	case commitChangesMsg:
 		// Clean up the commit context since operation completed
-		if m.commitCancelFunc != nil {
-			m.commitCancelFunc()
-			m.commitCancelFunc = nil
+		if m.operationCancelFunc != nil {
+			m.operationCancelFunc()
+			m.operationCancelFunc = nil
 		}
 
 		if err := git.CommitChanges(msg.message, msg.commitAll); err != nil {
@@ -261,6 +245,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+	case prInitReadyMsg:
+		return m.handlePRDescription()
+
+	case changeViewMsg:
+		if msg.view == viewTasks && m.individualTask {
+			break
+		}
+
+		m.currentView = msg.view
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
@@ -268,8 +262,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.reviewCancelFunc()
 			}
 
-			if m.commitCancelFunc != nil {
-				m.commitCancelFunc()
+			if m.operationCancelFunc != nil {
+				m.operationCancelFunc()
 			}
 
 			return m, tea.Quit
@@ -299,13 +293,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.commitChanges.error != nil {
 					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 
-					if m.commitCancelFunc != nil {
-						m.commitCancelFunc()
+					if m.operationCancelFunc != nil {
+						m.operationCancelFunc()
 					}
 
-					m.commitCancelFunc = cancel
+					m.operationCancelFunc = cancel
 
 					return m, m.commitChanges.startCommitGeneration(ctx)
+				}
+
+			case viewPRDescription:
+				if m.pr.error != nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+
+					if m.operationCancelFunc != nil {
+						m.operationCancelFunc()
+					}
+					m.operationCancelFunc = cancel
+
+					return m, m.pr.startPRDescriptionGeneration(ctx)
 				}
 			}
 
@@ -314,48 +320,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.error = nil
 
 			if m.currentView == viewReview && !m.selectCommit {
-				instructions := m.config.GetCommitInstructions()
-
-				commitAll := msg.String() == "C"
-
-				diff, err := git.GetWorkingTreeDiff(commitAll)
-
-				if err != nil {
-					m.error = err
-					return m, nil
-				}
-
-				if diff == "" {
-					m.message = "No changes to commit.\n"
-					if !commitAll {
-						m.message += "Tip: use 'C' to commit all changes, including unstaged ones.\n"
-					}
-
-					m.message += "Press Esc to go back."
-
-					m.message = styles.Info.Padding(2).Render(m.message)
-
-					return m, nil
-				}
-
-				prompt := instructions + "\n\n" + diff
-
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-
-				// Cancel previous commit operation if any
-				if m.commitCancelFunc != nil {
-					m.commitCancelFunc()
-				}
-				m.commitCancelFunc = cancel
-
-				m.commitChanges = newCommitChangesModel(m.llm, prompt, commitAll)
-				m.currentView = viewCommitChanges
-				return m, m.commitChanges.startCommitGeneration(ctx)
+				return m.handleCommitMessage(msg.String() == "C")
 			}
 		}
 	}
 
 	switch m.currentView {
+	case viewTasks:
+		commands, cmd := m.tasks.Update(msg)
+		m.tasks = commands.(tasksModel)
+		cmds = append(cmds, cmd)
+
+	case viewReviewOptions:
+		reviewOptions, cmd := m.reviewOptions.Update(msg)
+		m.reviewOptions = reviewOptions.(reviewOptionsModel)
+		cmds = append(cmds, cmd)
+
 	case viewCommits:
 		var cmd tea.Cmd
 		m.commits, cmd = m.commits.Update(msg)
@@ -379,6 +359,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case viewCommitChanges:
 		commitChanges, cmd := m.commitChanges.Update(msg)
 		m.commitChanges = commitChanges
+		cmds = append(cmds, cmd)
+
+	case viewPRDescription:
+		pr, cmd := m.pr.Update(msg)
+		m.pr = pr
 		cmds = append(cmds, cmd)
 	}
 
@@ -419,10 +404,14 @@ func (m Model) View() string {
 	}
 
 	switch m.currentView {
+	case viewTasks:
+		return m.tasks.View()
 	case viewCommits:
 		return m.commits.View()
 	case viewReviewers:
 		return m.reviewers.View()
+	case viewReviewOptions:
+		return m.reviewOptions.View()
 	case viewInstructions:
 		return m.instructions.View()
 	case viewReview:
@@ -433,7 +422,182 @@ func (m Model) View() string {
 		return m.review.View()
 	case viewCommitChanges:
 		return m.commitChanges.View()
+	case viewPRDescription:
+		return m.pr.View()
 	default:
 		return ""
 	}
+}
+
+func (m *Model) handleSelectedTask(task Task) (tea.Model, tea.Cmd) {
+	m.selectedTask = task
+
+	switch m.selectedTask {
+	case TaskReview:
+		if m.selectedReviewOption != ReviewOptionNone {
+			return m, utils.DispatchMsg(reviewOptionSelectedMsg{option: m.selectedReviewOption})
+		}
+
+		m.currentView = viewReviewOptions
+	case TaskCommit:
+		return m.handleCommitMessage(!m.stagedOnly)
+
+	case TaskPRDescription:
+		m.pr = newPRModel(m.llm, m.width, m.height)
+		m.currentView = viewPRDescription
+
+		return m, tea.Batch(
+			m.pr.Init(),
+			utils.DispatchMsg(prInitReadyMsg{}),
+		)
+	}
+
+	return m, nil
+}
+
+func (m *Model) handleSelectedReviewer(reviewer *reviewers.Reviewer) (tea.Model, tea.Cmd) {
+	m.selectedReviewer = reviewer
+	listInstructions, err := instructions.Get(m.storage)
+
+	if m.skipInstruction {
+		return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: ""})
+	}
+
+	if m.instructionName != "" {
+		if instruction, err := instructions.Find(m.instructionName, listInstructions); err == nil {
+			m.selectedInstruction = instruction.Prompt
+			return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: instruction.Prompt})
+		}
+	}
+
+	if err != nil {
+		m.error = err
+	}
+
+	if len(listInstructions) == 0 {
+		return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: ""})
+	}
+
+	m.instructions = newInstructionsModel(listInstructions, m.storage)
+	m.currentView = viewInstructions
+
+	return m, nil
+}
+
+func (m *Model) handleSelectedReviewOption(option ReviewOption) (tea.Model, tea.Cmd) {
+	m.selectedReviewOption = option
+	switch m.selectedReviewOption {
+	case ReviewOptionCurrentChanges:
+		return m, utils.DispatchMsg(listReviewersMsg{})
+	case ReviewOptionCommit:
+		m.selectCommit = true
+		return m, utils.DispatchMsg(listCommitsMsg{})
+	}
+
+	return m, nil
+}
+
+func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cmd) {
+	var diff string
+	var err error
+
+	if m.branch != "" {
+		diff, err = git.GetBranchDiff(m.branch)
+	} else if m.selectCommit {
+		diff, err = git.GetDiff(m.selectedCommit.Hash)
+	} else {
+		diff, err = git.GetWorkingTreeDiff(!m.stagedOnly)
+	}
+
+	if err != nil {
+		m.error = err
+
+		return m, nil
+	}
+
+	var prompt string
+	prompt = fmt.Sprintf("%s\n\n%s", formatingRequirements, m.selectedReviewer.Prompt)
+
+	if instruction != "" {
+		m.selectedInstruction = instruction
+		prompt = fmt.Sprintf("%s\n\nFollow the instructions below when analysing code:\n\n%s", prompt, instruction)
+	}
+
+	prompt = fmt.Sprintf("%s\n\n---\n\n**Code to review:**\n\n%s", prompt, diff)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+
+	if m.reviewCancelFunc != nil {
+		m.reviewCancelFunc()
+	}
+	m.reviewCancelFunc = cancel
+
+	m.review = newReviewModel(*m.selectedReviewer, prompt, m.width, m.height, m.llm)
+	m.currentView = viewReview
+
+	return m, m.review.startReview(ctx)
+}
+
+func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
+	instructions := m.config.GetCommitInstructions()
+
+	diff, err := git.GetWorkingTreeDiff(commitAll)
+
+	if err != nil {
+		m.error = err
+		return m, nil
+	}
+
+	if diff == "" {
+		m.message = "No changes to commit.\n"
+		if !commitAll {
+			m.message += "Tip: use 'C' to commit all changes, including unstaged ones.\n"
+		}
+
+		m.message += "Press Esc to go back."
+
+		m.message = styles.Info.Padding(2).Render(m.message)
+
+		return m, nil
+	}
+
+	prompt := instructions + "\n\n" + diff
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+
+	if m.operationCancelFunc != nil {
+		m.operationCancelFunc()
+	}
+	m.operationCancelFunc = cancel
+
+	m.commitChanges = newCommitChangesModel(m.llm, prompt, commitAll)
+	m.currentView = viewCommitChanges
+	return m, m.commitChanges.startCommitGeneration(ctx)
+}
+
+func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
+	instructions := m.config.GetPRInstructions()
+
+	branchInfo, err := git.GetBranchInfo(m.branch)
+
+	if err != nil {
+		m.error = err
+		return m, nil
+	}
+
+	prompt := fmt.Sprintf(
+		"%s**Analyze the following changes and generate an appropriate PR description:**\n\n%s",
+		instructions,
+		formatBranchInfo(branchInfo),
+	)
+
+	m.pr.setPrompt(prompt)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+
+	if m.operationCancelFunc != nil {
+		m.operationCancelFunc()
+	}
+	m.operationCancelFunc = cancel
+
+	return m, m.pr.startPRDescriptionGeneration(ctx)
 }

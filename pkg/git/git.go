@@ -20,6 +20,17 @@ type Commit struct {
 	Author  string
 	Date    string
 	Message string
+	Body    string
+}
+
+// BranchInfo contains information about a branch for PR description
+type BranchInfo struct {
+	Name           string
+	BaseBranch     string
+	Commits        []Commit
+	TotalAdditions int
+	TotalDeletions int
+	Diffs          string
 }
 
 // IsGitRepo checks if the current directory is a git repository.
@@ -150,6 +161,16 @@ func GetBranchDiff(branch string) (string, error) {
 		return "", fmt.Errorf("failed to get branch diff: %w", err)
 	}
 
+	// truncate diff if too large
+	// for now, just limit the number of lines
+	maxLines := 2000
+	lines := strings.Split(string(output), "\n")
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+		lines = append(lines, "... (truncated)")
+		output = []byte(strings.Join(lines, "\n"))
+	}
+
 	return string(output), nil
 }
 
@@ -169,4 +190,151 @@ func CommitChanges(message string, all bool) error {
 	}
 
 	return nil
+}
+
+// GetBaseBranch attempts to determine the base branch (main, master, develop)
+func GetBaseBranch() (string, error) {
+	// Try to find the default branch from remote
+	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	output, err := cmd.Output()
+	if err == nil {
+		parts := strings.Split(strings.TrimSpace(string(output)), "/")
+		if len(parts) > 0 {
+			return parts[len(parts)-1], nil
+		}
+	}
+
+	return "", fmt.Errorf("could not determine base branch")
+}
+
+// GetBranchCommits gets all commits on current branch that aren't in base branch
+func GetBranchCommits(baseBranch string) ([]Commit, error) {
+	currentBranch, err := GetCurrentBranch()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get commits that are in current branch but not in base
+	// Format: %H = hash, %an = author, %ar = date relative, %s = subject, %b = body
+	cmd := exec.Command("git", "log",
+		fmt.Sprintf("%s..%s", baseBranch, currentBranch),
+		"--pretty=format:%H|%an|%ar|%s|%b||END||")
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get branch commits: %w", err)
+	}
+
+	if strings.TrimSpace(string(output)) == "" {
+		return nil, fmt.Errorf("no commits found on branch %s", currentBranch)
+	}
+
+	var commits []Commit
+	// Split by our custom delimiter
+	entries := strings.SplitSeq(string(output), "||END||")
+	for entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+
+		parts := strings.SplitN(entry, "|", 5)
+		if len(parts) >= 4 {
+			commit := Commit{
+				Hash:    parts[0],
+				Author:  parts[1],
+				Date:    parts[2],
+				Message: parts[3],
+			}
+			// Add body if it exists (5th part)
+			if len(parts) == 5 {
+				commit.Body = strings.TrimSpace(parts[4])
+			}
+			commits = append(commits, commit)
+		}
+	}
+
+	return commits, nil
+}
+
+// GetBranchStats gets addition/deletion stats for the branch compared to base
+func GetBranchStats(baseBranch string) (additions, deletions int, err error) {
+	currentBranch, err := GetCurrentBranch()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// Use triple-dot notation to compare merge base
+	cmd := exec.Command("git", "diff", "--shortstat",
+		fmt.Sprintf("%s...%s", baseBranch, currentBranch))
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get branch stats: %w", err)
+	}
+
+	// Parse output like: "5 files changed, 123 insertions(+), 45 deletions(-)"
+	statsLine := strings.TrimSpace(string(output))
+	if statsLine == "" {
+		return 0, 0, nil // No changes
+	}
+
+	// Try to parse insertions and deletions
+	// The format can vary (might not have deletions if only additions, etc.)
+	if strings.Contains(statsLine, "insertion") {
+		fmt.Sscanf(statsLine, "%*d files changed, %d insertion", &additions)
+	}
+	if strings.Contains(statsLine, "deletion") {
+		// Find the deletions part
+		if idx := strings.Index(statsLine, "deletion"); idx > 0 {
+			// Work backwards to find the number
+			before := statsLine[:idx]
+			parts := strings.Fields(before)
+			if len(parts) > 0 {
+				fmt.Sscanf(parts[len(parts)-1], "%d", &deletions)
+			}
+		}
+	}
+
+	return additions, deletions, nil
+}
+
+// GetBranchInfo gets comprehensive info about the current branch for PR description
+func GetBranchInfo(baseBranch string) (*BranchInfo, error) {
+	currentBranch, err := GetCurrentBranch()
+	if err != nil {
+		return nil, err
+	}
+
+	if baseBranch == "" {
+		baseBranch, err = GetBaseBranch()
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	commits, err := GetBranchCommits(baseBranch)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(commits) == 0 {
+		return nil, fmt.Errorf("no commits found on branch %s", currentBranch)
+	}
+
+	diffs, err := GetBranchDiff(baseBranch)
+	if err != nil {
+		return nil, err
+	}
+
+	additions, deletions, _ := GetBranchStats(baseBranch)
+
+	return &BranchInfo{
+		Name:           currentBranch,
+		BaseBranch:     baseBranch,
+		Commits:        commits,
+		TotalAdditions: additions,
+		TotalDeletions: deletions,
+		Diffs:          diffs,
+	}, nil
 }

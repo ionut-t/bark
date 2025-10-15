@@ -3,7 +3,7 @@ package tui
 import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/reviewers"
 	"github.com/ionut-t/coffee/styles"
 )
@@ -73,7 +73,13 @@ func (m reviewersModel) Update(msg tea.Msg) (reviewersModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.list.FilterState() == list.Filtering {
+			break
+		}
+
 		switch msg.String() {
+		case "esc":
+			return m, utils.DispatchMsg(changeViewMsg{view: viewReviewOptions})
 		case "enter":
 			if item, ok := m.list.SelectedItem().(item); ok {
 				for _, reviewer := range m.reviewers {
@@ -84,9 +90,6 @@ func (m reviewersModel) Update(msg tea.Msg) (reviewersModel, tea.Cmd) {
 					}
 				}
 			}
-			return m, tea.Quit
-		case "ctrl+c", "q":
-			return m, tea.Quit
 		}
 	}
 
@@ -98,5 +101,5 @@ func (m reviewersModel) Update(msg tea.Msg) (reviewersModel, tea.Cmd) {
 }
 
 func (m reviewersModel) View() string {
-	return lipgloss.NewStyle().MarginTop(1).Render(m.list.View())
+	return renderList(m.list.View())
 }

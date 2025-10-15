@@ -75,10 +75,14 @@ data corruption when multiple requests occur simultaneously.
 ```
 
 ```
-docs: update installation instructions for Windows
+docs: update installation instructions for bark
 
-Add PowerShell commands and troubleshooting section for common
-Windows-specific issues.
+Revise installation steps to clarify prerequisites and improve
+setup guidance for new users.
+
+- Add details for required dependencies
+- Update command examples for accuracy
+- Reorganize instructions for better readability
 ```
 
 ```

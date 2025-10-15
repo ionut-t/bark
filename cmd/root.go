@@ -24,22 +24,16 @@ __________               __
 `
 
 var rootCmd = &cobra.Command{
-	Use:   "bark",
-	Short: "A brief description of your application",
-	Long: `Get your code reviewed by legends.
-	
-bark is a TUI that lets you review pull requests and commits through the lens of legendary developers 
-and personalities. Want Linus Torvalds to tear apart your PR? Shakespeare to write a sonnet about your bugs? Gordon Ramsay to roast your spaghetti code? Choose your reviewer and get AI-powered feedback in their authentic voice—brutal honesty included.
-
-Terminal-native. Works with any language. No sugarcoating. Just the real review your code deserves.`,
+	Use:  "bark",
+	Long: "Get your code reviewed by legends, generate commit messages and PR descriptions",
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := handleRootCmd(cmd); err != nil {
+		if err := handleRootCmd(); err != nil {
 			fmt.Println(styles.Error.Render("Error: " + err.Error()))
 		}
 	},
 }
 
-func handleRootCmd(cmd *cobra.Command) error {
+func handleRootCmd() error {
 	storage, err := config.GetStorage()
 	if err != nil {
 		return fmt.Errorf("error getting storage: %w", err)
@@ -50,22 +44,9 @@ func handleRootCmd(cmd *cobra.Command) error {
 		return fmt.Errorf("error creating config: %w", err)
 	}
 
-	reviewerName, _ := cmd.Flags().GetString("as")
-	commit, _ := cmd.Flags().GetBool("commit")
-	instruction, _ := cmd.Flags().GetString("instructions")
-	branch, _ := cmd.Flags().GetString("branch")
-	staged, _ := cmd.Flags().GetBool("staged")
-	skipInstruction, _ := cmd.Flags().GetBool("skip-instruction")
-
 	m := tui.New(tui.Options{
-		Storage:         storage,
-		ReviewerName:    reviewerName,
-		Instruction:     instruction,
-		Branch:          branch,
-		SelectCommit:    commit,
-		Config:          cfg,
-		StagedOnly:      staged,
-		SkipInstruction: skipInstruction,
+		Storage: storage,
+		Config:  cfg,
 	})
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
@@ -85,18 +66,15 @@ func Execute() error {
 	rootCmd.SetVersionTemplate(versionTemplate())
 
 	rootCmd.AddCommand(configCmd())
+	rootCmd.AddCommand(reviewCmd())
+	rootCmd.AddCommand(commitCmd())
+	rootCmd.AddCommand(prCmd())
 	rootCmd.AddCommand(resetCmd())
 	rootCmd.AddCommand(addCmd())
 	rootCmd.AddCommand(deleteCmd())
 	rootCmd.AddCommand(editCmd())
 
 	rootCmd.Flags().StringP("config", "c", "", "config file (default is $HOME/.bark/config.toml)")
-	rootCmd.Flags().StringP("as", "r", "", "Specify the reviewer to use directly")
-	rootCmd.Flags().BoolP("commit", "t", false, "Select commit to review")
-	rootCmd.Flags().StringP("instructions", "i", "", "Custom instructions to guide the reviewer's feedback")
-	rootCmd.Flags().StringP("branch", "b", "", "Provide a branch name to diff against the current branch")
-	rootCmd.Flags().BoolP("staged", "s", false, "Review only staged changes")
-	rootCmd.Flags().Bool("skip-instruction", false, "Skip the instructions selection step")
 
 	return fang.Execute(
 		context.Background(),
