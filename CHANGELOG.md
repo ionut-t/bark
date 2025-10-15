@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/ionut-t/bark/compare/v2.0.0...v2.1.0) (2025-10-15)
+
+
+### Features
+
+* **tui:** enable direct editing of generated PR description ([08aa113](https://github.com/ionut-t/bark/commit/08aa113c0f931d3abb4459c5d1beb4ccd407e9f7))
+
 ## [2.0.0](https://github.com/ionut-t/bark/compare/v1.1.0...v2.0.0) (2025-10-15)
 
 
