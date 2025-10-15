@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.0](https://github.com/ionut-t/bark/compare/v2.1.0...v2.2.0) (2025-10-15)
+
+
+### Features
+
+* **git:** add total files changed to branch info ([4aeae92](https://github.com/ionut-t/bark/commit/4aeae92b01b0b798d1fbf7819267f1e221858c2d))
+* **tui:** add retry and prompt view to commit message screen ([892d3fe](https://github.com/ionut-t/bark/commit/892d3fee0483071af86bc17c5c2f6fccc91379cf))
+
 ## [2.1.0](https://github.com/ionut-t/bark/compare/v2.0.0...v2.1.0) (2025-10-15)
 
 
