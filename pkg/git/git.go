@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -13,6 +14,8 @@ var (
 	ErrNoChangesInRepository = errors.New("no changes in repository")
 	ErrNoCommitsInRepository = errors.New("no commits in repository")
 )
+
+var shortStatRegex = regexp.MustCompile(`(?P<files>\d+) files? changed(?:, (?P<additions>\d+) insertions?\(\+\))?(?:, (?P<deletions>\d+) deletions?\(-\))?`)
 
 // Commit represents a single git commit.
 type Commit struct {
@@ -25,12 +28,13 @@ type Commit struct {
 
 // BranchInfo contains information about a branch for PR description
 type BranchInfo struct {
-	Name           string
-	BaseBranch     string
-	Commits        []Commit
-	TotalAdditions int
-	TotalDeletions int
-	Diffs          string
+	Name              string
+	BaseBranch        string
+	Commits           []Commit
+	TotalFilesChanged int
+	TotalAdditions    int
+	TotalDeletions    int
+	Diffs             string
 }
 
 // IsGitRepo checks if the current directory is a git repository.
@@ -258,50 +262,58 @@ func GetBranchCommits(baseBranch string) ([]Commit, error) {
 }
 
 // GetBranchStats gets addition/deletion stats for the branch compared to base
-func GetBranchStats(baseBranch string) (additions, deletions int, err error) {
+func GetBranchStats(baseBranch string) (filesChanged, additions, deletions int, err error) {
 	currentBranch, err := GetCurrentBranch()
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
-	// Use triple-dot notation to compare merge base
 	cmd := exec.Command("git", "diff", "--shortstat",
-		fmt.Sprintf("%s...%s", baseBranch, currentBranch))
+		fmt.Sprintf("%s...%s", baseBranch, currentBranch),
+	)
 	output, err := cmd.Output()
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get branch stats: %w", err)
+		return 0, 0, 0, fmt.Errorf("failed to get branch stats: %w", err)
 	}
 
 	// Parse output like: "5 files changed, 123 insertions(+), 45 deletions(-)"
 	statsLine := strings.TrimSpace(string(output))
 	if statsLine == "" {
-		return 0, 0, nil // No changes
+		return 0, 0, 0, nil // No changes
 	}
 
-	// Try to parse insertions and deletions
-	// The format can vary (might not have deletions if only additions, etc.)
-	if strings.Contains(statsLine, "insertion") {
-		_, err := fmt.Sscanf(statsLine, "%*d files changed, %d insertion", &additions)
+	matches := shortStatRegex.FindStringSubmatch(statsLine)
+	if len(matches) == 0 {
+		return 0, 0, 0, fmt.Errorf("failed to parse git diff --shortstat output: %q", statsLine)
+	}
+	// Get named submatch indices for clarity
+	filesIdx := shortStatRegex.SubexpIndex("files")
+	additionsIdx := shortStatRegex.SubexpIndex("additions")
+	deletionsIdx := shortStatRegex.SubexpIndex("deletions")
+
+	// Extract filesChanged
+	if filesIdx != -1 && matches[filesIdx] != "" {
+		filesChanged, err = strconv.Atoi(matches[filesIdx])
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to parse additions: %w", err)
-		}
-	}
-	if strings.Contains(statsLine, "deletion") {
-		// Find the deletions part
-		if idx := strings.Index(statsLine, "deletion"); idx > 0 {
-			// Work backwards to find the number
-			before := statsLine[:idx]
-			parts := strings.Fields(before)
-			if len(parts) > 0 {
-				_, err := fmt.Sscanf(parts[len(parts)-1], "%d", &deletions)
-				if err != nil {
-					return 0, 0, fmt.Errorf("failed to parse deletions: %w", err)
-				}
-			}
+			return 0, 0, 0, fmt.Errorf("failed to parse files changed count '%s': %w", matches[filesIdx], err)
 		}
 	}
 
-	return additions, deletions, nil
+	// Extract additions
+	if additionsIdx != -1 && matches[additionsIdx] != "" {
+		additions, err = strconv.Atoi(matches[additionsIdx])
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("failed to parse additions count '%s': %w", matches[additionsIdx], err)
+		}
+	}
+	// Extract deletions
+	if deletionsIdx != -1 && matches[deletionsIdx] != "" {
+		deletions, err = strconv.Atoi(matches[deletionsIdx])
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("failed to parse deletions count '%s': %w", matches[deletionsIdx], err)
+		}
+	}
+	return filesChanged, additions, deletions, nil
 }
 
 // GetBranchInfo gets comprehensive info about the current branch for PR description
@@ -333,14 +345,19 @@ func GetBranchInfo(baseBranch string) (*BranchInfo, error) {
 		return nil, err
 	}
 
-	additions, deletions, _ := GetBranchStats(baseBranch)
+	filesChanged, additions, deletions, err := GetBranchStats(baseBranch)
+
+	if err != nil {
+		return nil, err
+	}
 
 	return &BranchInfo{
-		Name:           currentBranch,
-		BaseBranch:     baseBranch,
-		Commits:        commits,
-		TotalAdditions: additions,
-		TotalDeletions: deletions,
-		Diffs:          diffs,
+		Name:              currentBranch,
+		BaseBranch:        baseBranch,
+		Commits:           commits,
+		TotalFilesChanged: filesChanged,
+		TotalAdditions:    additions,
+		TotalDeletions:    deletions,
+		Diffs:             diffs,
 	}, nil
 }
