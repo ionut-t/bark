@@ -20,6 +20,7 @@ import (
 )
 
 const defaultCommitLimit = 25
+const ctxTimeout = 3 * time.Minute
 
 //go:embed format.md
 var formatingRequirements string
@@ -291,7 +292,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case viewCommitChanges:
 				if m.commitChanges.error != nil {
-					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+					ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
 					if m.operationCancelFunc != nil {
 						m.operationCancelFunc()
@@ -304,7 +305,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case viewPRDescription:
 				if m.pr.error != nil {
-					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+					ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
 					if m.operationCancelFunc != nil {
 						m.operationCancelFunc()
@@ -563,7 +564,7 @@ func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
 
 	prompt := instructions + "\n\n" + diff
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
 	if m.operationCancelFunc != nil {
 		m.operationCancelFunc()
@@ -592,7 +593,7 @@ func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
 	)
 
 	m.pr.setPrompt(prompt)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
 	if m.operationCancelFunc != nil {
 		m.operationCancelFunc()

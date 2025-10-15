@@ -92,7 +92,7 @@ var prLoadingMessages = []string{
 
 	// Git and GitHub specific
 	"Writing better than 'merge main into feature'...",
-	"Explaining why you force-pushed 47 times...",
+	"Explaining why you force-pushed 12 times...",
 	"Justifying those 200+ file changes...",
 	"Describing what's in those mysterious commits...",
 	"Making your branch name make sense...",
@@ -165,7 +165,6 @@ func newPRModel(llm llm.LLM, width, height int) prModel {
 	textEditor.SetCursorBlinkMode(true)
 	textEditor.SetLanguage("markdown", styles.HighlighterTheme())
 	textEditor.DisableCommandMode(true)
-	textEditor.DisableInsertMode(true)
 	textEditor.SetExtraHighlightedContextLines(300)
 	textEditor.Focus()
 
@@ -187,7 +186,6 @@ func newPRModel(llm llm.LLM, width, height int) prModel {
 
 func (m *prModel) setPrompt(prompt string) {
 	m.prompt = prompt
-	m.editor.SetContent(prompt)
 }
 
 func (m *prModel) setSize(width, height int) {
@@ -195,10 +193,7 @@ func (m *prModel) setSize(width, height int) {
 }
 
 func (m prModel) Init() tea.Cmd {
-	return tea.Batch(
-		m.spinner.Tick,
-		m.dispatchLoadingMsg(),
-	)
+	return m.spinner.Tick
 }
 
 func (m *prModel) startPRDescriptionGeneration(ctx context.Context) tea.Cmd {
@@ -241,7 +236,7 @@ func (m prModel) Update(msg tea.Msg) (prModel, tea.Cmd) {
 		}
 
 		m.response = msg.message
-		m.editor.SetContent(msg.message)
+		m.editor.SetContent(msg.message + "\n\n")
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -249,11 +244,11 @@ func (m prModel) Update(msg tea.Msg) (prModel, tea.Cmd) {
 			switch m.currentView {
 			case viewPRResponse:
 				m.currentView = viewPRPrompt
-				m.editor.SetContent(m.prompt)
+				m.editor.SetContent(m.prompt + "\n\n")
 
 			case viewPRPrompt:
 				m.currentView = viewPRResponse
-				m.editor.SetContent(m.response)
+				m.editor.SetContent(m.response + "\n\n")
 			}
 		}
 	}
