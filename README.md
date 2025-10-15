@@ -1,15 +1,16 @@
 # Bark - AI Code Reviewer
 
-Bark is a command-line tool that uses AI to review code. It can help identify potential issues, suggest improvements, and generate commit messages.
+Bark is a command-line tool that uses AI to review code, generate commit messages, and create pull request descriptions.
 
 ## Features
 
-- **AI-powered code review:** Get feedback from an AI assistant.
-- **Multiple reviewers:** Choose from a variety of "reviewers" with different personalities, such as Linus Torvalds, Uncle Bob, Guido van Rossum, or Yoda.
+- **AI-powered code review:** Get feedback on your code from an AI assistant.
+- **Commit message generation:** Automatically generate descriptive commit messages.
+- **Pull request descriptions:** Create detailed pull request descriptions from your branch changes.
+- **Multiple reviewers:** Choose from a variety of "reviewers" with different personalities, such as Linus Torvalds, Uncle Bob, or Yoda.
 - **Custom instructions:** Provide custom instructions to the AI to tailor the review.
-- **Review commits, branches, or working directory:** Analyse code at any stage of development.
-- **Interactive TUI:** View the review in a user-friendly terminal interface.
-- **Generate commit messages:** Automatically generate commit messages based on changes.
+- **Review commits, branches, or current changes:** Analyse code at any stage of development.
+- **Interactive TUI:** A user-friendly terminal interface for all tasks.
 
 ## Installation
 
@@ -21,40 +22,60 @@ go install github.com/ionut-t/bark@latest
 
 ## Usage
 
-To review the changes in the current working directory, simply run `bark`:
+Bark provides three main commands: `review`, `commit`, and `pr`.
+
+### Code Review
+
+To review the changes, run `bark review`:
 
 ```bash
-bark
+bark review
 ```
 
-By default, `bark` will review all tracked changes in the working directory. To review only the staged changes, use the `--staged` or `-s` flag:
+By default, `bark review` will analyse all tracked changes. To review only the staged changes, use the `--staged` or `-s` flag:
 
 ```bash
-bark --staged
+bark review --staged
 ```
 
 To compare the current branch to a specific branch, use the `--branch` or `-b` flag:
 
 ```bash
-bark --branch <branch-name>
+bark review --branch <branch-name>
 ```
 
 To select a commit to review from a list of recent commits, use the `--commit` or `-t` flag:
 
 ```bash
-bark --commit
+bark review --commit
 ```
 
 To use a specific reviewer, use the `--as` flag:
 
 ```bash
-bark --as linus
+bark review --as linus
 ```
 
 To provide custom instructions to the reviewer, use the `--instructions` or `-i` flag with the name of the instruction file:
 
 ```bash
-bark --instructions <instruction-name>
+bark review --instructions <instruction-name>
+```
+
+### Commit Message Generation
+
+To generate a commit message for the current staged changes, run `bark commit`:
+
+```bash
+bark commit
+```
+
+### Pull Request Description Generation
+
+To generate a pull request description for the current branch, run `bark pr`:
+
+```bash
+bark pr
 ```
 
 ## Configuration
