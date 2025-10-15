@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -101,6 +102,8 @@ type commitResponseMsg struct {
 }
 
 type commitChangesModel struct {
+	width, height int
+
 	editor           editor.Model
 	commitAll        bool
 	loading          bool
@@ -110,6 +113,8 @@ type commitChangesModel struct {
 	llm              llm.LLM
 	prompt           string
 	error            error
+	response         string
+	isShowingPrompt  bool
 }
 
 type commitChangesMsg struct {
@@ -117,18 +122,20 @@ type commitChangesMsg struct {
 	commitAll bool
 }
 
-func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool) commitChangesModel {
-	editorModel := editor.New(80, 20)
-	editorModel.DisableCommandMode(true)
-	editorModel.SetCursorBlinkMode(true)
-	editorModel.Focus()
+func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool, width, height int) commitChangesModel {
+	textEditor := editor.New(width, height)
+	textEditor.DisableCommandMode(true)
+	textEditor.SetCursorBlinkMode(true)
+	textEditor.Focus()
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = styles.Primary
 
 	m := commitChangesModel{
-		editor:           editorModel,
+		width:            width,
+		height:           height,
+		editor:           textEditor,
 		spinner:          sp,
 		loading:          true,
 		llm:              llm,
@@ -138,11 +145,13 @@ func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool) commitCha
 	}
 
 	m.loadingMsg = m.getLoadingMessage()
+
 	return m
 }
 
 func (m *commitChangesModel) setSize(width, height int) {
-	m.editor.SetSize(width-4, min(20, height))
+	m.width = width
+	m.height = height
 }
 
 func (m commitChangesModel) Init() tea.Cmd {
@@ -177,6 +186,7 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 
 	case commitResponseMsg:
 		m.loading = false
+		m.isShowingPrompt = false
 
 		if msg.error != nil {
 			// Check if it's a context cancellation - don't show as error
@@ -188,7 +198,9 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 			return m, nil
 		}
 
-		m.editor.SetContent(utils.RemoveCodeFences(msg.message))
+		m.response = utils.RemoveCodeFences(msg.message)
+		m.editor.SetContent(m.response)
+		m.editor.SetSize(m.width-4, max(10, m.height-lipgloss.Height(m.header())-1))
 
 	case tea.KeyMsg:
 		if m.loading {
@@ -197,6 +209,21 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 		}
 
 		switch msg.String() {
+		case "tab":
+			if !m.editor.IsNormalMode() {
+				break
+			}
+
+			m.isShowingPrompt = !m.isShowingPrompt
+			if m.isShowingPrompt {
+				m.editor.SetContent(m.prompt + "\n")
+				m.editor.SetLanguage("markdown", styles.HighlighterTheme())
+				m.editor.SetExtraHighlightedContextLines(300)
+			} else {
+				m.editor.SetContent(m.response)
+				m.editor.SetLanguage("", "")
+			}
+
 		case "alt+enter", "ctrl+s":
 			m.loading = true
 			m.loadingMsg = "Committing changes..."
@@ -215,52 +242,106 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 	ed, cmd := m.editor.Update(msg)
 	m.editor = ed.(editor.Model)
 
+	if m.isShowingPrompt {
+		m.prompt = m.editor.GetCurrentContent()
+	}
+
 	return m, cmd
 }
 
 func (m commitChangesModel) View() string {
 	if m.loading {
-		return lipgloss.NewStyle().Padding(2).Render(lipgloss.JoinHorizontal(
+		return lipgloss.NewStyle().Padding(2, 2, 0).Render(lipgloss.JoinHorizontal(
 			lipgloss.Top,
 			m.spinner.View(),
 			styles.Accent.Render(" "+m.loadingMsg),
 		))
 	}
 
-	var errMsg string
-	if m.error != nil {
-		err := styles.Wrap(80, styles.Error.Render("Error: "+m.error.Error()))
-		errMsg = styles.Subtext0.Render(
-			lipgloss.JoinVertical(
-				lipgloss.Left,
-				"\n\n",
-				err,
-				"\n",
-				"Press r to retry",
-			),
-		)
-	}
+	header := m.header()
+	headerHeight := lipgloss.Height(header)
+	editorHeight := m.height - headerHeight - 1
 
-	return lipgloss.NewStyle().Padding(2).Render(lipgloss.JoinVertical(
-		lipgloss.Top,
-		commitChangesHelp(80),
-		"\n",
-		lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Render(m.editor.View()),
-		errMsg,
+	m.editor.SetSize(m.width-4, max(10, editorHeight))
+
+	return lipgloss.NewStyle().Padding(0, 2).Render(lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		m.editor.View(),
 	))
 }
 
-func commitChangesHelp(width int) string {
+func (m *commitChangesModel) header() string {
+	var header string
+	if m.error != nil {
+		err := styles.Wrap(80, styles.Error.Render("Error: "+m.error.Error()))
+		header = styles.Subtext0.Render(
+			lipgloss.JoinVertical(
+				lipgloss.Left,
+				err,
+				"\n\n",
+				"Press r to retry",
+			),
+		)
+	} else {
+		height := 7
+
+		if m.isShowingPrompt {
+			height = 6
+		}
+
+		header = lipgloss.NewStyle().Height(height).Render(m.commitChangesHelp())
+	}
+
+	border := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		BorderBottomForeground(styles.Primary.GetForeground())
+
+	return border.Render(header) + "\n"
+}
+
+func (m *commitChangesModel) commitChangesHelp() string {
 	commands := []struct {
 		Command     string
 		Description string
 	}{
 		{"i", "edit commit message"},
 		{"alt+enter/ctrl+s", "submit commit message"},
+		{"tab", "view prompt"},
+		{"ctrl+r", "generate a new commit message"},
 		{"ctrl+c", "quit"},
 	}
 
-	return help.RenderCmdHelp(width, commands)
+	if m.isShowingPrompt {
+		commands = []struct {
+			Command     string
+			Description string
+		}{
+			{"i", "edit prompt"},
+			{"tab", "view commit message"},
+			{"ctrl+r", "generate a new commit message"},
+			{"ctrl+c", "quit"},
+		}
+	}
+
+	if m.editor.IsInsertMode() {
+		commands = slices.DeleteFunc(
+			commands, func(c struct {
+				Command     string
+				Description string
+			}) bool {
+				return c.Command == "i" || c.Command == "ctrl+r" || c.Command == "tab"
+			},
+		)
+
+		commands = slices.Insert(commands, 0, struct {
+			Command     string
+			Description string
+		}{"esc", "exit insert mode"},
+		)
+	}
+
+	return help.RenderCmdHelp(m.width, commands)
 }
 
 func getCommitMessage(ctx context.Context, llm llm.LLM, prompt string) tea.Cmd {
@@ -279,4 +360,8 @@ func (m *commitChangesModel) dispatchLoadingMsg() tea.Cmd {
 
 func (m *commitChangesModel) getLoadingMessage() string {
 	return m.loadingMsgPicker.next()
+}
+
+func (m *commitChangesModel) canRetry() bool {
+	return !m.loading && m.editor.IsNormalMode()
 }

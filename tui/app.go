@@ -275,6 +275,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.message = ""
 
+		case "ctrl+r":
+			switch m.currentView {
+			case viewCommitChanges:
+				if m.commitChanges.canRetry() {
+					return m.handleCommitMessageRetry()
+				}
+			}
+
 		case "r":
 			switch m.currentView {
 			case viewReview:
@@ -292,15 +300,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case viewCommitChanges:
 				if m.commitChanges.error != nil {
-					ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
-
-					if m.operationCancelFunc != nil {
-						m.operationCancelFunc()
-					}
-
-					m.operationCancelFunc = cancel
-
-					return m, m.commitChanges.startCommitGeneration(ctx)
+					return m.handleCommitMessageRetry()
 				}
 
 			case viewPRDescription:
@@ -571,8 +571,20 @@ func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
 	}
 	m.operationCancelFunc = cancel
 
-	m.commitChanges = newCommitChangesModel(m.llm, prompt, commitAll)
+	m.commitChanges = newCommitChangesModel(m.llm, prompt, commitAll, m.width, m.height)
 	m.currentView = viewCommitChanges
+	return m, m.commitChanges.startCommitGeneration(ctx)
+}
+
+func (m *Model) handleCommitMessageRetry() (tea.Model, tea.Cmd) {
+	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+
+	if m.operationCancelFunc != nil {
+		m.operationCancelFunc()
+	}
+
+	m.operationCancelFunc = cancel
+
 	return m, m.commitChanges.startCommitGeneration(ctx)
 }
 
