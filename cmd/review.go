@@ -29,7 +29,7 @@ func reviewCmd() *cobra.Command {
 	cmd.Flags().BoolP("staged", "s", false, "Review only staged changes")
 	cmd.Flags().BoolP("skip-instruction", "k", false, "Skip the instructions selection step")
 
-	cmd.MarkFlagsMutuallyExclusive("changes", "commit")
+	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch")
 
 	return cmd
 }
@@ -58,6 +58,8 @@ func runReviewCmd(cmd *cobra.Command) error {
 		reviewOption = tui.ReviewOptionCurrentChanges
 	} else if commit {
 		reviewOption = tui.ReviewOptionCommit
+	} else if branch != "" {
+		reviewOption = tui.ReviewOptionBranch
 	}
 
 	m := tui.New(tui.Options{

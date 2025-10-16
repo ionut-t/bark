@@ -12,6 +12,7 @@ const (
 	ReviewOptionNone ReviewOption = iota
 	ReviewOptionCurrentChanges
 	ReviewOptionCommit
+	ReviewOptionBranch
 )
 
 func (r ReviewOption) String() string {
