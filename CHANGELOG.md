@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.1](https://github.com/ionut-t/bark/compare/v2.2.0...v2.2.1) (2025-10-16)
+
+
+### Bug Fixes
+
+* **review:** properly integrate branch review option ([c8a8d92](https://github.com/ionut-t/bark/commit/c8a8d92ece930b3ca0cf696188caba2c36ba0d83))
+
 ## [2.2.0](https://github.com/ionut-t/bark/compare/v2.1.0...v2.2.0) (2025-10-15)
 
 
