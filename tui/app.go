@@ -356,7 +356,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.message = ""
 			m.error = nil
 
-			if m.currentView == viewReview && !m.selectCommit {
+			if (m.selectedTask == TaskCommit && m.currentView != viewCommitChanges) ||
+				(m.currentView == viewReview && !m.selectCommit) {
 				return m.handleCommitMessage(msg.String() == "C")
 			}
 		}
