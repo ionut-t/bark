@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.0](https://github.com/ionut-t/bark/compare/v2.2.1...v2.3.0) (2025-10-17)
+
+
+### Features
+
+* **commit:** add hint option for commit message type ([62b9aac](https://github.com/ionut-t/bark/commit/62b9aac001ac5309addc658958d2b53f95c8df78))
+* **review-options:** add interactive branch input for review ([0ddd459](https://github.com/ionut-t/bark/commit/0ddd459edd7fe81074ad2cccbea2ceb274645adf))
+
 ## [2.2.1](https://github.com/ionut-t/bark/compare/v2.2.0...v2.2.1) (2025-10-16)
 
 
