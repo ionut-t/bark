@@ -22,6 +22,7 @@ func commitCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolP("all", "a", false, "Include all changes")
+	cmd.Flags().StringP("hint", "i", "", "Provide a hint for the commit message generation (e.g., 'feature/fix/docs')")
 
 	return cmd
 }
@@ -38,12 +39,14 @@ func runCommitCmd(cmd *cobra.Command) error {
 	}
 
 	all, _ := cmd.Flags().GetBool("all")
+	hint, _ := cmd.Flags().GetString("hint")
 
 	m := tui.New(tui.Options{
 		Task:       tui.TaskCommit,
 		Storage:    storage,
 		Config:     cfg,
 		StagedOnly: !all,
+		Hint:       hint,
 	})
 
 	p := tea.NewProgram(m, tea.WithAltScreen())

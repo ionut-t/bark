@@ -80,6 +80,8 @@ type Model struct {
 
 	pr prModel
 
+	hint string
+
 	showHelp bool
 	message  string
 
@@ -98,6 +100,7 @@ type Options struct {
 	SkipInstruction bool
 	Task            Task
 	ReviewOption    ReviewOption
+	Hint            string
 }
 
 func New(options Options) *Model {
@@ -139,6 +142,7 @@ func New(options Options) *Model {
 		reviewOptions:        newReviewOptionsModel(),
 		selectedReviewOption: options.ReviewOption,
 		individualTask:       options.Task != TaskNone,
+		hint:                 options.Hint,
 	}
 }
 
@@ -626,7 +630,13 @@ func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	prompt := instructions + "\n\n" + diff
+	prompt := instructions
+	if m.hint != "" {
+		prompt += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
+		prompt += "Commit message hint: " + m.hint
+	}
+
+	prompt += "\n\n" + diff
 
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
