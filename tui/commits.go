@@ -16,6 +16,8 @@ type commitSelectedMsg struct {
 	commit git.Commit
 }
 
+type cancelCommitSelectionMsg struct{}
+
 type commitsModel struct {
 	list list.Model
 }
@@ -62,7 +64,7 @@ func (m commitsModel) Update(msg tea.Msg) (commitsModel, tea.Cmd) {
 
 		switch msg.String() {
 		case "esc":
-			return m, utils.DispatchMsg(changeViewMsg{view: viewReviewOptions})
+			return m, utils.DispatchMsg(cancelCommitSelectionMsg{})
 
 		case "enter":
 			i, ok := m.list.SelectedItem().(commitItem)

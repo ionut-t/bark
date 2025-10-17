@@ -13,6 +13,8 @@ type instructionSelectedMsg struct {
 	Instruction string
 }
 
+type cancelInstructionSelectionMsg struct{}
+
 type instructionsModel struct {
 	list    list.Model
 	storage string
@@ -88,7 +90,7 @@ func (m instructionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.String() {
 		case "esc":
-			return m, utils.DispatchMsg(changeViewMsg{view: viewReviewers})
+			return m, utils.DispatchMsg(cancelInstructionSelectionMsg{})
 
 		case "enter":
 			if selectedItem, ok := m.list.SelectedItem().(item); ok {

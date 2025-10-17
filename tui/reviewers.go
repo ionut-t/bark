@@ -14,6 +14,8 @@ type reviewerSelectedMsg struct {
 	Reviewer *reviewers.Reviewer
 }
 
+type cancelReviewerSelectionMsg struct{}
+
 func processReviewers(reviewers []reviewers.Reviewer) []list.Item {
 	items := make([]list.Item, 0, len(reviewers))
 
@@ -79,7 +81,7 @@ func (m reviewersModel) Update(msg tea.Msg) (reviewersModel, tea.Cmd) {
 
 		switch msg.String() {
 		case "esc":
-			return m, utils.DispatchMsg(changeViewMsg{view: viewReviewOptions})
+			return m, utils.DispatchMsg(cancelReviewerSelectionMsg{})
 		case "enter":
 			if item, ok := m.list.SelectedItem().(item); ok {
 				for _, reviewer := range m.reviewers {

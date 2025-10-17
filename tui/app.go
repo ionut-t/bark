@@ -37,11 +37,8 @@ const (
 	viewReview
 	viewCommitChanges
 	viewPRDescription
+	viewBranchInput
 )
-
-type changeViewMsg struct {
-	view view
-}
 
 type Model struct {
 	width, height int
@@ -75,12 +72,13 @@ type Model struct {
 	instructionName     string
 	skipInstruction     bool
 
-	branch        string
 	commitChanges commitChangesModel
 
-	pr prModel
+	branch      string
+	branchErr   error
+	branchInput branchInputModel
 
-	// diff string
+	pr prModel
 
 	showHelp bool
 	message  string
@@ -133,6 +131,7 @@ func New(options Options) *Model {
 		reviewerName:         options.ReviewerName,
 		instructionName:      options.Instruction,
 		branch:               options.Branch,
+		branchInput:          newBranchInputModel(options.Branch),
 		stagedOnly:           options.StagedOnly,
 		skipInstruction:      options.SkipInstruction,
 		tasks:                newTasksModel(),
@@ -193,6 +192,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reviewOptionSelectedMsg:
 		return m.handleSelectedReviewOption(msg.option)
 
+	case branchSelectedMsg:
+		m.branch = msg.branch
+		return m, utils.DispatchMsg(listReviewersMsg{})
+
 	case listCommitsMsg:
 		commits, err := git.GetCommits(defaultCommitLimit)
 
@@ -249,12 +252,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prInitReadyMsg:
 		return m.handlePRDescription()
 
-	case changeViewMsg:
-		if msg.view == viewTasks && m.individualTask {
+	case cancelReviewOptionSelectionMsg:
+		if m.individualTask {
 			break
 		}
 
-		m.currentView = msg.view
+		m.currentView = viewTasks
+		m.selectedReviewOption = ReviewOptionNone
+
+	case cancelBranchSelectionMsg:
+		m.currentView = viewReviewOptions
+		m.branch = ""
+
+	case cancelReviewerSelectionMsg:
+		m.selectedReviewer = nil
+
+		if m.selectCommit {
+			m.currentView = viewCommits
+		} else if m.branch != "" {
+			m.currentView = viewBranchInput
+		} else {
+			m.currentView = viewReviewOptions
+		}
+
+	case cancelCommitSelectionMsg:
+		m.currentView = viewReviewOptions
+		m.selectedCommit = nil
+
+	case cancelInstructionSelectionMsg:
+		m.currentView = viewReviewers
+		m.selectedInstruction = ""
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -274,6 +301,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "esc":
 			m.message = ""
+			if m.branchErr != nil {
+				m.currentView = viewBranchInput
+				m.branchErr = nil
+				return m, nil
+			}
 
 		case "ctrl+r":
 			switch m.currentView {
@@ -366,6 +398,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		pr, cmd := m.pr.Update(msg)
 		m.pr = pr
 		cmds = append(cmds, cmd)
+
+	case viewBranchInput:
+		input, cmd := m.branchInput.Update(msg)
+		m.branchInput = input.(branchInputModel)
+		cmds = append(cmds, cmd)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -407,24 +444,34 @@ func (m Model) View() string {
 	switch m.currentView {
 	case viewTasks:
 		return m.tasks.View()
+
 	case viewCommits:
 		return m.commits.View()
+
 	case viewReviewers:
 		return m.reviewers.View()
+
 	case viewReviewOptions:
 		return m.reviewOptions.View()
+
 	case viewInstructions:
 		return m.instructions.View()
+
 	case viewReview:
 		if m.showHelp {
 			return reviewHelp(m.width, m.selectCommit)
 		}
 
 		return m.review.View()
+
 	case viewCommitChanges:
 		return m.commitChanges.View()
+
 	case viewPRDescription:
 		return m.pr.View()
+
+	case viewBranchInput:
+		return m.branchInput.View()
 	default:
 		return ""
 	}
@@ -487,12 +534,18 @@ func (m *Model) handleSelectedReviewer(reviewer *reviewers.Reviewer) (tea.Model,
 
 func (m *Model) handleSelectedReviewOption(option ReviewOption) (tea.Model, tea.Cmd) {
 	m.selectedReviewOption = option
+
 	switch m.selectedReviewOption {
-	case ReviewOptionCurrentChanges, ReviewOptionBranch:
+	case ReviewOptionCurrentChanges:
 		return m, utils.DispatchMsg(listReviewersMsg{})
 	case ReviewOptionCommit:
 		m.selectCommit = true
 		return m, utils.DispatchMsg(listCommitsMsg{})
+	case ReviewOptionBranch:
+		m.currentView = viewBranchInput
+		if m.branch != "" {
+			return m, utils.DispatchMsg(listReviewersMsg{})
+		}
 	}
 
 	return m, nil
@@ -503,7 +556,18 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 	var err error
 
 	if m.branch != "" {
-		diff, err = git.GetBranchDiff(m.branch)
+		diff, m.branchErr = git.GetBranchDiff(m.branch)
+
+		if m.branchErr != nil {
+			m.message = fmt.Sprintf(
+				"Could not check against %s.\n\nPress Esc to try a different branch.",
+				styles.Accent.Render(m.branch),
+			)
+
+			m.message = styles.Info.Padding(2).Render(m.message)
+			return m, nil
+		}
+
 	} else if m.selectCommit {
 		diff, err = git.GetDiff(m.selectedCommit.Hash)
 	} else {

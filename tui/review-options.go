@@ -21,6 +21,8 @@ func (r ReviewOption) String() string {
 		return "Review current changes"
 	case ReviewOptionCommit:
 		return "Review a recent commit"
+	case ReviewOptionBranch:
+		return "Review against a branch"
 	default:
 		return ""
 	}
@@ -30,17 +32,20 @@ type reviewOptionSelectedMsg struct {
 	option ReviewOption
 }
 
+type cancelReviewOptionSelectionMsg struct{}
+
 type reviewOptionsModel struct {
 	list list.Model
 }
 
-func newReviewOptionsModel() reviewOptionsModel {
-	options := []list.Item{
-		item{title: ReviewOptionCurrentChanges.String()},
-		item{title: ReviewOptionCommit.String()},
-	}
+var reviewOptionsItems = []list.Item{
+	item{title: ReviewOptionCurrentChanges.String()},
+	item{title: ReviewOptionCommit.String()},
+	item{title: ReviewOptionBranch.String()},
+}
 
-	l := newListModel("Select review option", options)
+func newReviewOptionsModel() reviewOptionsModel {
+	l := newListModel("Select review option", reviewOptionsItems)
 	l.SetFilteringEnabled(false)
 
 	return reviewOptionsModel{
@@ -57,7 +62,9 @@ func (m reviewOptionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
-			return m, utils.DispatchMsg(changeViewMsg{view: viewTasks})
+			m.list.ResetSelected()
+
+			return m, utils.DispatchMsg(cancelReviewOptionSelectionMsg{})
 
 		case "enter":
 			i, ok := m.list.SelectedItem().(item)
@@ -71,6 +78,8 @@ func (m reviewOptionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				option = ReviewOptionCurrentChanges
 			case ReviewOptionCommit.String():
 				option = ReviewOptionCommit
+			case ReviewOptionBranch.String():
+				option = ReviewOptionBranch
 			default:
 				return m, nil
 			}
