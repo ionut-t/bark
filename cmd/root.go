@@ -39,14 +39,9 @@ func handleRootCmd() error {
 		return fmt.Errorf("error getting storage: %w", err)
 	}
 
-	cfg, err := config.New()
-	if err != nil {
-		return fmt.Errorf("error creating config: %w", err)
-	}
-
 	m := tui.New(tui.Options{
 		Storage: storage,
-		Config:  cfg,
+		Config:  config.New(),
 	})
 
 	p := tea.NewProgram(m, tea.WithAltScreen())

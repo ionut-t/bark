@@ -2,9 +2,6 @@
 
 # The keys are case insensitive
 
-# Auto-update feature can be enabled or disabled
-AUTO_UPDATE_ENABLED = false
-
 # The editor will be used to edit the config file and LLM instructions
 EDITOR = '{{.Editor}}'
 

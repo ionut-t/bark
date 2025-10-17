@@ -24,7 +24,6 @@ const (
 	EditorKey      = "EDITOR"
 	LLMProviderKey = "LLM_PROVIDER"
 	LLMModelKey    = "LLM_MODEL"
-	AutoUpdateKey  = "AUTO_UPDATE_ENABLED"
 
 	rootDir                    = ".bark"
 	configFileName             = ".config.toml"
@@ -34,40 +33,20 @@ const (
 
 type Config interface {
 	GetEditor() string
-	Storage() string
 	GetLLMProvider() (string, error)
 	GetLLMModel() (string, error)
 	GetCommitInstructions() string
 	GetPRInstructions() string
-	AutoUpdateEnabled() bool
 }
 
-type config struct {
-	storage string
-}
+type config struct{}
 
-func New() (Config, error) {
-	storage, err := GetStorage()
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &config{
-		storage: storage,
-	}, nil
-}
-
-func (c *config) AutoUpdateEnabled() bool {
-	return viper.GetBool(AutoUpdateKey)
+func New() Config {
+	return &config{}
 }
 
 func (c *config) GetEditor() string {
 	return GetEditor()
-}
-
-func (c *config) Storage() string {
-	return c.storage
 }
 
 func (c *config) GetLLMProvider() (string, error) {
@@ -143,7 +122,6 @@ func InitialiseConfigFile() (string, error) {
 		viper.SetConfigFile(configPath)
 
 		if _, err := os.Stat(configPath); os.IsNotExist(err) {
-			viper.SetDefault(AutoUpdateKey, true)
 			viper.SetDefault(EditorKey, GetEditor())
 			viper.SetDefault(LLMProviderKey, "")
 			viper.SetDefault(LLMModelKey, "")
@@ -186,12 +164,6 @@ func GetConfigFilePath() string {
 }
 
 func GetStorage() (string, error) {
-	storage := viper.GetString("storage")
-
-	if storage != "" {
-		return storage, nil
-	}
-
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

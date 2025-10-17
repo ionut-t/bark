@@ -33,18 +33,13 @@ func runCommitCmd(cmd *cobra.Command) error {
 		return fmt.Errorf("error getting storage: %w", err)
 	}
 
-	cfg, err := config.New()
-	if err != nil {
-		return fmt.Errorf("error creating config: %w", err)
-	}
-
 	all, _ := cmd.Flags().GetBool("all")
 	hint, _ := cmd.Flags().GetString("hint")
 
 	m := tui.New(tui.Options{
 		Task:       tui.TaskCommit,
 		Storage:    storage,
-		Config:     cfg,
+		Config:     config.New(),
 		StagedOnly: !all,
 		Hint:       hint,
 	})

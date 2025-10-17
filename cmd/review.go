@@ -40,11 +40,6 @@ func runReviewCmd(cmd *cobra.Command) error {
 		return fmt.Errorf("error getting storage: %w", err)
 	}
 
-	cfg, err := config.New()
-	if err != nil {
-		return fmt.Errorf("error getting config: %w", err)
-	}
-
 	reviewerName, _ := cmd.Flags().GetString("as")
 	commit, _ := cmd.Flags().GetBool("commit")
 	changes, _ := cmd.Flags().GetBool("changes")
@@ -69,7 +64,7 @@ func runReviewCmd(cmd *cobra.Command) error {
 		Instruction:     instruction,
 		Branch:          branch,
 		SelectCommit:    commit,
-		Config:          cfg,
+		Config:          config.New(),
 		StagedOnly:      staged,
 		SkipInstruction: skipInstruction,
 		ReviewOption:    reviewOption,

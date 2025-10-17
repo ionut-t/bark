@@ -32,17 +32,12 @@ func runPRCmd(cmd *cobra.Command) error {
 		return fmt.Errorf("error getting storage: %w", err)
 	}
 
-	cfg, err := config.New()
-	if err != nil {
-		return fmt.Errorf("error creating config: %w", err)
-	}
-
 	branch, _ := cmd.Flags().GetString("branch")
 
 	m := tui.New(tui.Options{
 		Task:    tui.TaskPRDescription,
 		Storage: storage,
-		Config:  cfg,
+		Config:  config.New(),
 		Branch:  branch,
 	})
 
