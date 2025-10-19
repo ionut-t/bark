@@ -1,10 +1,16 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ionut-t/bark/pkg/git"
+	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 )
 
 func formatBranchInfo(branch *git.BranchInfo) string {
@@ -28,4 +34,22 @@ func formatBranchInfo(branch *git.BranchInfo) string {
 	sb.WriteString(branch.Diffs)
 
 	return sb.String()
+}
+
+func writeToDisk(editor *editor.Model, filePath *string, content string) tea.Cmd {
+	const duration = 3 * time.Second
+
+	if filePath == nil || strings.TrimSpace(*filePath) == "" {
+		return editor.DispatchError(errors.New("invalid file path"), duration)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(*filePath), 0755); err != nil {
+		return editor.DispatchError(err, duration)
+	}
+
+	if err := os.WriteFile(*filePath, []byte(content), 0644); err != nil {
+		return editor.DispatchError(err, duration)
+	}
+
+	return editor.DispatchMessage("saved to "+*filePath, duration)
 }

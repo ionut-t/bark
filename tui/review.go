@@ -148,11 +148,10 @@ type reviewModel struct {
 
 func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height int, llm llm.LLM) reviewModel {
 	textEditor := editor.New(width, height-1)
-	textEditor.SetCursorMode(editor.CursorBlink)
 	textEditor.SetLanguage("markdown", styles.HighlighterTheme())
-	textEditor.DisableCommandMode(true)
 	textEditor.DisableInsertMode(true)
 	textEditor.SetExtraHighlightedContextLines(300)
+	textEditor.WithTheme(styles.EditorTheme())
 	textEditor.Focus()
 
 	sp := spinner.New()
@@ -192,7 +191,7 @@ func (m *reviewModel) setSize(width, height int) {
 }
 
 func (m reviewModel) Init() tea.Cmd {
-	return m.editor.CursorBlink()
+	return nil
 }
 
 func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -250,6 +249,12 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.viewport.SetContent(out)
 		}
+
+	case editor.QuitMsg:
+		return m, tea.Quit
+
+	case editor.SaveMsg:
+		return m, writeToDisk(&m.editor, msg.Path, msg.Content)
 
 	case tea.KeyMsg:
 		switch msg.String() {

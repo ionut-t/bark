@@ -161,11 +161,9 @@ type prModel struct {
 
 func newPRModel(llm llm.LLM, width, height int) prModel {
 	textEditor := editor.New(width, height)
-	textEditor.DisableCommandMode(true)
-	textEditor.SetCursorBlinkMode(true)
 	textEditor.SetLanguage("markdown", styles.HighlighterTheme())
-	textEditor.DisableCommandMode(true)
 	textEditor.SetExtraHighlightedContextLines(300)
+	textEditor.WithTheme(styles.EditorTheme())
 	textEditor.Focus()
 
 	sp := spinner.New()
@@ -237,6 +235,12 @@ func (m prModel) Update(msg tea.Msg) (prModel, tea.Cmd) {
 
 		m.response = msg.message
 		m.editor.SetContent(msg.message + "\n\n")
+
+	case editor.QuitMsg:
+		return m, tea.Quit
+
+	case editor.SaveMsg:
+		return m, writeToDisk(&m.editor, msg.Path, msg.Content)
 
 	case tea.KeyMsg:
 		switch msg.String() {

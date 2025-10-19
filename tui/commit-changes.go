@@ -125,7 +125,7 @@ type commitChangesMsg struct {
 func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool, width, height int) commitChangesModel {
 	textEditor := editor.New(width, height)
 	textEditor.DisableCommandMode(true)
-	textEditor.SetCursorBlinkMode(true)
+	textEditor.WithTheme(styles.EditorTheme())
 	textEditor.Focus()
 
 	sp := spinner.New()
@@ -155,7 +155,7 @@ func (m *commitChangesModel) setSize(width, height int) {
 }
 
 func (m commitChangesModel) Init() tea.Cmd {
-	return m.editor.CursorBlink()
+	return nil
 }
 
 func (m *commitChangesModel) startCommitGeneration(ctx context.Context) tea.Cmd {
