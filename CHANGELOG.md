@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.0](https://github.com/ionut-t/bark/compare/v2.3.1...v2.4.0) (2025-10-19)
+
+
+### Features
+
+* **editor:** enable saving and quitting in TUI models ([3902eb4](https://github.com/ionut-t/bark/commit/3902eb4b1c6d242599041c8c99248e5a81edf1bf))
+
 ## [2.3.1](https://github.com/ionut-t/bark/compare/v2.3.0...v2.3.1) (2025-10-17)
 
 
