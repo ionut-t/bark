@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.1](https://github.com/ionut-t/bark/compare/v2.5.0...v2.5.1) (2025-10-21)
+
+
+### Bug Fixes
+
+* **tui:** correct prompt and response display ([0cb0a8a](https://github.com/ionut-t/bark/commit/0cb0a8a22a92cd39380519a0742cbfd1d770176c))
+
 ## [2.5.0](https://github.com/ionut-t/bark/compare/v2.4.0...v2.5.0) (2025-10-21)
 
 
