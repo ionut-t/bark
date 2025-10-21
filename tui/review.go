@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/ionut-t/bark/internal/utils"
@@ -119,13 +118,6 @@ type reviewLoadingMsg struct {
 	message string
 }
 
-type reviewView int
-
-const (
-	reviewViewEditor reviewView = iota
-	reviewViewMarkdown
-)
-
 type reviewModel struct {
 	width, height    int
 	editor           editor.Model
@@ -135,12 +127,12 @@ type reviewModel struct {
 	contentBuilder   *strings.Builder
 	reviewer         reviewers.Reviewer
 	prompt           string
+	showPrompt       bool
+	response         string
 	spinner          spinner.Model
 	loading          bool
 	loadingChunks    bool
 	markdown         markdown.Model
-	viewport         viewport.Model
-	currentView      reviewView
 	loadingMsg       string
 	loadingMsgPicker *loadingMessagePicker
 	error            error
@@ -168,7 +160,6 @@ func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height in
 		loadingChunks:    true,
 		spinner:          sp,
 		markdown:         markdown.New(),
-		viewport:         viewport.New(width, height),
 		reviewer:         reviewer,
 		loadingMsgPicker: newLoadingMessagePicker(loadingMessages),
 	}
@@ -186,8 +177,6 @@ func (m *reviewModel) setSize(width, height int) {
 	contentHeight := height - statusBarHeight
 
 	m.editor.SetSize(width, contentHeight)
-	m.viewport.Height = contentHeight
-	m.viewport.Width = width
 }
 
 func (m reviewModel) Init() tea.Cmd {
@@ -241,14 +230,9 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamCompleteMsg:
 		m.loadingChunks = false
-		currentContent := m.editor.GetCurrentContent() + "\n\n"
-		m.editor.SetContent(currentContent)
-		_ = m.editor.SetCursorPosition(0, 0)
-		if out, err := m.markdown.Render(currentContent); err != nil {
-			m.viewport.SetContent(currentContent)
-		} else {
-			m.viewport.SetContent(out)
-		}
+		m.response = m.editor.GetCurrentContent() + "\n\n"
+		m.editor.SetContent(m.response)
+		m.editor.SetCursorPosition(0, 0)
 
 	case editor.QuitMsg:
 		return m, tea.Quit
@@ -263,31 +247,21 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			switch m.currentView {
-			case reviewViewEditor:
-				m.currentView = reviewViewMarkdown
-
-			case reviewViewMarkdown:
-				m.currentView = reviewViewEditor
+			m.showPrompt = !m.showPrompt
+			if m.showPrompt {
+				m.editor.SetContent(m.prompt + "\n\n")
+			} else {
+				m.editor.SetContent(m.contentBuilder.String() + "\n\n")
 			}
+
 		}
 	}
 
 	var cmds []tea.Cmd
 
-	if !m.loading {
-		switch m.currentView {
-		case reviewViewMarkdown:
-			vp, cmd := m.viewport.Update(msg)
-			m.viewport = vp
-			cmds = append(cmds, cmd)
-
-		case reviewViewEditor:
-			editorModel, cmd := m.editor.Update(msg)
-			m.editor = editorModel.(editor.Model)
-			cmds = append(cmds, cmd)
-		}
-	}
+	editorModel, cmd := m.editor.Update(msg)
+	m.editor = editorModel.(editor.Model)
+	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
 }
@@ -344,14 +318,7 @@ func (m reviewModel) View() string {
 		)
 	}
 
-	switch m.currentView {
-	case reviewViewMarkdown:
-		return m.viewport.View() + "\n" + m.statusBar()
-	case reviewViewEditor:
-		return m.editor.View() + "\n" + m.statusBar()
-	default:
-		return ""
-	}
+	return m.editor.View() + "\n" + m.statusBar()
 }
 
 func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
@@ -398,7 +365,7 @@ func reviewHelp(width int, forCommits bool) string {
 	commands := []struct {
 		Command, Description string
 	}{
-		{"tab", "toggle between editor view and markdown view"},
+		{"tab", "toggle between review and prompt"},
 		{"c", "generate commit message (for staged changes)"},
 		{"C", "generate commit message for all changes (staged and unstaged)"},
 		{"?", "toggle help"},

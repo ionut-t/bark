@@ -130,16 +130,8 @@ github.com/ionut-t/coffee/markdown v0.0.0-20250925184550-4d896ec707cc h1:aJUY8iY
 github.com/ionut-t/coffee/markdown v0.0.0-20250925184550-4d896ec707cc/go.mod h1:weaABY7r/2+VSp1A1S4Wkd+sncmztEEV867XmbwVaAQ=
 github.com/ionut-t/coffee/styles v0.0.0-20250925184550-4d896ec707cc h1:sFmXid2TxI+s2IwwJKsF7yuxG89NF27k0Ps7bF+vZbM=
 github.com/ionut-t/coffee/styles v0.0.0-20250925184550-4d896ec707cc/go.mod h1:xphpi+zFS7fpm8hZgUQhY+UZw7Tg30bvQZ+TuIxUjqg=
-github.com/ionut-t/goeditor/adapter-bubbletea v0.1.16 h1:TFgRJ9bwjO1t/I7CMBeQF1og4rbaVwPOES2JgmT6q3E=
-github.com/ionut-t/goeditor/adapter-bubbletea v0.1.16/go.mod h1:JVtMct/AeChj2TaF5ohwdIOGNDvImUMbYSQDAQWFvSc=
-github.com/ionut-t/goeditor/adapter-bubbletea v0.2.0 h1:P7XGGVU3G6w1A0mgyW/ICSGOo4TaUFUeITuR6jQuDFU=
-github.com/ionut-t/goeditor/adapter-bubbletea v0.2.0/go.mod h1:E4MvnkRTMIOrlDCH9MWzmIQKsmcxbbRKYnU+nBLILxY=
 github.com/ionut-t/goeditor/adapter-bubbletea v0.2.1 h1:G8p3a91tU6yWyilrMv6uBJ5QLSzeoIm6emZCx8Py0MQ=
 github.com/ionut-t/goeditor/adapter-bubbletea v0.2.1/go.mod h1:zJ/mYzw4qeZQ3SIP2WSWHZtxQNveodKSya8FK7PyuF4=
-github.com/ionut-t/goeditor/core v0.1.10 h1:q85Ok8lbMYZgByIMSHQwFCQY17eKDHfb2h3VTXV49vI=
-github.com/ionut-t/goeditor/core v0.1.10/go.mod h1:sFe2iuAcaU8xyaYiiPEZBoY+0N+rljwdGH75msGiyBU=
-github.com/ionut-t/goeditor/core v0.2.0 h1:/ulLGFvGKQ3BE4n3LvHZ5aVnDV1BrKM8QRXy8z42a3o=
-github.com/ionut-t/goeditor/core v0.2.0/go.mod h1:sFe2iuAcaU8xyaYiiPEZBoY+0N+rljwdGH75msGiyBU=
 github.com/ionut-t/goeditor/core v0.2.1 h1:4qDiGRY40zaReitAix+zkOBxCw68J04p7XZeFNVOMhc=
 github.com/ionut-t/goeditor/core v0.2.1/go.mod h1:sFe2iuAcaU8xyaYiiPEZBoY+0N+rljwdGH75msGiyBU=
 github.com/ionut-t/gotable v0.1.0 h1:1dZ7KBRQ9uJQOWIOWsLji3dBWp6QVdWmAw0mEAk4bxA=
