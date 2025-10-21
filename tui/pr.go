@@ -139,13 +139,6 @@ type prResponseMsg struct {
 	error   error
 }
 
-type viewPR int
-
-const (
-	viewPRResponse viewPR = iota
-	viewPRPrompt
-)
-
 type prModel struct {
 	editor           editor.Model
 	loading          bool
@@ -156,7 +149,7 @@ type prModel struct {
 	error            error
 	prompt           string
 	response         string
-	currentView      viewPR
+	showPrompt       bool
 }
 
 func newPRModel(llm llm.LLM, width, height int) prModel {
@@ -245,13 +238,11 @@ func (m prModel) Update(msg tea.Msg) (prModel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab":
-			switch m.currentView {
-			case viewPRResponse:
-				m.currentView = viewPRPrompt
-				m.editor.SetContent(m.prompt + "\n\n")
+			m.showPrompt = !m.showPrompt
 
-			case viewPRPrompt:
-				m.currentView = viewPRResponse
+			if m.showPrompt {
+				m.editor.SetContent(m.prompt + "\n\n")
+			} else {
 				m.editor.SetContent(m.response + "\n\n")
 			}
 		}
