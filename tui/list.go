@@ -18,12 +18,16 @@ var (
 	renderList        = lipgloss.NewStyle().MarginTop(1).Render
 )
 
+// the list.Item interface provides only the FilterValue function
+type genericItem interface {
+	Title() string
+}
+
 type item struct {
 	title, prompt string
 }
 
 func (i item) Title() string       { return i.title }
-func (i item) Description() string { return "" }
 func (i item) FilterValue() string { return i.title }
 
 type itemDelegate struct{}
@@ -32,7 +36,7 @@ func (d itemDelegate) Height() int                             { return 1 }
 func (d itemDelegate) Spacing() int                            { return 0 }
 func (d itemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
 func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
-	i := listItem.(item)
+	i := listItem.(genericItem)
 
 	fn := itemStyle.Render
 	if index == m.Index() {
@@ -41,7 +45,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		}
 	}
 
-	_, _ = fmt.Fprint(w, fn(i.title))
+	_, _ = fmt.Fprint(w, fn(i.Title()))
 }
 
 func listKeyMap() list.KeyMap {

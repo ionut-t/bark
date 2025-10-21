@@ -11,6 +11,7 @@ type ReviewOption int
 const (
 	ReviewOptionNone ReviewOption = iota
 	ReviewOptionCurrentChanges
+	ReviewOptionStagedChanges
 	ReviewOptionCommit
 	ReviewOptionBranch
 )
@@ -19,6 +20,8 @@ func (r ReviewOption) String() string {
 	switch r {
 	case ReviewOptionCurrentChanges:
 		return "Review current changes"
+	case ReviewOptionStagedChanges:
+		return "Review staged changes"
 	case ReviewOptionCommit:
 		return "Review a recent commit"
 	case ReviewOptionBranch:
@@ -38,10 +41,20 @@ type reviewOptionsModel struct {
 	list list.Model
 }
 
+type reviewOptionItem struct {
+	id    ReviewOption
+	title string
+}
+
+func (i reviewOptionItem) Title() string       { return i.title }
+func (i reviewOptionItem) Description() string { return "" }
+func (i reviewOptionItem) FilterValue() string { return i.title }
+
 var reviewOptionsItems = []list.Item{
-	item{title: ReviewOptionCurrentChanges.String()},
-	item{title: ReviewOptionCommit.String()},
-	item{title: ReviewOptionBranch.String()},
+	reviewOptionItem{id: ReviewOptionCurrentChanges, title: ReviewOptionCurrentChanges.String()},
+	reviewOptionItem{id: ReviewOptionStagedChanges, title: ReviewOptionStagedChanges.String()},
+	reviewOptionItem{id: ReviewOptionCommit, title: ReviewOptionCommit.String()},
+	reviewOptionItem{id: ReviewOptionBranch, title: ReviewOptionBranch.String()},
 }
 
 func newReviewOptionsModel() reviewOptionsModel {
@@ -67,24 +80,12 @@ func (m reviewOptionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, utils.DispatchMsg(cancelReviewOptionSelectionMsg{})
 
 		case "enter":
-			i, ok := m.list.SelectedItem().(item)
+			i, ok := m.list.SelectedItem().(reviewOptionItem)
 			if !ok {
 				return m, nil
 			}
 
-			var option ReviewOption
-			switch i.title {
-			case ReviewOptionCurrentChanges.String():
-				option = ReviewOptionCurrentChanges
-			case ReviewOptionCommit.String():
-				option = ReviewOptionCommit
-			case ReviewOptionBranch.String():
-				option = ReviewOptionBranch
-			default:
-				return m, nil
-			}
-
-			return m, utils.DispatchMsg(reviewOptionSelectedMsg{option: option})
+			return m, utils.DispatchMsg(reviewOptionSelectedMsg{option: i.id})
 		}
 	}
 

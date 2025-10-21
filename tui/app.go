@@ -541,7 +541,7 @@ func (m *Model) handleSelectedReviewOption(option ReviewOption) (tea.Model, tea.
 	m.selectedReviewOption = option
 
 	switch m.selectedReviewOption {
-	case ReviewOptionCurrentChanges:
+	case ReviewOptionCurrentChanges, ReviewOptionStagedChanges:
 		return m, utils.DispatchMsg(listReviewersMsg{})
 	case ReviewOptionCommit:
 		m.selectCommit = true
