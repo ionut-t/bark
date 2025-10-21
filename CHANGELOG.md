@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.0](https://github.com/ionut-t/bark/compare/v2.4.0...v2.5.0) (2025-10-21)
+
+
+### Features
+
+* **review:** add ability to review staged changes ([85525b8](https://github.com/ionut-t/bark/commit/85525b884222cd8106b10408d370a51eb0715ee6))
+
 ## [2.4.0](https://github.com/ionut-t/bark/compare/v2.3.1...v2.4.0) (2025-10-19)
 
 
