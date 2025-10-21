@@ -585,15 +585,14 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 		return m, nil
 	}
 
-	var prompt string
-	prompt = fmt.Sprintf("%s\n\n%s", formatingRequirements, m.selectedReviewer.Prompt)
+	prompt := m.selectedReviewer.Prompt
 
 	if instruction != "" {
 		m.selectedInstruction = instruction
-		prompt = fmt.Sprintf("%s\n\nFollow the instructions below when analysing code:\n\n%s", prompt, instruction)
+		prompt = fmt.Sprintf("%s\nFollow the instructions below when analysing code:\n\n%s", prompt, instruction)
 	}
 
-	prompt = fmt.Sprintf("%s\n\n---\n\n**Code to review:**\n\n%s", prompt, diff)
+	prompt = fmt.Sprintf("%s%s---\n\n**Code to review:**\n%s", prompt, formatingRequirements, diff)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 

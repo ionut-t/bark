@@ -249,11 +249,10 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			m.showPrompt = !m.showPrompt
 			if m.showPrompt {
-				m.editor.SetContent(m.prompt + "\n\n")
+				m.editor.SetContent(m.prompt + "\n")
 			} else {
-				m.editor.SetContent(m.contentBuilder.String() + "\n\n")
+				m.editor.SetContent(m.response)
 			}
-
 		}
 	}
 
