@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.0](https://github.com/ionut-t/bark/compare/v2.5.1...v2.6.0) (2025-10-22)
+
+
+### Features
+
+* **tui:** improve editor search and review experience ([1358b39](https://github.com/ionut-t/bark/commit/1358b39ebea3bd41ae6beb339f13d62f9de0da8f))
+
 ## [2.5.1](https://github.com/ionut-t/bark/compare/v2.5.0...v2.5.1) (2025-10-21)
 
 
