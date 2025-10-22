@@ -40,6 +40,10 @@ const (
 	viewBranchInput
 )
 
+type commitStatusMessage struct {
+	error error
+}
+
 type Model struct {
 	width, height int
 
@@ -247,8 +251,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.operationCancelFunc = nil
 		}
 
-		if err := git.CommitChanges(msg.message, msg.commitAll); err != nil {
-			m.error = err
+		return m, performCommit(msg.message, msg.commitAll)
+
+	case commitStatusMessage:
+		m.commitChanges.loading = false
+
+		if msg.error != nil {
+			m.error = msg.error
 		} else {
 			return m, tea.Quit
 		}
@@ -687,4 +696,11 @@ func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
 	m.operationCancelFunc = cancel
 
 	return m, m.pr.startPRDescriptionGeneration(ctx)
+}
+
+func performCommit(message string, commitAll bool) tea.Cmd {
+	return func() tea.Msg {
+		err := git.CommitChanges(message, commitAll)
+		return commitStatusMessage{error: err}
+	}
 }

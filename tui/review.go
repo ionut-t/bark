@@ -232,7 +232,8 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingChunks = false
 		m.response = m.editor.GetCurrentContent() + "\n\n"
 		m.editor.SetContent(m.response)
-		m.editor.SetCursorPosition(0, 0)
+		// no need to handle error here as the cursor is moved to the beginning of the buffer
+		_ = m.editor.SetCursorPosition(0, 0)
 
 	case editor.QuitMsg:
 		return m, tea.Quit
