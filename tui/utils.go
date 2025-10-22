@@ -53,3 +53,7 @@ func writeToDisk(editor *editor.Model, filePath *string, content string) tea.Cmd
 
 	return editor.DispatchMessage("saved to "+*filePath, duration)
 }
+
+func DispatchNoSearchResultsError(editor *editor.Model) tea.Cmd {
+	return editor.DispatchError(errors.New("no search results found"), 2*time.Second)
+}

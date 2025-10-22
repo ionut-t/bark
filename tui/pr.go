@@ -235,6 +235,11 @@ func (m prModel) Update(msg tea.Msg) (prModel, tea.Cmd) {
 	case editor.SaveMsg:
 		return m, writeToDisk(&m.editor, msg.Path, msg.Content)
 
+	case editor.SearchResultsMsg:
+		if len(msg.Positions) == 0 {
+			return m, DispatchNoSearchResultsError(&m.editor)
+		}
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab":

@@ -3,15 +3,15 @@ module github.com/ionut-t/bark
 go 1.25.1
 
 require (
-	github.com/charmbracelet/bubbles v0.21.0
+	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/fang v0.4.3
 	github.com/charmbracelet/huh v0.7.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/ionut-t/coffee/help v0.0.0-20250925184550-4d896ec707cc
 	github.com/ionut-t/coffee/markdown v0.0.0-20250925184550-4d896ec707cc
-	github.com/ionut-t/coffee/styles v0.0.0-20250925184550-4d896ec707cc
-	github.com/ionut-t/goeditor/adapter-bubbletea v0.2.1
+	github.com/ionut-t/coffee/styles v0.0.0-20251022221334-acfbe382a572
+	github.com/ionut-t/goeditor/adapter-bubbletea v0.2.7
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
 	google.golang.org/genai v1.26.0
@@ -48,7 +48,7 @@ require (
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/ionut-t/goeditor/core v0.2.1 // indirect
+	github.com/ionut-t/goeditor/core v0.2.5 // indirect
 	github.com/ionut-t/gotable v0.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

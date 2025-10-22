@@ -202,6 +202,11 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 		m.editor.SetContent(m.response)
 		m.editor.SetSize(m.width-4, max(10, m.height-lipgloss.Height(m.header())-1))
 
+	case editor.SearchResultsMsg:
+		if len(msg.Positions) == 0 {
+			return m, DispatchNoSearchResultsError(&m.editor)
+		}
+
 	case tea.KeyMsg:
 		if m.loading {
 			// Don't process key events while loading

@@ -142,7 +142,7 @@ func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height in
 	textEditor := editor.New(width, height-1)
 	textEditor.SetLanguage("markdown", styles.HighlighterTheme())
 	textEditor.DisableInsertMode(true)
-	textEditor.SetExtraHighlightedContextLines(300)
+	textEditor.SetExtraHighlightedContextLines(500)
 	textEditor.WithTheme(styles.EditorTheme())
 	textEditor.Focus()
 
@@ -239,6 +239,11 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editor.SaveMsg:
 		return m, writeToDisk(&m.editor, msg.Path, msg.Content)
+
+	case editor.SearchResultsMsg:
+		if len(msg.Positions) == 0 {
+			return m, DispatchNoSearchResultsError(&m.editor)
+		}
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -381,4 +386,8 @@ func reviewHelp(width int, forCommits bool) string {
 		title,
 		help.RenderCmdHelp(width, commands),
 	)
+}
+
+func (m *reviewModel) canGenerateCommitMessage() bool {
+	return !m.editor.IsSearchMode()
 }
