@@ -25,7 +25,7 @@ func newBranchInputModel(branch string) branchInputModel {
 
 	branchInput := huh.NewInput().Title("Branch")
 
-	branchInput.WithTheme(styles.ThemeCatppuccin())
+	branchInput.WithTheme(styles.HuhThemeCatppuccin())
 	branchInput.Focus()
 	branchInput.Value(&branch)
 

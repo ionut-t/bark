@@ -140,7 +140,7 @@ type reviewModel struct {
 
 func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height int, llm llm.LLM) reviewModel {
 	textEditor := editor.New(width, height-1)
-	textEditor.SetLanguage("markdown", styles.HighlighterTheme())
+	textEditor.SetLanguage("markdown", styles.EditorLanguageTheme())
 	textEditor.DisableInsertMode(true)
 	textEditor.SetExtraHighlightedContextLines(500)
 	textEditor.WithTheme(styles.EditorTheme())

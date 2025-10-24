@@ -154,7 +154,7 @@ type prModel struct {
 
 func newPRModel(llm llm.LLM, width, height int) prModel {
 	textEditor := editor.New(width, height)
-	textEditor.SetLanguage("markdown", styles.HighlighterTheme())
+	textEditor.SetLanguage("markdown", styles.EditorLanguageTheme())
 	textEditor.SetExtraHighlightedContextLines(300)
 	textEditor.WithTheme(styles.EditorTheme())
 	textEditor.Focus()

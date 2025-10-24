@@ -222,7 +222,7 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 			m.isShowingPrompt = !m.isShowingPrompt
 			if m.isShowingPrompt {
 				m.editor.SetContent(m.prompt + "\n")
-				m.editor.SetLanguage("markdown", styles.HighlighterTheme())
+				m.editor.SetLanguage("markdown", styles.EditorLanguageTheme())
 				m.editor.SetExtraHighlightedContextLines(300)
 			} else {
 				m.editor.SetContent(m.response)
