@@ -167,7 +167,7 @@ func GetBranchDiff(branch string) (string, error) {
 
 	// truncate diff if too large
 	// for now, just limit the number of lines
-	maxLines := 2000
+	maxLines := 3000
 	lines := strings.Split(string(output), "\n")
 	if len(lines) > maxLines {
 		lines = lines[:maxLines]
