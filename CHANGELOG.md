@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.2](https://github.com/ionut-t/bark/compare/v2.6.1...v2.6.2) (2025-10-26)
+
+
+### Bug Fixes
+
+* **git:** increase maximum diff line count ([ec0467e](https://github.com/ionut-t/bark/commit/ec0467e658381f0d986c5157bde92d00d0da9060))
+
 ## [2.6.1](https://github.com/ionut-t/bark/compare/v2.6.0...v2.6.1) (2025-10-22)
 
 
