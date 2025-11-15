@@ -11,7 +11,7 @@ require (
 	github.com/ionut-t/coffee/help v0.0.0-20250925184550-4d896ec707cc
 	github.com/ionut-t/coffee/markdown v0.0.0-20250925184550-4d896ec707cc
 	github.com/ionut-t/coffee/styles v0.0.0-20251024200842-6cac28cee62e
-	github.com/ionut-t/goeditor/adapter-bubbletea v0.2.9
+	github.com/ionut-t/goeditor/adapter-bubbletea v0.2.11
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
 	google.golang.org/genai v1.26.0
@@ -36,6 +36,7 @@ require (
 	github.com/charmbracelet/x/exp/slice v0.0.0-20250327172914-2fdc97757edf // indirect
 	github.com/charmbracelet/x/exp/strings v0.0.0-20250814162307-57b675fecd71 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
+	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
@@ -48,12 +49,12 @@ require (
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/ionut-t/goeditor/core v0.2.6 // indirect
+	github.com/ionut-t/goeditor/core v0.2.7 // indirect
 	github.com/ionut-t/gotable v0.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
-	github.com/mattn/go-runewidth v0.0.16 // indirect
+	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect

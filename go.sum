@@ -66,6 +66,8 @@ github.com/charmbracelet/x/termios v0.1.1/go.mod h1:rB7fnv1TgOPOyyKRJ9o+AsTU/vK5
 github.com/charmbracelet/x/xpty v0.1.2 h1:Pqmu4TEJ8KeA9uSkISKMU3f+C1F6OGBn8ABuGlqCbtI=
 github.com/charmbracelet/x/xpty v0.1.2/go.mod h1:XK2Z0id5rtLWcpeNiMYBccNNBrP2IJnzHI0Lq13Xzq4=
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=
+github.com/clipperhouse/uax29/v2 v2.2.0 h1:ChwIKnQN3kcZteTXMgb1wztSgaU+ZemkgWdohwgs8tY=
+github.com/clipperhouse/uax29/v2 v2.2.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
 github.com/cncf/udpa/go v0.0.0-20191209042840-269d4d468f6f/go.mod h1:M8M6+tZqaGXZJjfX53e64911xZQV5JYwmTeXPW+k8Sc=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/creack/pty v1.1.24 h1:bJrF4RRfyJnbTJqzRLHzcGaZK1NeM5kTC9jGgovnR1s=
@@ -130,10 +132,10 @@ github.com/ionut-t/coffee/markdown v0.0.0-20250925184550-4d896ec707cc h1:aJUY8iY
 github.com/ionut-t/coffee/markdown v0.0.0-20250925184550-4d896ec707cc/go.mod h1:weaABY7r/2+VSp1A1S4Wkd+sncmztEEV867XmbwVaAQ=
 github.com/ionut-t/coffee/styles v0.0.0-20251024200842-6cac28cee62e h1:XbmAceCo+zmy8Qu8V/BizBrRe64RXaxa2XfFpx73eBE=
 github.com/ionut-t/coffee/styles v0.0.0-20251024200842-6cac28cee62e/go.mod h1:aIALmfWrsbP9krVhZ9MfQeHjhU8kEY7/qDKZyR+ZFJk=
-github.com/ionut-t/goeditor/adapter-bubbletea v0.2.9 h1:sqhTTJZ+HSDX7D1u8iV9yPaFLVeLUzJ9980ghzanTyg=
-github.com/ionut-t/goeditor/adapter-bubbletea v0.2.9/go.mod h1:vdMLLnKl0L7SOYlPiP7h8OUIbM2RMNhQwDUjT4ps/Os=
-github.com/ionut-t/goeditor/core v0.2.6 h1:zeOyg4ru+t883Rmu0M62hMx65U8cI+Cjb4dt3dQ0+Pc=
-github.com/ionut-t/goeditor/core v0.2.6/go.mod h1:sFe2iuAcaU8xyaYiiPEZBoY+0N+rljwdGH75msGiyBU=
+github.com/ionut-t/goeditor/adapter-bubbletea v0.2.11 h1:wO9Q8ma/3G2b/thuQ3uVQqE39ENvgKo9Vlr9uMxXHpM=
+github.com/ionut-t/goeditor/adapter-bubbletea v0.2.11/go.mod h1:HwVUJ155O+9vKyJLoiOena2VG0zTnpxAoVKOrFCCrV0=
+github.com/ionut-t/goeditor/core v0.2.7 h1:HIhGwsp7+bmSASiLVUiEo7oL3M1mtwxFhbCTObOvKtI=
+github.com/ionut-t/goeditor/core v0.2.7/go.mod h1:sFe2iuAcaU8xyaYiiPEZBoY+0N+rljwdGH75msGiyBU=
 github.com/ionut-t/gotable v0.1.0 h1:1dZ7KBRQ9uJQOWIOWsLji3dBWp6QVdWmAw0mEAk4bxA=
 github.com/ionut-t/gotable v0.1.0/go.mod h1:YY4s6KP/yUrNMJkvMLDfhy7qflhiAxOqK2VnD4deWmI=
 github.com/kr/pretty v0.2.1/go.mod h1:ipq/a2n7PKx3OHsz4KJII5eveXtPO4qwEXGdVfWzfnI=
@@ -152,8 +154,8 @@ github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D
 github.com/mattn/go-localereader v0.0.1 h1:ygSAOl7ZXTx4RdPYinUpg6W99U8jWvWi9Ye2JC/oIi4=
 github.com/mattn/go-localereader v0.0.1/go.mod h1:8fBrzywKY7BI3czFoHkuzRoWE9C+EiG4R1k4Cjx5p88=
 github.com/mattn/go-runewidth v0.0.12/go.mod h1:RAqKPSqVFrSLVXbA8x7dzmKdmGzieGRCM46jaSJTDAk=
-github.com/mattn/go-runewidth v0.0.16 h1:E5ScNMtiwvlvB5paMFdw9p4kSQzbXFikJ5SQO6TULQc=
-github.com/mattn/go-runewidth v0.0.16/go.mod h1:Jdepj2loyihRzMpdS35Xk/zdY8IAYHsh153qUoGf23w=
+github.com/mattn/go-runewidth v0.0.19 h1:v++JhqYnZuu5jSKrk9RbgF5v4CGUjqRfBm05byFGLdw=
+github.com/mattn/go-runewidth v0.0.19/go.mod h1:XBkDxAl56ILZc9knddidhrOlY5R/pDhgLpndooCuJAs=
 github.com/microcosm-cc/bluemonday v1.0.27 h1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwXFM08ygZfk=
 github.com/microcosm-cc/bluemonday v1.0.27/go.mod h1:jFi9vgW+H7c3V0lb6nR74Ib/DIB5OBs92Dimizgw2cA=
 github.com/mitchellh/hashstructure/v2 v2.0.2 h1:vGKWl0YJqUNxE8d+h8f6NJLcCJrgbhC4NcD46KavDd4=
