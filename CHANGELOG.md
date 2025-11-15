@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.0](https://github.com/ionut-t/bark/compare/v2.6.2...v2.7.0) (2025-11-15)
+
+
+### Features
+
+* **prompts:** add Rust and Zig code review guidelines ([9399ff2](https://github.com/ionut-t/bark/commit/9399ff2b50358b3038d4ba86f91ba382d62b2237))
+
 ## [2.6.2](https://github.com/ionut-t/bark/compare/v2.6.1...v2.6.2) (2025-10-26)
 
 
