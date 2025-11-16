@@ -15,8 +15,7 @@ import (
 	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 )
 
-var commitLoadingMessages = []string{
-	// Classic commit message struggles
+var generationPhaseLoadingMessages = [...]string{
 	"Crafting the perfect commit message...",
 	"Avoiding 'fix stuff' and 'updated files'...",
 	"Resisting the urge to write 'WIP'...",
@@ -24,7 +23,6 @@ var commitLoadingMessages = []string{
 	"Suppressing 'fixed bug' instincts...",
 	"Channeling conventional commit energy...",
 
-	// Git humor
 	"git commit -m 'AI did it'...",
 	"Blaming previous commits...",
 	"Rewriting git history... wait, wrong feature...",
@@ -32,59 +30,50 @@ var commitLoadingMessages = []string{
 	"Cherry-picking the best words...",
 	"Rebasing your expectations...",
 
-	// Professional vs reality
 	"Converting 'idk why this works' to professional speak...",
 	"Translating 'YOLO' into corporate...",
 	"Making 'it works now' sound intentional...",
 	"Disguising trial and error as strategy...",
 	"Framing luck as expertise...",
 
-	// Semantic commit types
 	"Deciding between fix, feat, or chore...",
 	"Adding appropriate emoji... just kidding...",
 	"Determining if this is breaking or not...",
 	"Classifying your chaos...",
 
-	// Code change analysis
 	"Analyzing what you actually changed...",
 	"Figuring out what this diff means...",
 	"Reading your mind (and your code)...",
 	"Decoding the intent behind these changes...",
 	"Understanding what future you will need to know...",
 
-	// Time and process
 	"Taking longer than the actual code changes...",
 	"Spending more time on message than code...",
 	"Practicing the art of summarization...",
 	"Condensing hours of work into 50 characters...",
 
-	// Playful/Meta
 	"Writing commit message for commit message generator...",
 	"Committing to writing better commits...",
 	"Meta-analyzing your changes...",
 	"Generating commit inception...",
 
-	// Developer habits
 	"Checking if anyone will actually read this...",
 	"Preparing for future blame annotations...",
 	"Writing for your future self...",
 	"Documenting for the archaeologists...",
 	"Creating tomorrow's git log...",
 
-	// Code quality themes
 	"Summarizing your refactoring journey...",
 	"Describing technical debt payments...",
 	"Explaining the unexplainable...",
 	"Justifying questionable decisions...",
 
-	// AI/Creative
 	"Consulting the commit message gods...",
 	"Channeling Linus Torvalds...",
 	"Computing semantic similarity...",
 	"Training on 10 million commit messages...",
 	"Avoiding passive voice...",
 
-	// Short and punchy
 	"Summarizing brilliance...",
 	"Capturing context...",
 	"Being concise...",
@@ -92,6 +81,32 @@ var commitLoadingMessages = []string{
 	"Making it meaningful...",
 }
 
+var commitPhaseLoadingMessages = [...]string{
+	"Sealing the deal with Git...",
+	"Locking in your genius...",
+	"Making it official...",
+	"Putting a bow on your code...",
+	"Sending your changes to the future...",
+	"Committing to excellence...",
+	"Locking in those improvements...",
+	"Making your code history...",
+	"Finalising the masterpiece...",
+	"Putting your stamp on it...",
+	"Making you take the blame...",
+	"Sending your changes off to Git heaven...",
+	"Locking in your legacy...",
+	"git commit -m 'AI did it'...",
+	"git reset --hard HEAD~1000 ... wait, wrong feature 👿...",
+	"Deleting your changes... just kidding 😈...",
+	"Squashing your shame into one commit...",
+	"Committing your breaking changes...",
+	"Reverting your changes 😈...",
+	"rm -rf . ... 👺 oh, wrong command...",
+}
+
+type commitGenerationLoadingMsg struct {
+	message string
+}
 type commitLoadingMsg struct {
 	message string
 }
@@ -104,17 +119,19 @@ type commitResponseMsg struct {
 type commitChangesModel struct {
 	width, height int
 
-	editor           editor.Model
-	commitAll        bool
-	loading          bool
-	loadingMsg       string
-	loadingMsgPicker *loadingMessagePicker
-	spinner          spinner.Model
-	llm              llm.LLM
-	prompt           string
-	error            error
-	response         string
-	isShowingPrompt  bool
+	editor          editor.Model
+	commitAll       bool
+	loading         bool
+	loadingMsg      string
+	spinner         spinner.Model
+	llm             llm.LLM
+	prompt          string
+	error           error
+	response        string
+	isShowingPrompt bool
+
+	loadingMsgPicker    *loadingMessagePicker
+	committingMsgPicker *loadingMessagePicker
 }
 
 type commitChangesMsg struct {
@@ -133,18 +150,20 @@ func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool, width, he
 	sp.Style = styles.Primary
 
 	m := commitChangesModel{
-		width:            width,
-		height:           height,
-		editor:           textEditor,
-		spinner:          sp,
-		loading:          true,
-		llm:              llm,
-		prompt:           prompt,
-		commitAll:        commitAll,
-		loadingMsgPicker: newLoadingMessagePicker(commitLoadingMessages),
+		width:     width,
+		height:    height,
+		editor:    textEditor,
+		spinner:   sp,
+		loading:   true,
+		llm:       llm,
+		prompt:    prompt,
+		commitAll: commitAll,
+
+		loadingMsgPicker:    newLoadingMessagePicker(generationPhaseLoadingMessages[:]),
+		committingMsgPicker: newLoadingMessagePicker(commitPhaseLoadingMessages[:]),
 	}
 
-	m.loadingMsg = m.getLoadingMessage()
+	m.loadingMsg = m.getGenerationLoadingMessage()
 
 	return m
 }
@@ -164,7 +183,7 @@ func (m *commitChangesModel) startCommitGeneration(ctx context.Context) tea.Cmd 
 
 	return tea.Batch(
 		m.spinner.Tick,
-		m.dispatchLoadingMsg(),
+		m.dispatchCommitGenerationLoadingMsg(),
 		getCommitMessage(ctx, m.llm, m.prompt),
 	)
 }
@@ -176,13 +195,21 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
+	case commitGenerationLoadingMsg:
+		if !m.loading {
+			return m, nil
+		}
+
+		m.loadingMsg = msg.message
+		return m, m.dispatchCommitGenerationLoadingMsg()
+
 	case commitLoadingMsg:
 		if !m.loading {
 			return m, nil
 		}
 
 		m.loadingMsg = msg.message
-		return m, m.dispatchLoadingMsg()
+		return m, m.dispatchCommittingLoadingMsg()
 
 	case commitResponseMsg:
 		m.loading = false
@@ -231,9 +258,10 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 
 		case "alt+enter", "ctrl+s":
 			m.loading = true
-			m.loadingMsg = "Committing changes..."
+			m.loadingMsg = m.getCommittingLoadingMsg()
 			return m, tea.Batch(
 				m.spinner.Tick,
+				m.dispatchCommittingLoadingMsg(),
 				utils.DispatchMsg(
 					commitChangesMsg{
 						message:   m.editor.GetCurrentContent(),
@@ -334,7 +362,8 @@ func (m *commitChangesModel) commitChangesHelp() string {
 			commands, func(c struct {
 				Command     string
 				Description string
-			}) bool {
+			},
+			) bool {
 				return c.Command == "i" || c.Command == "ctrl+r" || c.Command == "tab"
 			},
 		)
@@ -359,12 +388,20 @@ func getCommitMessage(ctx context.Context, llm llm.LLM, prompt string) tea.Cmd {
 	}
 }
 
-func (m *commitChangesModel) dispatchLoadingMsg() tea.Cmd {
-	return dispatchLoadingMessage(commitLoadingMsg{message: m.getLoadingMessage()})
+func (m *commitChangesModel) dispatchCommitGenerationLoadingMsg() tea.Cmd {
+	return dispatchLoadingMessage(commitGenerationLoadingMsg{message: m.getGenerationLoadingMessage()})
 }
 
-func (m *commitChangesModel) getLoadingMessage() string {
+func (m *commitChangesModel) dispatchCommittingLoadingMsg() tea.Cmd {
+	return dispatchLoadingMessage(commitLoadingMsg{message: m.getCommittingLoadingMsg()})
+}
+
+func (m *commitChangesModel) getGenerationLoadingMessage() string {
 	return m.loadingMsgPicker.next()
+}
+
+func (m *commitChangesModel) getCommittingLoadingMsg() string {
+	return m.committingMsgPicker.next()
 }
 
 func (m *commitChangesModel) canRetry() bool {

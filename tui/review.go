@@ -18,18 +18,15 @@ import (
 	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 )
 
-var loadingMessages = []string{
-	// Brewing/Cooking themed
+var loadingMessages = [...]string{
 	"Brewing the perfect review...",
 	"Simmering your code with a dash of criticism...",
 	"Marinating your commits in wisdom...",
 
-	// Legendary/Epic themed
 	"Summoning legendary reviewers...",
 	"Channeling the wisdom of ancient code masters...",
 	"Consulting the elder scroll of best practices...",
 
-	// Brutally honest/Roasting themed
 	"Analysing your code with ruthless precision...",
 	"Preparing to unleash brutal honesty...",
 	"Getting ready to roast your spaghetti code...",
@@ -37,7 +34,6 @@ var loadingMessages = []string{
 	"Loading the constructive criticism cannon...",
 	"Calibrating the BS detector...",
 
-	// Code quality themed
 	"Searching for sneaky bugs in the shadows...",
 	"Counting your TODO comments... this might take a while...",
 	"Deciphering what this code actually does...",
@@ -45,33 +41,28 @@ var loadingMessages = []string{
 	"Archaeological expedition into your codebase...",
 	"Carbon dating your legacy code...",
 
-	// AI/Processing themed
 	"Training neural networks on your naming conventions...",
 	"Computing the perfect roast-to-help ratio...",
 	"Processing... complexity detected...",
 	"Compiling witty remarks...",
 	"Debugging your life choices...",
 
-	// Developer culture references
 	"Asking Stack Overflow for the best burns...",
 	"Checking if your code passes the code smell test...",
 	"Measuring technical debt in Bitcoin...",
 	"Running static analysis on your life choices...",
 	"Peer reviewing your peer review request...",
 
-	// Time/Patience themed
 	"Good things come to those who wait...",
 	"Patience... greatness takes time...",
 	"Rome wasn't debugged in a day...",
 	"Quality reviews can't be rushed...",
 
-	// Dramatic/Shakespearean
 	"Crafting feedback with Shakespearean flair...",
 	"To refactor or not to refactor...",
 	"Penning your code's tragic backstory...",
 	"Composing a sonnet about your spaghetti code...",
 
-	// Playful/Cheeky
 	"Judging your commit messages silently...",
 	"Pretending to understand your regex...",
 	"Wondering why you didn't use a switch statement...",
@@ -80,19 +71,16 @@ var loadingMessages = []string{
 	"Preparing emotionally for what's ahead...",
 	"Trying not to cry...",
 
-	// Action/Battle themed
 	"Deploying the code critique squad...",
 	"Assembling the review dream team...",
 	"Mobilizing the refactoring task force...",
 	"Unleashing the linter army...",
 
-	// Mystery/Detective themed
 	"Following the trail of code smells...",
 	"Investigating suspicious patterns...",
 	"Gathering evidence of anti-patterns...",
 	"CSI: Code Scene Investigation...",
 
-	// Scientific/Experimental
 	"Conducting peer review experiments...",
 	"Analysing under a microscope...",
 	"Testing hypothesis: 'This will work'... unlikely...",
@@ -161,7 +149,7 @@ func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height in
 		spinner:          sp,
 		markdown:         markdown.New(),
 		reviewer:         reviewer,
-		loadingMsgPicker: newLoadingMessagePicker(loadingMessages),
+		loadingMsgPicker: newLoadingMessagePicker(loadingMessages[:]),
 	}
 
 	m.loadingMsg = m.getLoadingMessage()

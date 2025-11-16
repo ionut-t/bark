@@ -12,8 +12,7 @@ import (
 	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 )
 
-var prLoadingMessages = []string{
-	// Classic PR struggles
+var prLoadingMessages = [...]string{
 	"Crafting PR description that's more than 'see title'...",
 	"Writing something better than 'updated code'...",
 	"Avoiding the dreaded 'WIP' description...",
@@ -21,104 +20,89 @@ var prLoadingMessages = []string{
 	"Actually describing what changed this time...",
 	"Making your changes sound more impressive...",
 
-	// PR templates and structure
 	"Filling out that PR template you always skip...",
 	"Adding context future you will thank you for...",
 	"Ticking all the boxes literally and figuratively...",
 	"Writing 'What changed' vs 'What you meant to change'...",
 	"Documenting what you actually did vs what you said you'd do...",
 
-	// Screenshots and demos
 	"Preparing to add 'screenshots later'...",
 	"Generating 'before/after' you'll definitely forget to add...",
 	"Remembering you should include a demo GIF...",
 	"Making note to add video walkthrough (spoiler: you won't)...",
 
-	// Review process
 	"Preparing for inevitable 'can you add tests?'...",
 	"Getting ready for 'what about edge cases?'...",
 	"Anticipating 'did you consider...' comments...",
 	"Pre-emptively addressing reviewer concerns...",
 	"Writing description that answers questions before they're asked...",
 
-	// Code change analysis
 	"Explaining why 500 lines changed in package-lock.json...",
 	"Justifying that one line change that took 3 hours...",
 	"Describing your refactoring journey briefly...",
 	"Summarising that rabbit hole you went down...",
 	"Converting your commit history into coherent narrative...",
 
-	// Breaking changes and impact
 	"Checking if this is actually breaking...",
 	"Assessing blast radius of your changes...",
 	"Documenting the database migrations you hope work...",
 	"Noting backwards compatibility (fingers crossed)...",
 	"Listing what could possibly go wrong...",
 
-	// Time and effort
 	"Making 2 weeks of work sound simple...",
 	"Condensing your pain into a few paragraphs...",
 	"Summarising that debugging nightmare concisely...",
 	"Explaining why this took so long...",
 	"Describing the journey, not just the destination...",
 
-	// Testing and QA
 	"Listing tests you definitely ran...",
 	"Documenting manual testing steps...",
 	"Noting that you tested it on your machine...",
 	"Preparing 'tested locally, works fine' statement...",
 	"Adding checklist of things that should be tested...",
 
-	// Dependencies and related work
 	"Linking to that Jira ticket somewhere...",
 	"Finding related PRs from 6 months ago...",
 	"Mentioning dependencies and blockers...",
 	"Noting which issue this closes...",
 	"Cross-referencing all the things...",
 
-	// Professional polish
 	"Making your hacky solution sound architectural...",
 	"Converting 'I tried stuff until it worked' to technical prose...",
 	"Framing emergency fixes as strategic improvements...",
 	"Turning technical debt into 'future optimisations'...",
 	"Adding professional gloss to your chaos...",
 
-	// Review readiness
 	"Preparing for the 'needs more context' comment...",
 	"Getting ready for 'can you explain this part?'...",
 	"Anticipating 'what's the motivation here?'...",
 	"Pre-answering the obvious questions...",
 	"Making it reviewer-friendly...",
 
-	// Git and GitHub specific
 	"Writing better than 'merge main into feature'...",
 	"Explaining why you force-pushed 12 times...",
 	"Justifying those 200+ file changes...",
 	"Describing what's in those mysterious commits...",
 	"Making your branch name make sense...",
 
-	// CI/CD and deployment
 	"Hoping CI passes this time...",
 	"Preparing deployment notes just in case...",
 	"Adding rollback instructions (better safe than sorry)...",
 	"Noting environment-specific considerations...",
 	"Warning about potential deployment gotchas...",
 
-	// Playful/Meta
 	"Writing description for PR description generator...",
 	"Describing the indescribable...",
 	"Meta-documenting your documentation...",
 	"Making recursion make sense...",
 	"Explaining the explainer...",
 
-	// Team dynamics
 	"Crafting description that gets quick approval...",
 	"Writing for reviewers who skim...",
 	"Making it obvious you did your homework...",
 	"Adding context for people who weren't in the planning meeting...",
 	"Documenting for teammates across timezones...",
 
-	// Short and punchy
 	"Summarising elegantly...",
 	"Being comprehensive yet concise...",
 	"Adding all the details...",
@@ -168,7 +152,7 @@ func newPRModel(llm llm.LLM, width, height int) prModel {
 		spinner:          sp,
 		loading:          true,
 		llm:              llm,
-		loadingMsgPicker: newLoadingMessagePicker(prLoadingMessages),
+		loadingMsgPicker: newLoadingMessagePicker(prLoadingMessages[:]),
 	}
 
 	m.loadingMsg = m.getLoadingMessage()
