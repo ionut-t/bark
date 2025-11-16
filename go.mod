@@ -11,7 +11,7 @@ require (
 	github.com/ionut-t/coffee/help v0.0.0-20250925184550-4d896ec707cc
 	github.com/ionut-t/coffee/markdown v0.0.0-20250925184550-4d896ec707cc
 	github.com/ionut-t/coffee/styles v0.0.0-20251024200842-6cac28cee62e
-	github.com/ionut-t/goeditor/adapter-bubbletea v0.2.11
+	github.com/ionut-t/goeditor/adapter-bubbletea v0.2.12
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
 	google.golang.org/genai v1.26.0
