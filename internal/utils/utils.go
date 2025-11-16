@@ -10,10 +10,15 @@ import (
 	"github.com/ionut-t/bark/internal/config"
 )
 
+var codeFenceEndPattern = regexp.MustCompile("(?m)([^\\n])(\\+```|-```)([^\\n\\s]*)\\s*$")
+
 // NormaliseCodeFences ensures code blocks and diff lines are not unnecessarily indented.
 // It removes all leading whitespace from code fence markers and diff lines,
 // while preserving internal indentation of the code/diff content.
 func NormaliseCodeFences(content string) string {
+	// First pass: split lines that end with +``` or -``` onto separate lines
+	content = codeFenceEndPattern.ReplaceAllString(content, "$1\n$2$3")
+
 	lines := strings.Split(content, "\n")
 	inCodeBlock := false
 

@@ -14,6 +14,7 @@ require (
 	github.com/ionut-t/goeditor/adapter-bubbletea v0.2.12
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
+	github.com/stretchr/testify v1.11.1
 	google.golang.org/genai v1.26.0
 )
 
@@ -37,6 +38,7 @@ require (
 	github.com/charmbracelet/x/exp/strings v0.0.0-20250814162307-57b675fecd71 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
@@ -66,6 +68,7 @@ require (
 	github.com/muesli/roff v0.1.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
@@ -89,4 +92,5 @@ require (
 	google.golang.org/grpc v1.66.2 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
