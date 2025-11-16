@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.0](https://github.com/ionut-t/bark/compare/v2.7.0...v2.8.0) (2025-11-16)
+
+
+### Features
+
+* **tui:** provide distinct loading messages for commit phases ([ddc0bb4](https://github.com/ionut-t/bark/commit/ddc0bb4bbf33e1ea356505cc37a152e6dd351a33))
+
 ## [2.7.0](https://github.com/ionut-t/bark/compare/v2.6.2...v2.7.0) (2025-11-15)
 
 
