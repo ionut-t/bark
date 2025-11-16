@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.1](https://github.com/ionut-t/bark/compare/v2.8.0...v2.8.1) (2025-11-16)
+
+
+### Bug Fixes
+
+* **utils:** improve code fence normalisation for diff markers ([a82eedd](https://github.com/ionut-t/bark/commit/a82eedd220b41f1d4c5a52816c626990f0c74b60))
+
 ## [2.8.0](https://github.com/ionut-t/bark/compare/v2.7.0...v2.8.0) (2025-11-16)
 
 
