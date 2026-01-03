@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.0](https://github.com/ionut-t/bark/compare/v2.9.0...v2.10.0) (2026-01-03)
+
+
+### Features
+
+* **config:** add option to set maximum diff lines ([cb43d58](https://github.com/ionut-t/bark/commit/cb43d5838ba136003678a5e436328dfdaa6cd143))
+
 ## [2.9.0](https://github.com/ionut-t/bark/compare/v2.8.1...v2.9.0) (2026-01-03)
 
 
