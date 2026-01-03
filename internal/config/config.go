@@ -1,13 +1,12 @@
 package config
 
 import (
-	"bytes"
 	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
-	"text/template"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/viper"
 )
 
@@ -17,13 +16,10 @@ var defaultCommitInstructions string
 //go:embed pull_request_description.md
 var defaultPRInstructions string
 
-//go:embed config.toml
-var defaultConfig string
-
 const (
-	EditorKey      = "EDITOR"
-	LLMProviderKey = "LLM_PROVIDER"
-	LLMModelKey    = "LLM_MODEL"
+	EditorKey      = "editor"
+	LLMProviderKey = "llm_provider"
+	LLMModelKey    = "llm_model"
 
 	rootDir                    = ".bark"
 	configFileName             = ".config.toml"
@@ -32,25 +28,66 @@ const (
 )
 
 type Config interface {
+	SetEditor(editor string) error
 	GetEditor() string
+	SetLLMProvider(provider string) error
 	GetLLMProvider() (string, error)
+	SetLLMModel(model string) error
 	GetLLMModel() (string, error)
 	GetCommitInstructions() string
 	GetPRInstructions() string
 }
 
-type config struct{}
+type configData struct {
+	Editor      string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
+	LLMProvider string `toml:"llm_provider" comment:"It can be set to Gemini or Vertex AI"`
+	LLMModel    string `toml:"llm_model" comment:"The LLM model is required for Vertex AI/Gemini LLMs, e.g., gemini-2.5-pro"`
+}
+
+type config struct {
+	data configData
+}
+
+func getConfigData() configData {
+	return configData{
+		Editor:      GetEditor(),
+		LLMProvider: viper.GetString(LLMProviderKey),
+		LLMModel:    viper.GetString(LLMModelKey),
+	}
+}
 
 func New() Config {
-	return &config{}
+	return &config{
+		data: getConfigData(),
+	}
+}
+
+func (c *config) SetEditor(editor string) error {
+	if editor == c.GetEditor() {
+		return nil
+	}
+
+	c.data.Editor = editor
+
+	return writeConfig(c.data)
 }
 
 func (c *config) GetEditor() string {
-	return GetEditor()
+	return c.data.Editor
+}
+
+func (c *config) SetLLMProvider(provider string) error {
+	if provider == c.data.LLMProvider {
+		return nil
+	}
+
+	c.data.LLMProvider = provider
+
+	return writeConfig(c.data)
 }
 
 func (c *config) GetLLMProvider() (string, error) {
-	provider := viper.GetString(LLMProviderKey)
+	provider := c.data.LLMProvider
 
 	if provider == "" {
 		return "", fmt.Errorf("%s not set in config", LLMProviderKey)
@@ -59,8 +96,18 @@ func (c *config) GetLLMProvider() (string, error) {
 	return provider, nil
 }
 
+func (c *config) SetLLMModel(model string) error {
+	if model == c.data.LLMModel {
+		return nil
+	}
+
+	c.data.LLMModel = model
+
+	return writeConfig(c.data)
+}
+
 func (c *config) GetLLMModel() (string, error) {
-	model := viper.GetString(LLMModelKey)
+	model := c.data.LLMModel
 
 	if model == "" {
 		return "", fmt.Errorf("%s not set in config", LLMModelKey)
@@ -80,6 +127,15 @@ func (c *config) GetPRInstructions() string {
 	}
 
 	return content
+}
+
+func writeConfig(config configData) error {
+	out, err := toml.Marshal(config)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(GetConfigFilePath(), out, 0o644)
 }
 
 func getDefaultEditor() string {
@@ -114,7 +170,7 @@ func InitialiseConfigFile() (string, error) {
 		}
 
 		dir := filepath.Join(home, rootDir)
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", err
 		}
 
@@ -124,9 +180,9 @@ func InitialiseConfigFile() (string, error) {
 		if _, err := os.Stat(configPath); os.IsNotExist(err) {
 			viper.SetDefault(EditorKey, GetEditor())
 			viper.SetDefault(LLMProviderKey, "")
-			viper.SetDefault(LLMModelKey, "")
+			viper.SetDefault(LLMModelKey, "gemini-2.0-flash")
 
-			if err := writeDefaultConfig(); err != nil {
+			if err := writeConfig(getConfigData()); err != nil {
 				return "", err
 			}
 
@@ -145,13 +201,13 @@ func InitialiseCommitInstructions() error {
 	prPath := GetPRFilePath()
 
 	if _, err := os.Stat(commitPath); os.IsNotExist(err) {
-		if err := os.WriteFile(commitPath, []byte(defaultCommitInstructions), 0644); err != nil {
+		if err := os.WriteFile(commitPath, []byte(defaultCommitInstructions), 0o644); err != nil {
 			return fmt.Errorf("failed to write commit instructions: %w", err)
 		}
 	}
 
 	if _, err := os.Stat(prPath); os.IsNotExist(err) {
-		if err := os.WriteFile(prPath, []byte(defaultPRInstructions), 0644); err != nil {
+		if err := os.WriteFile(prPath, []byte(defaultPRInstructions), 0o644); err != nil {
 			return fmt.Errorf("failed to write PR instructions: %w", err)
 		}
 	}
@@ -170,7 +226,7 @@ func GetStorage() (string, error) {
 	}
 
 	dir := filepath.Join(home, rootDir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 
@@ -193,24 +249,6 @@ func GetPRFilePath() string {
 	}
 
 	return filepath.Join(home, rootDir, prInstructionsFileName)
-}
-
-func writeDefaultConfig() error {
-	tmpl, err := template.New("config").Parse(defaultConfig)
-	if err != nil {
-		return err
-	}
-
-	var buf bytes.Buffer
-	data := map[string]any{
-		"Editor": GetEditor(),
-	}
-
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return err
-	}
-
-	return os.WriteFile(GetConfigFilePath(), buf.Bytes(), 0644)
 }
 
 func getInstructions(filePath, defaultContent string) string {

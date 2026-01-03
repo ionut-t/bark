@@ -12,6 +12,7 @@ require (
 	github.com/ionut-t/coffee/markdown v0.0.0-20250925184550-4d896ec707cc
 	github.com/ionut-t/coffee/styles v0.0.0-20251024200842-6cac28cee62e
 	github.com/ionut-t/goeditor/adapter-bubbletea v0.2.12
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
@@ -67,7 +68,6 @@ require (
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/roff v0.1.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect

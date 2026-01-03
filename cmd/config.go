@@ -9,7 +9,6 @@ import (
 	"github.com/ionut-t/bark/pkg/reviewers"
 	"github.com/ionut-t/coffee/styles"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 func configCmd() *cobra.Command {
@@ -17,6 +16,7 @@ func configCmd() *cobra.Command {
 		Use:   "config",
 		Short: "Manage configuration",
 		Run: func(cmd *cobra.Command, args []string) {
+			cfg := config.New()
 			configPath := config.GetConfigFilePath()
 
 			editorFlag, _ := cmd.Flags().GetString(config.EditorKey)
@@ -26,28 +26,30 @@ func configCmd() *cobra.Command {
 			flagsSet := false
 
 			if editorFlag != "" {
-				viper.Set(config.EditorKey, editorFlag)
+				if err := cfg.SetEditor(editorFlag); err != nil {
+					fmt.Println("Error setting editor:", err)
+					return
+				}
 				flagsSet = true
-				fmt.Println(styles.Success.Render("Editor set to: " + editorFlag))
 			}
 
 			if llmProviderFlag != "" {
-				viper.Set(config.LLMProviderKey, llmProviderFlag)
+				if err := cfg.SetLLMProvider(llmProviderFlag); err != nil {
+					fmt.Println("Error setting LLM provider:", err)
+					return
+				}
 				flagsSet = true
-				fmt.Println(styles.Success.Render("LLM provider set to: " + llmProviderFlag))
 			}
 
 			if llmModelFlag != "" {
-				viper.Set(config.LLMModelKey, llmModelFlag)
+				if err := cfg.SetLLMModel(llmModelFlag); err != nil {
+					fmt.Println("Error setting LLM model:", err)
+					return
+				}
 				flagsSet = true
-				fmt.Println(styles.Success.Render("LLM model set to: " + llmModelFlag))
 			}
 
-			if flagsSet {
-				if err := viper.WriteConfig(); err != nil {
-					fmt.Println(styles.Error.Render("error writing config: " + err.Error()))
-				}
-			} else {
+			if !flagsSet {
 				if err := utils.OpenEditor(configPath); err != nil {
 					fmt.Println(styles.Error.Render("error opening editor: " + err.Error()))
 				}
@@ -68,7 +70,6 @@ func initConfig() error {
 	}
 
 	storage, err := config.GetStorage()
-
 	if err != nil {
 		return fmt.Errorf("error getting storage path: %w", err)
 	}
