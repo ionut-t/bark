@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.1](https://github.com/ionut-t/bark/compare/v2.10.0...v2.10.1) (2026-01-03)
+
+
+### Bug Fixes
+
+* **tui:** use named constants for list dimensions ([5233881](https://github.com/ionut-t/bark/commit/5233881801943b208e730bf37e076be20a1222bc))
+
 ## [2.10.0](https://github.com/ionut-t/bark/compare/v2.9.0...v2.10.0) (2026-01-03)
 
 
