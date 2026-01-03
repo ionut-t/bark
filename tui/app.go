@@ -19,8 +19,10 @@ import (
 	"github.com/ionut-t/coffee/styles"
 )
 
-const defaultCommitLimit = 25
-const ctxTimeout = 3 * time.Minute
+const (
+	defaultCommitLimit = 25
+	ctxTimeout         = 3 * time.Minute
+)
 
 //go:embed format.md
 var formatingRequirements string
@@ -109,7 +111,6 @@ type Options struct {
 
 func New(options Options) *Model {
 	llm, err := llm_factory.New(context.Background(), options.Config)
-
 	if err != nil {
 		return &Model{
 			error: err,
@@ -206,7 +207,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case listCommitsMsg:
 		commits, err := git.GetCommits(defaultCommitLimit)
-
 		if err != nil {
 			m.error = err
 			return m, nil
@@ -570,7 +570,7 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 	var err error
 
 	if m.branch != "" {
-		diff, m.branchErr = git.GetBranchDiff(m.branch)
+		diff, m.branchErr = git.GetBranchDiff(m.branch, m.config.GetMaxDiffLines())
 
 		if m.branchErr != nil {
 			m.message = fmt.Sprintf(
@@ -620,7 +620,6 @@ func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
 	instructions := m.config.GetCommitInstructions()
 
 	diff, err := git.GetWorkingTreeDiff(commitAll)
-
 	if err != nil {
 		m.error = err
 		return m, nil
@@ -674,8 +673,7 @@ func (m *Model) handleCommitMessageRetry() (tea.Model, tea.Cmd) {
 func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
 	instructions := m.config.GetPRInstructions()
 
-	branchInfo, err := git.GetBranchInfo(m.branch)
-
+	branchInfo, err := git.GetBranchInfo(m.branch, m.config.GetMaxDiffLines())
 	if err != nil {
 		m.error = err
 		return m, nil

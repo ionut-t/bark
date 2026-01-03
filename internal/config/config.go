@@ -17,14 +17,17 @@ var defaultCommitInstructions string
 var defaultPRInstructions string
 
 const (
-	EditorKey      = "editor"
-	LLMProviderKey = "llm_provider"
-	LLMModelKey    = "llm_model"
+	EditorKey       = "editor"
+	LLMProviderKey  = "llm_provider"
+	LLMModelKey     = "llm_model"
+	MaxDiffLinesKey = "max_diff_lines"
 
 	rootDir                    = ".bark"
 	configFileName             = ".config.toml"
 	commitInstructionsFileName = "commit.md"
 	prInstructionsFileName     = "pull_request_description.md"
+
+	DEFAULT_MAX_DIFF_LINES = 3000
 )
 
 type Config interface {
@@ -36,12 +39,15 @@ type Config interface {
 	GetLLMModel() (string, error)
 	GetCommitInstructions() string
 	GetPRInstructions() string
+	SetMaxDiffLines(lines uint32) error
+	GetMaxDiffLines() uint32
 }
 
 type configData struct {
-	Editor      string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
-	LLMProvider string `toml:"llm_provider" comment:"It can be set to Gemini or Vertex AI"`
-	LLMModel    string `toml:"llm_model" comment:"The LLM model is required for Vertex AI/Gemini LLMs, e.g., gemini-2.5-pro"`
+	Editor       string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
+	LLMProvider  string `toml:"llm_provider" comment:"It can be set to Gemini or Vertex AI"`
+	LLMModel     string `toml:"llm_model" comment:"The LLM model is required for Vertex AI/Gemini LLMs, e.g., gemini-2.5-pro"`
+	MaxDiffLines uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt"`
 }
 
 type config struct {
@@ -50,9 +56,10 @@ type config struct {
 
 func getConfigData() configData {
 	return configData{
-		Editor:      GetEditor(),
-		LLMProvider: viper.GetString(LLMProviderKey),
-		LLMModel:    viper.GetString(LLMModelKey),
+		Editor:       GetEditor(),
+		LLMProvider:  viper.GetString(LLMProviderKey),
+		LLMModel:     viper.GetString(LLMModelKey),
+		MaxDiffLines: viper.GetUint32(MaxDiffLinesKey),
 	}
 }
 
@@ -114,6 +121,24 @@ func (c *config) GetLLMModel() (string, error) {
 	}
 
 	return model, nil
+}
+
+func (c *config) SetMaxDiffLines(lines uint32) error {
+	if lines == c.data.MaxDiffLines {
+		return nil
+	}
+
+	c.data.MaxDiffLines = lines
+
+	return writeConfig(c.data)
+}
+
+func (c *config) GetMaxDiffLines() uint32 {
+	if c.data.MaxDiffLines == 0 {
+		return DEFAULT_MAX_DIFF_LINES
+	}
+
+	return c.data.MaxDiffLines
 }
 
 func (c *config) GetCommitInstructions() string {
@@ -181,6 +206,7 @@ func InitialiseConfigFile() (string, error) {
 			viper.SetDefault(EditorKey, GetEditor())
 			viper.SetDefault(LLMProviderKey, "")
 			viper.SetDefault(LLMModelKey, "gemini-2.0-flash")
+			viper.SetDefault(MaxDiffLinesKey, DEFAULT_MAX_DIFF_LINES)
 
 			if err := writeConfig(getConfigData()); err != nil {
 				return "", err

@@ -22,6 +22,7 @@ func configCmd() *cobra.Command {
 			editorFlag, _ := cmd.Flags().GetString(config.EditorKey)
 			llmProviderFlag, _ := cmd.Flags().GetString(config.LLMProviderKey)
 			llmModelFlag, _ := cmd.Flags().GetString(config.LLMModelKey)
+			maxDiffLinesFlag, _ := cmd.Flags().GetUint32(config.MaxDiffLinesKey)
 
 			flagsSet := false
 
@@ -49,6 +50,14 @@ func configCmd() *cobra.Command {
 				flagsSet = true
 			}
 
+			if maxDiffLinesFlag != 0 {
+				if err := cfg.SetMaxDiffLines(maxDiffLinesFlag); err != nil {
+					fmt.Println("Error setting max diff lines:", err)
+					return
+				}
+				flagsSet = true
+			}
+
 			if !flagsSet {
 				if err := utils.OpenEditor(configPath); err != nil {
 					fmt.Println(styles.Error.Render("error opening editor: " + err.Error()))
@@ -60,6 +69,7 @@ func configCmd() *cobra.Command {
 	cmd.Flags().StringP(config.EditorKey, "e", "", "Set the editor to use for editing config")
 	cmd.Flags().StringP(config.LLMProviderKey, "p", "", "Set the LLM provider (e.g., gemini, vertexai)")
 	cmd.Flags().StringP(config.LLMModelKey, "m", "", "Set the LLM model")
+	cmd.Flags().Uint32P(config.MaxDiffLinesKey, "d", 0, fmt.Sprintf("Set the maximum number of diff lines to include in the prompt (default: %d)", config.DEFAULT_MAX_DIFF_LINES))
 
 	return cmd
 }

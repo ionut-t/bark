@@ -49,7 +49,6 @@ func GetCommits(limit int) ([]Commit, error) {
 	cmd := exec.Command("git", "log", "--pretty=format:%H|%an|%ar|%s", "-n", strconv.Itoa(limit))
 
 	output, err := cmd.Output()
-
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -157,20 +156,18 @@ func GetCurrentBranch() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-func GetBranchDiff(branch string) (string, error) {
+func GetBranchDiff(branch string, maxLines uint32) (string, error) {
 	cmd := exec.Command("git", "diff", branch)
 	output, err := cmd.Output()
-
 	if err != nil {
 		return "", fmt.Errorf("failed to get branch diff: %w", err)
 	}
 
 	// truncate diff if too large
-	// for now, just limit the number of lines
-	maxLines := 3000
 	lines := strings.Split(string(output), "\n")
-	if len(lines) > maxLines {
-		lines = lines[:maxLines]
+	maxAcceptedLines := int(maxLines)
+	if len(lines) > maxAcceptedLines {
+		lines = lines[:maxAcceptedLines]
 		lines = append(lines, "... (truncated)")
 		output = []byte(strings.Join(lines, "\n"))
 	}
@@ -317,7 +314,7 @@ func GetBranchStats(baseBranch string) (filesChanged, additions, deletions int, 
 }
 
 // GetBranchInfo gets comprehensive info about the current branch for PR description
-func GetBranchInfo(baseBranch string) (*BranchInfo, error) {
+func GetBranchInfo(baseBranch string, maxLines uint32) (*BranchInfo, error) {
 	currentBranch, err := GetCurrentBranch()
 	if err != nil {
 		return nil, err
@@ -325,7 +322,6 @@ func GetBranchInfo(baseBranch string) (*BranchInfo, error) {
 
 	if baseBranch == "" {
 		baseBranch, err = GetBaseBranch()
-
 		if err != nil {
 			return nil, err
 		}
@@ -340,13 +336,12 @@ func GetBranchInfo(baseBranch string) (*BranchInfo, error) {
 		return nil, fmt.Errorf("no commits found on branch %s", currentBranch)
 	}
 
-	diffs, err := GetBranchDiff(baseBranch)
+	diffs, err := GetBranchDiff(baseBranch, maxLines)
 	if err != nil {
 		return nil, err
 	}
 
 	filesChanged, additions, deletions, err := GetBranchStats(baseBranch)
-
 	if err != nil {
 		return nil, err
 	}
