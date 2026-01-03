@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.0](https://github.com/ionut-t/bark/compare/v2.8.1...v2.9.0) (2026-01-03)
+
+
+### Features
+
+* **reviewers:** add new reviewer persona ([ab7274f](https://github.com/ionut-t/bark/commit/ab7274fa1a6cefa9999b9258b6bbe1be956b1f88))
+
 ## [2.8.1](https://github.com/ionut-t/bark/compare/v2.8.0...v2.8.1) (2025-11-16)
 
 
