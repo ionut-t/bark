@@ -12,6 +12,11 @@ import (
 	"github.com/ionut-t/coffee/styles"
 )
 
+const (
+	defaultListWidth  = 80
+	defaultListHeight = 25
+)
+
 var (
 	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
 	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(styles.Primary.GetForeground()).Bold(true)
@@ -83,7 +88,7 @@ func additionalHelpKeysFunc() func() []key.Binding {
 }
 
 func newListModel(title string, items []list.Item) list.Model {
-	l := list.New(items, itemDelegate{}, 80, 20)
+	l := list.New(items, itemDelegate{}, defaultListWidth, defaultListHeight)
 	l.Title = title
 
 	l.Styles = styles.ListStyles()

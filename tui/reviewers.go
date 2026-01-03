@@ -37,7 +37,7 @@ type reviewersModel struct {
 func newReviewersModel(reviewers []reviewers.Reviewer) reviewersModel {
 	items := processReviewers(reviewers)
 
-	l := list.New(items, itemDelegate{}, 80, 20)
+	l := list.New(items, itemDelegate{}, defaultListWidth, defaultListHeight)
 	l.Title = "Select a Reviewer"
 
 	l.Styles = styles.ListStyles()

@@ -30,7 +30,7 @@ func newInstructionsModel(instructions []instructions.Instruction, storage strin
 		})
 	}
 
-	l := list.New(items, itemDelegate{}, 80, 24)
+	l := list.New(items, itemDelegate{}, defaultListWidth, defaultListHeight)
 	l.Title = "Select instruction"
 	l.SetShowStatusBar(false)
 
