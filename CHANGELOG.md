@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.1](https://github.com/ionut-t/bark/compare/v2.11.0...v2.11.1) (2026-03-07)
+
+
+### Bug Fixes
+
+* **git:** use fmt.Fprintf instead of WriteString with Sprintf ([3f24a16](https://github.com/ionut-t/bark/commit/3f24a163c924c89763a104180291f7cad928526c))
+
 ## [2.11.0](https://github.com/ionut-t/bark/compare/v2.10.1...v2.11.0) (2026-03-07)
 
 
