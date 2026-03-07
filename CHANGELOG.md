@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.0](https://github.com/ionut-t/bark/compare/v2.10.1...v2.11.0) (2026-03-07)
+
+
+### Features
+
+* **cli:** add plain mode for non-interactive commands ([af18363](https://github.com/ionut-t/bark/commit/af18363437a725f41c294b94a89ea8689fc9b2b1))
+
 ## [2.10.1](https://github.com/ionut-t/bark/compare/v2.10.0...v2.10.1) (2026-01-03)
 
 
