@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/ionut-t/bark/pkg/instructions"
 	"github.com/ionut-t/bark/pkg/llm"
 	"github.com/ionut-t/bark/pkg/llm/llm_factory"
+	prompt_pkg "github.com/ionut-t/bark/pkg/prompt"
 	"github.com/ionut-t/bark/pkg/reviewers"
 	"github.com/ionut-t/coffee/styles"
 )
@@ -23,9 +23,6 @@ const (
 	defaultCommitLimit = 25
 	ctxTimeout         = 3 * time.Minute
 )
-
-//go:embed format.md
-var formatingRequirements string
 
 type view int
 
@@ -601,7 +598,7 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 		prompt = fmt.Sprintf("%s\nFollow the instructions below when analysing code:\n\n%s", prompt, instruction)
 	}
 
-	prompt = fmt.Sprintf("%s%s---\n\n**Code to review:**\n%s", prompt, formatingRequirements, diff)
+	prompt = fmt.Sprintf("%s%s---\n\n**Code to review:**\n%s", prompt, prompt_pkg.FormattingRequirements, diff)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
@@ -682,7 +679,7 @@ func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
 	prompt := fmt.Sprintf(
 		"%s**Analyze the following changes and generate an appropriate PR description:**\n\n%s",
 		instructions,
-		formatBranchInfo(branchInfo),
+		git.FormatBranchInfo(branchInfo),
 	)
 
 	m.pr.setPrompt(prompt)

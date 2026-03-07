@@ -35,4 +35,3 @@ b. And not like this:
 - Do NOT indent diff blocks or code blocks
 - Do NOT nest code blocks inside other formatting
 - Keep all code blocks at the root level of the markdown structure
-

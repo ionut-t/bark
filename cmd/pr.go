@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ionut-t/bark/internal/config"
+	"github.com/ionut-t/bark/pkg/plain"
 	"github.com/ionut-t/bark/tui"
 	"github.com/ionut-t/coffee/styles"
 	"github.com/spf13/cobra"
@@ -16,7 +17,11 @@ func prCmd() *cobra.Command {
 		Short: "Generate a pull request message",
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := runPRCmd(cmd); err != nil {
-				fmt.Println(styles.Error.Render("Error: " + err.Error()))
+				if hasStdinData() || isPlainMode(cmd) {
+					plain.Errf("%s", err)
+				} else {
+					fmt.Println(styles.Error.Render("Error: " + err.Error()))
+				}
 			}
 		},
 	}
@@ -27,17 +32,33 @@ func prCmd() *cobra.Command {
 }
 
 func runPRCmd(cmd *cobra.Command) error {
+	branch, _ := cmd.Flags().GetString("branch")
+
+	cfg := config.New()
+
+	stdinDiff, err := readStdinIfPiped()
+	if err != nil {
+		return err
+	}
+
+	if stdinDiff != nil || isPlainMode(cmd) {
+		return plain.RunPR(plain.PROptions{
+			Diff:   stdinDiff,
+			Branch: branch,
+			Config: cfg,
+		})
+	}
+
+	// TUI mode
 	storage, err := config.GetStorage()
 	if err != nil {
 		return fmt.Errorf("error getting storage: %w", err)
 	}
 
-	branch, _ := cmd.Flags().GetString("branch")
-
 	m := tui.New(tui.Options{
 		Task:    tui.TaskPRDescription,
 		Storage: storage,
-		Config:  config.New(),
+		Config:  cfg,
 		Branch:  branch,
 	})
 

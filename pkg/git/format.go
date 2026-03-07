@@ -1,0 +1,30 @@
+package git
+
+import (
+	"fmt"
+	"strings"
+)
+
+// FormatBranchInfo formats a BranchInfo into a human-readable string.
+func FormatBranchInfo(branch *BranchInfo) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Branch: %s\n", branch.Name))
+	sb.WriteString(fmt.Sprintf("Base Branch: %s\n", branch.BaseBranch))
+	sb.WriteString(fmt.Sprintf("Total Commits: %d\n", len(branch.Commits)))
+	sb.WriteString(fmt.Sprintf("Total Files Changed: %d\n", branch.TotalFilesChanged))
+	sb.WriteString(fmt.Sprintf("Total Additions: %d\n", branch.TotalAdditions))
+	sb.WriteString(fmt.Sprintf("Total Deletions: %d\n", branch.TotalDeletions))
+	sb.WriteString("Commits:\n")
+
+	for _, commit := range branch.Commits {
+		sb.WriteString(fmt.Sprintf(" - %s\n", commit.Message))
+		if commit.Body != "" {
+			sb.WriteString(fmt.Sprintf("   %s\n", commit.Body))
+		}
+	}
+
+	sb.WriteString("\nDiffs:\n")
+	sb.WriteString(branch.Diffs)
+
+	return sb.String()
+}

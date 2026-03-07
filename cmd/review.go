@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ionut-t/bark/internal/config"
+	"github.com/ionut-t/bark/pkg/plain"
 	"github.com/ionut-t/bark/tui"
 	"github.com/ionut-t/coffee/styles"
 	"github.com/spf13/cobra"
@@ -16,7 +17,11 @@ func reviewCmd() *cobra.Command {
 		Short: "Review code changes",
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := runReviewCmd(cmd); err != nil {
-				fmt.Println(styles.Error.Render("Error: " + err.Error()))
+				if hasStdinData() || isPlainMode(cmd) {
+					plain.Errf("%s", err)
+				} else {
+					fmt.Println(styles.Error.Render("Error: " + err.Error()))
+				}
 			}
 		},
 	}
@@ -28,8 +33,10 @@ func reviewCmd() *cobra.Command {
 	cmd.Flags().StringP("branch", "b", "", "Provide a branch name to diff against the current branch")
 	cmd.Flags().BoolP("staged", "s", false, "Review only staged changes")
 	cmd.Flags().BoolP("skip-instruction", "k", false, "Skip the instructions selection step")
+	cmd.Flags().String("hash", "", "Specify a commit hash to review")
+	cmd.Flags().BoolP("stream", "S", false, "Stream the review output in real-time (only for plain mode)")
 
-	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged")
+	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged", "hash")
 
 	return cmd
 }
@@ -47,7 +54,33 @@ func runReviewCmd(cmd *cobra.Command) error {
 	branch, _ := cmd.Flags().GetString("branch")
 	staged, _ := cmd.Flags().GetBool("staged")
 	skipInstruction, _ := cmd.Flags().GetBool("skip-instruction")
+	hash, _ := cmd.Flags().GetString("hash")
+	stream, _ := cmd.Flags().GetBool("stream")
 
+	cfg := config.New()
+
+	stdinDiff, err := readStdinIfPiped()
+	if err != nil {
+		return err
+	}
+
+	if stdinDiff != nil || isPlainMode(cmd) {
+		return plain.RunReview(plain.ReviewOptions{
+			Diff:            stdinDiff,
+			ReviewerName:    reviewerName,
+			Instruction:     instruction,
+			SkipInstruction: skipInstruction,
+			Storage:         storage,
+			Config:          cfg,
+			Staged:          staged,
+			All:             changes,
+			Branch:          branch,
+			Hash:            hash,
+			Stream:          stream,
+		})
+	}
+
+	// TUI mode
 	var reviewOption tui.ReviewOption
 	if changes {
 		reviewOption = tui.ReviewOptionCurrentChanges
@@ -66,7 +99,7 @@ func runReviewCmd(cmd *cobra.Command) error {
 		Instruction:     instruction,
 		Branch:          branch,
 		SelectCommit:    commit,
-		Config:          config.New(),
+		Config:          cfg,
 		StagedOnly:      staged,
 		SkipInstruction: skipInstruction,
 		ReviewOption:    reviewOption,
