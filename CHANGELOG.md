@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.2](https://github.com/ionut-t/bark/compare/v2.11.1...v2.11.2) (2026-03-16)
+
+
+### Bug Fixes
+
+* **context:** refine LLM call timeout handling ([a342b61](https://github.com/ionut-t/bark/commit/a342b6113da9a25aa4b59b5af55e5736a6163769))
+
 ## [2.11.1](https://github.com/ionut-t/bark/compare/v2.11.0...v2.11.1) (2026-03-07)
 
 
