@@ -21,7 +21,7 @@ import (
 
 const (
 	defaultCommitLimit = 25
-	ctxTimeout         = 3 * time.Minute
+	ctxTimeout         = 5 * time.Minute
 )
 
 type view int
@@ -329,7 +329,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.currentView {
 			case viewReview:
 				if m.review.error != nil {
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+					ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
 					if m.reviewCancelFunc != nil {
 						m.reviewCancelFunc()
@@ -600,7 +600,7 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 
 	prompt = fmt.Sprintf("%s%s---\n\n**Code to review:**\n%s", prompt, prompt_pkg.FormattingRequirements, diff)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
 	if m.reviewCancelFunc != nil {
 		m.reviewCancelFunc()

@@ -16,7 +16,6 @@ type GenAI struct {
 
 func New(ctx context.Context, model string, config genai.ClientConfig) (*GenAI, error) {
 	client, err := genai.NewClient(ctx, &config)
-
 	if err != nil {
 		return nil, err
 	}
@@ -80,11 +79,6 @@ func (g *GenAI) Stream(ctx context.Context, prompt string) (<-chan llm.Response,
 }
 
 func (g *GenAI) Generate(ctx context.Context, prompt string) (string, error) {
-	timeout := 30 * time.Second
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	// Check if context is already cancelled
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
@@ -95,7 +89,6 @@ func (g *GenAI) Generate(ctx context.Context, prompt string) (string, error) {
 		genai.Text(prompt),
 		nil,
 	)
-
 	if err != nil {
 		return "", err
 	}
