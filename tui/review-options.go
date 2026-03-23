@@ -1,9 +1,10 @@
 package tui
 
 import (
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/internal/utils"
+	"github.com/ionut-t/coffee/styles"
 )
 
 type ReviewOption int
@@ -57,8 +58,8 @@ var reviewOptionsItems = []list.Item{
 	reviewOptionItem{id: ReviewOptionBranch, title: ReviewOptionBranch.String()},
 }
 
-func newReviewOptionsModel() reviewOptionsModel {
-	l := newListModel("Select review option", reviewOptionsItems)
+func newReviewOptionsModel(s styles.Styles, isDarkMode bool) reviewOptionsModel {
+	l := newListModel("Select review option", reviewOptionsItems, s, isDarkMode)
 	l.SetFilteringEnabled(false)
 
 	return reviewOptionsModel{
@@ -66,11 +67,16 @@ func newReviewOptionsModel() reviewOptionsModel {
 	}
 }
 
+func (m *reviewOptionsModel) setStyles(s styles.Styles, isDarkMode bool) {
+	m.list = newListModel("Select a review option", reviewOptionsItems, s, isDarkMode)
+	m.list.SetFilteringEnabled(false)
+}
+
 func (m reviewOptionsModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m reviewOptionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m reviewOptionsModel) Update(msg tea.Msg) (reviewOptionsModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -89,8 +95,8 @@ func (m reviewOptionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	l, cmd := m.list.Update(msg)
-	m.list = l
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
 
 	return m, cmd
 }

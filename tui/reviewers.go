@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/reviewers"
 	"github.com/ionut-t/coffee/styles"
@@ -34,31 +34,10 @@ type reviewersModel struct {
 	list      list.Model
 }
 
-func newReviewersModel(reviewers []reviewers.Reviewer) reviewersModel {
-	items := processReviewers(reviewers)
-
-	l := list.New(items, itemDelegate{}, defaultListWidth, defaultListHeight)
-	l.Title = "Select a Reviewer"
-
-	l.Styles = styles.ListStyles()
-	l.Styles.Title = l.Styles.Title.MarginLeft(2)
-
-	l.FilterInput.PromptStyle = styles.Accent
-	l.FilterInput.Cursor.Style = styles.Accent
-
-	l.InfiniteScrolling = true
-	l.SetShowStatusBar(false)
-
-	l.KeyMap = listKeyMap()
-
-	l.AdditionalShortHelpKeys = additionalHelpKeysFunc()
-	l.AdditionalFullHelpKeys = additionalHelpKeysFunc()
-
-	l.SetFilteringEnabled(true)
-
+func newReviewersModel(reviewers []reviewers.Reviewer, s styles.Styles, isDarkMode bool) reviewersModel {
 	return reviewersModel{
-		list:      l,
 		reviewers: reviewers,
+		list:      newListModel("Select reviewer", processReviewers(reviewers), s, isDarkMode),
 	}
 }
 
@@ -71,8 +50,6 @@ func (m reviewersModel) Init() tea.Cmd {
 }
 
 func (m reviewersModel) Update(msg tea.Msg) (reviewersModel, tea.Cmd) {
-	var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.list.FilterState() == list.Filtering {
@@ -97,9 +74,8 @@ func (m reviewersModel) Update(msg tea.Msg) (reviewersModel, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
-	cmds = append(cmds, cmd)
 
-	return m, tea.Batch(cmds...)
+	return m, cmd
 }
 
 func (m reviewersModel) View() string {

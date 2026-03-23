@@ -6,7 +6,6 @@ import (
 	"github.com/ionut-t/bark/internal/config"
 	"github.com/ionut-t/bark/pkg/instructions"
 	"github.com/ionut-t/bark/pkg/reviewers"
-	"github.com/ionut-t/coffee/styles"
 	"github.com/spf13/cobra"
 )
 
@@ -19,13 +18,12 @@ This does not affect any files that you may have created or modified outside of 
 		`,
 		Run: func(cmd *cobra.Command, args []string) {
 			msg, err := handleReset(cmd)
-
 			if err != nil {
-				fmt.Println(styles.Error.Render("Error: " + err.Error()))
+				PrintError(err)
 				return
 			}
 
-			fmt.Println(styles.Success.Render(msg))
+			fmt.Println(msg)
 		},
 	}
 
@@ -38,7 +36,6 @@ This does not affect any files that you may have created or modified outside of 
 
 func handleReset(cmd *cobra.Command) (string, error) {
 	storage, err := config.GetStorage()
-
 	if err != nil {
 		return "", fmt.Errorf("error getting storage path: %w", err)
 	}

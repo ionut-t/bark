@@ -3,8 +3,8 @@ package tui
 import (
 	"fmt"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/git"
 	"github.com/ionut-t/coffee/styles"
@@ -23,17 +23,9 @@ type commitsModel struct {
 }
 
 func newCommitsModel(commits []git.Commit) commitsModel {
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles = styles.ListItemStyles()
-
-	l := list.New(processCommits(commits), delegate, 80, 20)
+	l := list.New(processCommits(commits), list.NewDefaultDelegate(), 80, 20)
 	l.Title = "Recent Commits"
 	l.SetShowStatusBar(false)
-
-	l.Styles = styles.ListStyles()
-
-	l.FilterInput.PromptStyle = styles.Accent
-	l.FilterInput.Cursor.Style = styles.Accent
 
 	l.InfiniteScrolling = true
 	l.SetShowStatusBar(false)
@@ -41,6 +33,14 @@ func newCommitsModel(commits []git.Commit) commitsModel {
 	return commitsModel{
 		list: l,
 	}
+}
+
+func (m *commitsModel) setStyles(s styles.Styles, isDark bool) {
+	m.list.Styles = styles.ListStyles(s, isDark)
+
+	delegate := list.NewDefaultDelegate()
+	delegate.Styles = styles.ListItemStyles(s, isDark)
+	m.list.SetDelegate(delegate)
 }
 
 func (m *commitsModel) setSize(width, height int) {
@@ -52,8 +52,6 @@ func (m commitsModel) Init() tea.Cmd {
 }
 
 func (m commitsModel) Update(msg tea.Msg) (commitsModel, tea.Cmd) {
-	var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.list.SetSize(msg.Width, msg.Height)
@@ -76,9 +74,8 @@ func (m commitsModel) Update(msg tea.Msg) (commitsModel, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
-	cmds = append(cmds, cmd)
 
-	return m, tea.Batch(cmds...)
+	return m, cmd
 }
 
 func (m commitsModel) View() string {

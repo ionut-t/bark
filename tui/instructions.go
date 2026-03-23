@@ -1,49 +1,28 @@
 package tui
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/instructions"
 	"github.com/ionut-t/coffee/styles"
 )
 
 type instructionSelectedMsg struct {
-	Instruction string
+	instruction string
 }
 
 type cancelInstructionSelectionMsg struct{}
 
 type instructionsModel struct {
-	list    list.Model
-	storage string
+	list list.Model
 }
 
-func newInstructionsModel(instructions []instructions.Instruction, storage string) instructionsModel {
-	items := make([]list.Item, 0, len(instructions))
+func newInstructionsModel(instructions []instructions.Instruction, s styles.Styles, isDarkMode bool) instructionsModel {
+	ls := newListModel("Select instruction", processInstructions(instructions), s, isDarkMode)
 
-	for _, instruction := range instructions {
-		items = append(items, item{
-			title:  instruction.Name,
-			prompt: instruction.Prompt,
-		})
-	}
-
-	l := list.New(items, itemDelegate{}, defaultListWidth, defaultListHeight)
-	l.Title = "Select instruction"
-	l.SetShowStatusBar(false)
-
-	l.Styles = styles.ListStyles()
-	l.Styles.Title = l.Styles.Title.MarginLeft(2)
-
-	l.FilterInput.PromptStyle = styles.Accent
-	l.FilterInput.Cursor.Style = styles.Accent
-
-	l.InfiniteScrolling = true
-	l.SetShowStatusBar(false)
-
-	l.KeyMap = listKeyMap()
+	ls.KeyMap = listKeyMap()
 
 	additionalKeys := func() []key.Binding {
 		return []key.Binding{
@@ -58,14 +37,11 @@ func newInstructionsModel(instructions []instructions.Instruction, storage strin
 		}
 	}
 
-	l.AdditionalShortHelpKeys = additionalKeys
-	l.AdditionalFullHelpKeys = additionalKeys
-
-	l.SetFilteringEnabled(true)
+	ls.AdditionalShortHelpKeys = additionalKeys
+	ls.AdditionalFullHelpKeys = additionalKeys
 
 	return instructionsModel{
-		list:    l,
-		storage: storage,
+		list: ls,
 	}
 }
 
@@ -77,9 +53,7 @@ func (m instructionsModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m instructionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
+func (m instructionsModel) Update(msg tea.Msg) (instructionsModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.list.SetSize(msg.Width, msg.Height-4)
@@ -94,21 +68,34 @@ func (m instructionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "enter":
 			if selectedItem, ok := m.list.SelectedItem().(item); ok {
-				return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: selectedItem.prompt})
+				return m, utils.DispatchMsg(instructionSelectedMsg{instruction: selectedItem.prompt})
 			}
 			return m, nil
 
 		case "x":
-			return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: ""})
+			return m, utils.DispatchMsg(instructionSelectedMsg{instruction: ""})
 		}
 	}
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
-	cmds = append(cmds, cmd)
-	return m, tea.Batch(cmds...)
+
+	return m, cmd
 }
 
 func (m instructionsModel) View() string {
 	return renderList(m.list.View())
+}
+
+func processInstructions(instructions []instructions.Instruction) []list.Item {
+	items := make([]list.Item, 0, len(instructions))
+
+	for _, instruction := range instructions {
+		items = append(items, item{
+			title:  instruction.Name,
+			prompt: instruction.Prompt,
+		})
+	}
+
+	return items
 }

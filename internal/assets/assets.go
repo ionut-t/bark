@@ -37,7 +37,7 @@ func Config(opts ConfigOptions) error {
 			return nil
 		}
 	} else if os.IsNotExist(err) {
-		if err := os.MkdirAll(assetsDir, 0755); err != nil {
+		if err := os.MkdirAll(assetsDir, 0o755); err != nil {
 			return err
 		}
 	}
@@ -57,7 +57,7 @@ func Config(opts ConfigOptions) error {
 
 			path := filepath.Join(opts.Storage, opts.AssetDir, entry.Name())
 
-			err = os.WriteFile(path, content, 0644)
+			err = os.WriteFile(path, content, 0o644)
 			if err != nil {
 				return err
 			}
@@ -105,7 +105,7 @@ func RemoveAssetDir(storage string, assetDirName string) error {
 func Add(storage string, assetDirName string, name string) error {
 	assetsDir := filepath.Join(storage, assetDirName)
 
-	if err := os.MkdirAll(assetsDir, 0755); err != nil {
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
 		return fmt.Errorf("error creating assets directory: %w", err)
 	}
 
@@ -144,7 +144,7 @@ func Add(storage string, assetDirName string, name string) error {
 		return errors.New("content cannot be empty")
 	}
 
-	if err := os.WriteFile(finalPath, content, 0644); err != nil {
+	if err := os.WriteFile(finalPath, content, 0o644); err != nil {
 		return err
 	}
 

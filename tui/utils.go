@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
+	tea "charm.land/bubbletea/v2"
+	editor "github.com/ionut-t/goeditor"
 )
 
 func writeToDisk(editor *editor.Model, filePath *string, content string) tea.Cmd {
@@ -18,11 +18,11 @@ func writeToDisk(editor *editor.Model, filePath *string, content string) tea.Cmd
 		return editor.DispatchError(errors.New("invalid file path"), duration)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(*filePath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(*filePath), 0o755); err != nil {
 		return editor.DispatchError(err, duration)
 	}
 
-	if err := os.WriteFile(*filePath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(*filePath, []byte(content), 0o644); err != nil {
 		return editor.DispatchError(err, duration)
 	}
 

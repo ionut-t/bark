@@ -6,16 +6,15 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/llm"
 	"github.com/ionut-t/bark/pkg/reviewers"
 	"github.com/ionut-t/coffee/help"
-	"github.com/ionut-t/coffee/markdown"
 	"github.com/ionut-t/coffee/styles"
-	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
+	editor "github.com/ionut-t/goeditor"
 )
 
 var loadingMessages = [...]string{
@@ -120,23 +119,20 @@ type reviewModel struct {
 	spinner          spinner.Model
 	loading          bool
 	loadingChunks    bool
-	markdown         markdown.Model
 	loadingMsg       string
 	loadingMsgPicker *loadingMessagePicker
 	error            error
+	styles           styles.Styles
 }
 
 func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height int, llm llm.LLM) reviewModel {
 	textEditor := editor.New(width, height-1)
-	textEditor.SetLanguage("markdown", styles.EditorLanguageTheme())
 	textEditor.DisableInsertMode(true)
 	textEditor.SetExtraHighlightedContextLines(500)
-	textEditor.WithTheme(styles.EditorTheme())
 	textEditor.Focus()
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = styles.Primary
 
 	m := reviewModel{
 		width:            width,
@@ -147,7 +143,6 @@ func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height in
 		loading:          true,
 		loadingChunks:    true,
 		spinner:          sp,
-		markdown:         markdown.New(),
 		reviewer:         reviewer,
 		loadingMsgPicker: newLoadingMessagePicker(loadingMessages[:]),
 	}
@@ -155,6 +150,14 @@ func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height in
 	m.loadingMsg = m.getLoadingMessage()
 
 	return m
+}
+
+func (m *reviewModel) setStyles(s styles.Styles, isDarkMode bool) {
+	m.styles = s
+
+	m.editor.WithTheme(styles.EditorTheme(s))
+	m.editor.SetLanguage("markdown", styles.EditorLanguageTheme(isDarkMode))
+	m.spinner.Style = s.Primary
 }
 
 func (m *reviewModel) setSize(width, height int) {
@@ -171,7 +174,7 @@ func (m reviewModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -202,12 +205,13 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.editor.SetContent(content)
 		_ = m.editor.SetCursorPositionEnd()
-		ed, edCmd := m.editor.Update(msg)
-		m.editor = ed.(editor.Model)
+
+		var cmd tea.Cmd
+		m.editor, cmd = m.editor.Update(msg)
 
 		return m, tea.Batch(
 			watchStreamCmd(m.respChan, m.errChan),
-			edCmd,
+			cmd,
 		)
 
 	case streamErrorMsg:
@@ -220,7 +224,6 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingChunks = false
 		m.response = m.editor.GetCurrentContent() + "\n\n"
 		m.editor.SetContent(m.response)
-		// no need to handle error here as the cursor is moved to the beginning of the buffer
 		_ = m.editor.SetCursorPosition(0, 0)
 
 	case editor.QuitMsg:
@@ -250,13 +253,10 @@ func (m reviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	var cmds []tea.Cmd
+	var cmd tea.Cmd
+	m.editor, cmd = m.editor.Update(msg)
 
-	editorModel, cmd := m.editor.Update(msg)
-	m.editor = editorModel.(editor.Model)
-	cmds = append(cmds, cmd)
-
-	return m, tea.Batch(cmds...)
+	return m, cmd
 }
 
 func startStreamCmd(llm llm.LLM, ctx context.Context, prompt string) tea.Cmd {
@@ -295,12 +295,12 @@ func watchStreamCmd(respChan <-chan llm.Response, errChan <-chan error) tea.Cmd 
 
 func (m reviewModel) View() string {
 	if m.loading {
-		return lipgloss.NewStyle().Padding(2).Render(m.spinner.View() + " " + styles.Accent.Render(m.loadingMsg))
+		return lipgloss.NewStyle().Padding(2).Render(m.spinner.View() + " " + m.styles.Accent.Render(m.loadingMsg))
 	}
 
 	if m.error != nil {
-		err := styles.Wrap(max(m.width-6, 1), styles.Error.Render("Error: "+m.error.Error()))
-		return styles.Subtext0.Padding(2).Render(
+		err := styles.Wrap(max(m.width-6, 1), m.styles.Error.Render("Error: "+m.error.Error()))
+		return m.styles.Subtext0.Padding(2).Render(
 			lipgloss.JoinVertical(
 				lipgloss.Left,
 				err,
@@ -340,21 +340,21 @@ func (m *reviewModel) statusBar() string {
 	var statusBar string
 	if m.loadingChunks {
 		reviewer := m.reviewer.Name + " is typing..."
-		statusBar = styles.Crust.Render(m.spinner.View()) + styles.Accent.Background(styles.Crust.GetBackground()).Render(" "+reviewer)
+		statusBar = m.styles.Crust.Render(m.spinner.View()) + m.styles.Accent.Background(m.styles.Crust.GetBackground()).Render(" "+reviewer)
 	} else {
 		reviewer := m.reviewer.Name + " is done reviewing"
-		statusBar = styles.Accent.Render(reviewer)
+		statusBar = m.styles.Accent.Render(reviewer)
 	}
 
-	help := styles.Primary.Background(styles.Crust.GetBackground()).Render("?")
+	help := m.styles.Primary.Background(m.styles.Crust.GetBackground()).Render("?")
 	gap := m.width - lipgloss.Width(statusBar) - lipgloss.Width(help) - 2
 
-	statusBar += styles.Crust.Render(strings.Repeat(" ", max(0, gap)))
+	statusBar += m.styles.Crust.Render(strings.Repeat(" ", max(0, gap)))
 
-	return styles.Crust.Width(m.width).Padding(0, 1).Render(statusBar + help)
+	return m.styles.Crust.Width(m.width).Padding(0, 1).Render(statusBar + help)
 }
 
-func reviewHelp(width int, forCommits bool) string {
+func reviewHelp(width int, forCommits bool, s styles.Styles) string {
 	commands := []struct {
 		Command, Description string
 	}{
@@ -369,11 +369,11 @@ func reviewHelp(width int, forCommits bool) string {
 		commands = slices.Delete(commands, 1, 3)
 	}
 
-	title := styles.Text.Bold(true).Margin(1, 0, 0, 1).Render("Help")
+	title := s.Text.Bold(true).Margin(1, 0, 0, 1).Render("Help")
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		title,
-		help.RenderCmdHelp(width, commands),
+		help.RenderCmdHelp(s, width, commands),
 	)
 }
 

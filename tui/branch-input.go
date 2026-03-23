@@ -3,9 +3,9 @@ package tui
 import (
 	"errors"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/coffee/styles"
 )
@@ -19,13 +19,12 @@ type cancelBranchSelectionMsg struct{}
 type branchInputModel struct {
 	branchInput *huh.Input
 	inputErr    error
+	styles      styles.Styles
 }
 
 func newBranchInputModel(branch string) branchInputModel {
-
 	branchInput := huh.NewInput().Title("Branch")
 
-	branchInput.WithTheme(styles.HuhThemeCatppuccin())
 	branchInput.Focus()
 	branchInput.Value(&branch)
 
@@ -34,11 +33,16 @@ func newBranchInputModel(branch string) branchInputModel {
 	}
 }
 
+func (m *branchInputModel) setStyles(s styles.Styles) {
+	m.styles = s
+	m.branchInput.WithTheme(styles.HuhThemeCatppuccin{Styles: s})
+}
+
 func (m branchInputModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m branchInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m branchInputModel) Update(msg tea.Msg) (branchInputModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -72,7 +76,7 @@ func (m branchInputModel) View() string {
 	var footer string
 
 	if m.inputErr != nil {
-		footer = styles.Error.Render(m.inputErr.Error())
+		footer = m.styles.Error.Render(m.inputErr.Error())
 	} else {
 		footer = m.renderHelp()
 	}
@@ -81,8 +85,8 @@ func (m branchInputModel) View() string {
 }
 
 func (m *branchInputModel) renderHelp() string {
-	key := styles.Subtext0.Render
-	desc := styles.Overlay1.Render
+	key := m.styles.Subtext0.Render
+	desc := m.styles.Overlay1.Render
 
 	help := key("enter") + desc(" select")
 	help += desc(" • ") + key("esc") + desc(" back")

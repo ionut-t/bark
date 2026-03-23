@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"path/filepath"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/internal/config"
 	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/instructions"
 	"github.com/ionut-t/bark/pkg/reviewers"
 	"github.com/ionut-t/bark/tui"
-	"github.com/ionut-t/coffee/styles"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +31,7 @@ func editCmd() *cobra.Command {
 			}
 
 			if err := handleEditCmd(cmd, name); err != nil {
-				fmt.Println(styles.Error.Render("Error: " + err.Error()))
+				PrintError(err)
 			}
 		},
 	}
@@ -81,14 +80,12 @@ func handleEditCmd(cmd *cobra.Command, name string) error {
 		switch assetType {
 		case tui.AssetInstruction:
 			assetPath, err = instructions.GetPath(storage, name)
-
 			if err != nil {
 				return fmt.Errorf("error finding instruction: %w", err)
 			}
 
 		case tui.AssetReviewer:
 			assetPath, err = reviewers.GetPath(storage, name)
-
 			if err != nil {
 				return fmt.Errorf("error finding reviewer: %w", err)
 			}
@@ -97,7 +94,7 @@ func handleEditCmd(cmd *cobra.Command, name string) error {
 		return utils.OpenEditor(assetPath)
 	}
 
-	p := tea.NewProgram(tui.NewAssetsModel(storage, assetType, tui.AssetActionEdit), tea.WithAltScreen())
+	p := tea.NewProgram(tui.NewAssetsModel(storage, assetType, tui.AssetActionEdit))
 
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("error running UI: %w", err)

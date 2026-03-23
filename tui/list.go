@@ -5,10 +5,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/coffee/styles"
 )
 
@@ -18,9 +18,8 @@ const (
 )
 
 var (
-	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
-	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(styles.Primary.GetForeground()).Bold(true)
-	renderList        = lipgloss.NewStyle().MarginTop(1).Render
+	itemStyle  = lipgloss.NewStyle().PaddingLeft(4)
+	renderList = lipgloss.NewStyle().MarginTop(1).Render
 )
 
 // the list.Item interface provides only the FilterValue function
@@ -35,7 +34,9 @@ type item struct {
 func (i item) Title() string       { return i.title }
 func (i item) FilterValue() string { return i.title }
 
-type itemDelegate struct{}
+type itemDelegate struct {
+	selectedStyle lipgloss.Style
+}
 
 func (d itemDelegate) Height() int                             { return 1 }
 func (d itemDelegate) Spacing() int                            { return 0 }
@@ -46,7 +47,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	fn := itemStyle.Render
 	if index == m.Index() {
 		fn = func(s ...string) string {
-			return selectedItemStyle.Render("> " + strings.Join(s, " "))
+			return d.selectedStyle.Render("> " + strings.Join(s, " "))
 		}
 	}
 
@@ -87,15 +88,15 @@ func additionalHelpKeysFunc() func() []key.Binding {
 	}
 }
 
-func newListModel(title string, items []list.Item) list.Model {
-	l := list.New(items, itemDelegate{}, defaultListWidth, defaultListHeight)
+func newListModel(title string, items []list.Item, s styles.Styles, isDark bool) list.Model {
+	delegate := itemDelegate{
+		selectedStyle: s.Primary.PaddingLeft(2).Bold(true),
+	}
+	l := list.New(items, delegate, defaultListWidth, defaultListHeight)
 	l.Title = title
 
-	l.Styles = styles.ListStyles()
+	l.Styles = styles.ListStyles(s, isDark)
 	l.Styles.Title = l.Styles.Title.MarginLeft(2)
-
-	l.FilterInput.PromptStyle = styles.Accent
-	l.FilterInput.Cursor.Style = styles.Accent
 
 	l.InfiniteScrolling = true
 	l.SetShowStatusBar(false)

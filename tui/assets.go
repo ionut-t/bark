@@ -3,9 +3,9 @@ package tui
 import (
 	"os/exec"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/internal/config"
 	"github.com/ionut-t/bark/pkg/instructions"
 	"github.com/ionut-t/bark/pkg/reviewers"
@@ -33,9 +33,13 @@ type AssetsModel struct {
 	action    AssetAction
 	error     error
 	abort     bool
+	styles    styles.Styles
 }
 
 func NewAssetsModel(storagePath string, assetType AssetType, action AssetAction) AssetsModel {
+	isDarkMode := styles.IsDark()
+	appStyles := styles.New(isDarkMode)
+
 	var items []list.Item
 
 	switch assetType {
@@ -71,33 +75,16 @@ func NewAssetsModel(storagePath string, assetType AssetType, action AssetAction)
 		}
 	}
 
-	m := AssetsModel{
+	ls := newListModel(getTitle(assetType, action), items, appStyles, isDarkMode)
+	ls.Styles = styles.ListStyles(appStyles, isDarkMode)
+
+	return AssetsModel{
 		storage:   storagePath,
-		list:      list.New(items, itemDelegate{}, 80, 24),
 		assetType: assetType,
 		action:    action,
+		list:      ls,
+		styles:    appStyles,
 	}
-
-	m.list.Title = m.title()
-	m.list.SetShowStatusBar(false)
-
-	m.list.Styles = styles.ListStyles()
-	m.list.Styles.Title = m.list.Styles.Title.MarginLeft(2)
-
-	m.list.FilterInput.PromptStyle = styles.Accent
-	m.list.FilterInput.Cursor.Style = styles.Accent
-
-	m.list.InfiniteScrolling = true
-	m.list.SetShowStatusBar(false)
-
-	m.list.KeyMap = listKeyMap()
-
-	m.list.AdditionalShortHelpKeys = additionalHelpKeysFunc()
-	m.list.AdditionalFullHelpKeys = additionalHelpKeysFunc()
-
-	m.list.SetFilteringEnabled(true)
-
-	return m
 }
 
 func (m AssetsModel) Init() tea.Cmd {
@@ -156,32 +143,39 @@ func (m AssetsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m AssetsModel) View() string {
+func (m AssetsModel) View() tea.View {
+	view := tea.NewView(m.createView())
+	view.AltScreen = true
+
+	return view
+}
+
+func (m AssetsModel) createView() string {
 	if m.abort {
 		return ""
 	}
 
 	if m.error != nil {
-		return styles.Error.Render(m.error.Error())
+		return m.styles.Error.Render(m.error.Error())
 	}
 
 	if len(m.list.Items()) == 0 {
-		return styles.Warning.Padding(2).Render("No items found\n\nPress any key to exit")
+		return m.styles.Warning.Padding(2).Render("No items found\n\nPress any key to exit")
 	}
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(m.list.View())
 }
 
-func (m AssetsModel) title() string {
+func getTitle(assetType AssetType, action AssetAction) string {
 	var title string
-	switch m.assetType {
+	switch assetType {
 	case AssetInstruction:
 		title = "Select instruction"
 	case AssetReviewer:
 		title = "Select reviewer"
 	}
 
-	switch m.action {
+	switch action {
 	case AssetActionDelete:
 		title += " to delete"
 	case AssetActionEdit:

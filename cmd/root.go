@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/fang"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/fang/v2"
 	"github.com/ionut-t/bark/internal/config"
 	"github.com/ionut-t/bark/internal/version"
 	"github.com/ionut-t/bark/tui"
@@ -28,7 +28,7 @@ var rootCmd = &cobra.Command{
 	Long: "Get your code reviewed by legends, generate commit messages and PR descriptions",
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := handleRootCmd(); err != nil {
-			fmt.Println(styles.Error.Render("Error: " + err.Error()))
+			PrintError(err)
 		}
 	},
 }
@@ -44,7 +44,7 @@ func handleRootCmd() error {
 		Config:  config.New(),
 	})
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("error running UI: %w", err)
@@ -82,7 +82,7 @@ func Execute() error {
 }
 
 func versionTemplate() string {
-	versionTpl := styles.Primary.Margin(0, 2).Render(logo) + `
+	versionTpl := styles.New(styles.IsDark()).Primary.Margin(0, 2).Render(logo) + `
   Version        %s
   Commit         %s
   Release date   %s

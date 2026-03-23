@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/internal/config"
 	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/git"
@@ -90,6 +90,10 @@ type Model struct {
 
 	reviewCancelFunc    context.CancelFunc
 	operationCancelFunc context.CancelFunc
+
+	styles     styles.Styles
+	isDarkMode bool
+	pendingCmd tea.Cmd
 }
 
 type Options struct {
@@ -107,6 +111,8 @@ type Options struct {
 }
 
 func New(options Options) *Model {
+	isDarkMode := styles.IsDark()
+
 	llm, err := llm_factory.New(context.Background(), options.Config)
 	if err != nil {
 		return &Model{
@@ -125,7 +131,14 @@ func New(options Options) *Model {
 		currentView = viewTasks
 	}
 
-	return &Model{
+	styles := styles.New(isDarkMode)
+
+	var pendingCmd tea.Cmd
+	if options.Task != TaskNone {
+		pendingCmd = utils.DispatchMsg(taskSelectedMsg{task: options.Task})
+	}
+
+	m := &Model{
 		width:                80,
 		height:               24,
 		currentView:          currentView,
@@ -139,39 +152,29 @@ func New(options Options) *Model {
 		branchInput:          newBranchInputModel(options.Branch),
 		stagedOnly:           options.StagedOnly,
 		skipInstruction:      options.SkipInstruction,
-		tasks:                newTasksModel(),
+		tasks:                newTasksModel(styles, isDarkMode),
 		selectedTask:         options.Task,
-		reviewOptions:        newReviewOptionsModel(),
+		reviewOptions:        newReviewOptionsModel(styles, isDarkMode),
 		selectedReviewOption: options.ReviewOption,
 		individualTask:       options.Task != TaskNone,
 		hint:                 options.Hint,
+		pendingCmd:           pendingCmd,
+		isDarkMode:           isDarkMode,
+		styles:               styles,
 	}
+
+	m.branchInput.setStyles(styles)
+	m.tasks.setStyles(styles, isDarkMode)
+	m.reviewOptions.setStyles(styles, isDarkMode)
+
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
-	var cmds []tea.Cmd
-
-	title := "Bark AI"
-	switch m.selectedTask {
-	case TaskReview:
-		cmds = append(cmds, utils.DispatchMsg(taskSelectedMsg{task: TaskReview}))
-		title += " - Code Review"
-	case TaskCommit:
-		cmds = append(cmds, utils.DispatchMsg(taskSelectedMsg{task: TaskCommit}))
-		title += " - Commit Changes"
-	case TaskPRDescription:
-		cmds = append(cmds, utils.DispatchMsg(taskSelectedMsg{task: TaskPRDescription}))
-		title += " - PR Description"
-	}
-
-	cmds = append(cmds, tea.SetWindowTitle(title))
-
-	return tea.Batch(cmds...)
+	return m.pendingCmd
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -211,6 +214,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.commits = newCommitsModel(commits)
 		m.commits.setSize(m.width, m.height)
+		m.commits.setStyles(m.styles, m.isDarkMode)
 		m.currentView = viewCommits
 
 	case commitSelectedMsg:
@@ -222,24 +226,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			m.error = err
 		}
-		m.reviewers = newReviewersModel(listReviewers)
+		m.reviewers = newReviewersModel(listReviewers, m.styles, m.isDarkMode)
 
 		if m.reviewerName != "" {
 			if reviewer, err := reviewers.Find(m.reviewerName, listReviewers); err == nil {
 				m.selectedReviewer = reviewer
-				m.reviewers = newReviewersModel(listReviewers)
+				m.reviewers = newReviewersModel(listReviewers, m.styles, m.isDarkMode)
 				return m, utils.DispatchMsg(reviewerSelectedMsg{Reviewer: reviewer})
 			}
 		}
 
 		m.currentView = viewReviewers
-		m.reviewers = newReviewersModel(listReviewers)
+		m.reviewers = newReviewersModel(listReviewers, m.styles, m.isDarkMode)
 
 	case reviewerSelectedMsg:
 		return m.handleSelectedReviewer(msg.Reviewer)
 
 	case instructionSelectedMsg:
-		return m.handleSelectedInstruction(msg.Instruction)
+		return m.handleSelectedInstruction(msg.instruction)
 
 	case commitChangesMsg:
 		// Clean up the commit context since operation completed
@@ -369,60 +373,66 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	var cmd tea.Cmd
+
 	switch m.currentView {
 	case viewTasks:
-		commands, cmd := m.tasks.Update(msg)
-		m.tasks = commands.(tasksModel)
-		cmds = append(cmds, cmd)
+		m.tasks, cmd = m.tasks.Update(msg)
 
 	case viewReviewOptions:
-		reviewOptions, cmd := m.reviewOptions.Update(msg)
-		m.reviewOptions = reviewOptions.(reviewOptionsModel)
-		cmds = append(cmds, cmd)
+		m.reviewOptions, cmd = m.reviewOptions.Update(msg)
 
 	case viewCommits:
-		var cmd tea.Cmd
 		m.commits, cmd = m.commits.Update(msg)
-		cmds = append(cmds, cmd)
 
 	case viewReviewers:
-		var cmd tea.Cmd
 		m.reviewers, cmd = m.reviewers.Update(msg)
-		cmds = append(cmds, cmd)
 
 	case viewInstructions:
-		i, cmd := m.instructions.Update(msg)
-		m.instructions = i.(instructionsModel)
-		cmds = append(cmds, cmd)
+		m.instructions, cmd = m.instructions.Update(msg)
 
 	case viewReview:
-		review, cmd := m.review.Update(msg)
-		m.review = review.(reviewModel)
-		cmds = append(cmds, cmd)
+		m.review, cmd = m.review.Update(msg)
 
 	case viewCommitChanges:
-		commitChanges, cmd := m.commitChanges.Update(msg)
-		m.commitChanges = commitChanges
-		cmds = append(cmds, cmd)
+		m.commitChanges, cmd = m.commitChanges.Update(msg)
 
 	case viewPRDescription:
-		pr, cmd := m.pr.Update(msg)
-		m.pr = pr
-		cmds = append(cmds, cmd)
+		m.pr, cmd = m.pr.Update(msg)
 
 	case viewBranchInput:
-		input, cmd := m.branchInput.Update(msg)
-		m.branchInput = input.(branchInputModel)
-		cmds = append(cmds, cmd)
+		m.branchInput, cmd = m.branchInput.Update(msg)
 	}
 
-	return m, tea.Batch(cmds...)
+	return m, cmd
 }
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
+	view := tea.NewView(m.createView())
+	view.AltScreen = true
+	view.WindowTitle = m.getTitle()
+
+	return view
+}
+
+func (m Model) getTitle() string {
+	title := "Bark AI"
+	switch m.selectedTask {
+	case TaskReview:
+		title += " - Code Review"
+	case TaskCommit:
+		title += " - Commit Changes"
+	case TaskPRDescription:
+		title += " - PR Description"
+	}
+
+	return title
+}
+
+func (m Model) createView() string {
 	if m.error != nil {
 		if errors.Is(m.error, git.ErrNoChangesInRepository) {
-			return styles.Info.Padding(2).Render(
+			return m.styles.Info.Padding(2).Render(
 				lipgloss.JoinVertical(lipgloss.Left,
 					"Could not find any changes to review.",
 					"This can happen when there are no commits in the repository.",
@@ -434,7 +444,7 @@ func (m Model) View() string {
 		}
 
 		if errors.Is(m.error, git.ErrNoCommitsInRepository) {
-			return styles.Info.Padding(2).Render(
+			return m.styles.Info.Padding(2).Render(
 				lipgloss.JoinVertical(lipgloss.Left,
 					"Could not find any commits.",
 					"This can happen when there are no commits in the repository.",
@@ -445,7 +455,7 @@ func (m Model) View() string {
 			)
 		}
 
-		return styles.Error.Padding(2).Render("Error: " + m.error.Error() + "\n" + "Press `ctrl+c` to exit.")
+		return m.styles.Error.Padding(2).Render("Error: " + m.error.Error() + "\n" + "Press `ctrl+c` to exit.")
 	}
 
 	if m.message != "" {
@@ -470,7 +480,7 @@ func (m Model) View() string {
 
 	case viewReview:
 		if m.showHelp {
-			return reviewHelp(m.width, m.selectCommit)
+			return reviewHelp(m.width, m.selectCommit, m.styles)
 		}
 
 		return m.review.View()
@@ -503,6 +513,7 @@ func (m *Model) handleSelectedTask(task Task) (tea.Model, tea.Cmd) {
 
 	case TaskPRDescription:
 		m.pr = newPRModel(m.llm, m.width, m.height)
+		m.pr.setStyles(m.styles, m.isDarkMode)
 		m.currentView = viewPRDescription
 
 		return m, tea.Batch(
@@ -519,13 +530,13 @@ func (m *Model) handleSelectedReviewer(reviewer *reviewers.Reviewer) (tea.Model,
 	listInstructions, err := instructions.Get(m.storage)
 
 	if m.skipInstruction {
-		return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: ""})
+		return m, utils.DispatchMsg(instructionSelectedMsg{instruction: ""})
 	}
 
 	if m.instructionName != "" {
 		if instruction, err := instructions.Find(m.instructionName, listInstructions); err == nil {
 			m.selectedInstruction = instruction.Prompt
-			return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: instruction.Prompt})
+			return m, utils.DispatchMsg(instructionSelectedMsg{instruction: instruction.Prompt})
 		}
 	}
 
@@ -534,10 +545,10 @@ func (m *Model) handleSelectedReviewer(reviewer *reviewers.Reviewer) (tea.Model,
 	}
 
 	if len(listInstructions) == 0 {
-		return m, utils.DispatchMsg(instructionSelectedMsg{Instruction: ""})
+		return m, utils.DispatchMsg(instructionSelectedMsg{instruction: ""})
 	}
 
-	m.instructions = newInstructionsModel(listInstructions, m.storage)
+	m.instructions = newInstructionsModel(listInstructions, m.styles, m.isDarkMode)
 	m.currentView = viewInstructions
 
 	return m, nil
@@ -572,10 +583,10 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 		if m.branchErr != nil {
 			m.message = fmt.Sprintf(
 				"Could not check against %s.\n\nPress Esc to try a different branch.",
-				styles.Accent.Render(m.branch),
+				m.styles.Accent.Render(m.branch),
 			)
 
-			m.message = styles.Info.Padding(2).Render(m.message)
+			m.message = m.styles.Info.Padding(2).Render(m.message)
 			return m, nil
 		}
 
@@ -608,6 +619,7 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 	m.reviewCancelFunc = cancel
 
 	m.review = newReviewModel(*m.selectedReviewer, prompt, m.width, m.height, m.llm)
+	m.review.setStyles(m.styles, m.isDarkMode)
 	m.currentView = viewReview
 
 	return m, m.review.startReview(ctx)
@@ -630,7 +642,7 @@ func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
 
 		m.message += "Press Esc to go back."
 
-		m.message = styles.Info.Padding(2).Render(m.message)
+		m.message = m.styles.Info.Padding(2).Render(m.message)
 
 		return m, nil
 	}
@@ -651,6 +663,7 @@ func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
 	m.operationCancelFunc = cancel
 
 	m.commitChanges = newCommitChangesModel(m.llm, prompt, commitAll, m.width, m.height)
+	m.commitChanges.setStyles(m.styles, m.isDarkMode)
 	m.currentView = viewCommitChanges
 	return m, m.commitChanges.startCommitGeneration(ctx)
 }

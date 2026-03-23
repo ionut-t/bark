@@ -5,14 +5,14 @@ import (
 	"errors"
 	"slices"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/llm"
 	"github.com/ionut-t/coffee/help"
 	"github.com/ionut-t/coffee/styles"
-	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
+	editor "github.com/ionut-t/goeditor"
 )
 
 var generationPhaseLoadingMessages = [...]string{
@@ -129,6 +129,8 @@ type commitChangesModel struct {
 	error           error
 	response        string
 	isShowingPrompt bool
+	styles          styles.Styles
+	isDarkMode      bool
 
 	loadingMsgPicker    *loadingMessagePicker
 	committingMsgPicker *loadingMessagePicker
@@ -142,12 +144,10 @@ type commitChangesMsg struct {
 func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool, width, height int) commitChangesModel {
 	textEditor := editor.New(width, height)
 	textEditor.DisableCommandMode(true)
-	textEditor.WithTheme(styles.EditorTheme())
 	textEditor.Focus()
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = styles.Primary
 
 	m := commitChangesModel{
 		width:     width,
@@ -166,6 +166,13 @@ func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool, width, he
 	m.loadingMsg = m.getGenerationLoadingMessage()
 
 	return m
+}
+
+func (m *commitChangesModel) setStyles(s styles.Styles, isDarkMode bool) {
+	m.styles = s
+	m.isDarkMode = isDarkMode
+	m.editor.WithTheme(styles.EditorTheme(s))
+	m.spinner.Style = s.Primary
 }
 
 func (m *commitChangesModel) setSize(width, height int) {
@@ -249,7 +256,7 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 			m.isShowingPrompt = !m.isShowingPrompt
 			if m.isShowingPrompt {
 				m.editor.SetContent(m.prompt + "\n")
-				m.editor.SetLanguage("markdown", styles.EditorLanguageTheme())
+				m.editor.SetLanguage("markdown", styles.EditorLanguageTheme(m.isDarkMode))
 				m.editor.SetExtraHighlightedContextLines(300)
 			} else {
 				m.editor.SetContent(m.response)
@@ -272,8 +279,9 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 		}
 	}
 
-	ed, cmd := m.editor.Update(msg)
-	m.editor = ed.(editor.Model)
+	var cmd tea.Cmd
+
+	m.editor, cmd = m.editor.Update(msg)
 
 	if m.isShowingPrompt {
 		m.prompt = m.editor.GetCurrentContent()
@@ -287,7 +295,7 @@ func (m commitChangesModel) View() string {
 		return lipgloss.NewStyle().Padding(2, 2, 0).Render(lipgloss.JoinHorizontal(
 			lipgloss.Top,
 			m.spinner.View(),
-			styles.Accent.Render(" "+m.loadingMsg),
+			m.styles.Accent.Render(" "+m.loadingMsg),
 		))
 	}
 
@@ -307,8 +315,8 @@ func (m commitChangesModel) View() string {
 func (m *commitChangesModel) header() string {
 	var header string
 	if m.error != nil {
-		err := styles.Wrap(80, styles.Error.Render("Error: "+m.error.Error()))
-		header = styles.Subtext0.Render(
+		err := styles.Wrap(80, m.styles.Error.Render("Error: "+m.error.Error()))
+		header = m.styles.Subtext0.Render(
 			lipgloss.JoinVertical(
 				lipgloss.Left,
 				err,
@@ -328,7 +336,7 @@ func (m *commitChangesModel) header() string {
 
 	border := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderBottomForeground(styles.Primary.GetForeground())
+		BorderBottomForeground(m.styles.Primary.GetForeground())
 
 	return border.Render(header) + "\n"
 }
@@ -375,7 +383,7 @@ func (m *commitChangesModel) commitChangesHelp() string {
 		)
 	}
 
-	return help.RenderCmdHelp(m.width, commands)
+	return help.RenderCmdHelp(m.styles, m.width, commands)
 }
 
 func getCommitMessage(ctx context.Context, llm llm.LLM, prompt string) tea.Cmd {

@@ -3,11 +3,10 @@ package cmd
 import (
 	"fmt"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/internal/config"
 	"github.com/ionut-t/bark/pkg/plain"
 	"github.com/ionut-t/bark/tui"
-	"github.com/ionut-t/coffee/styles"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +19,7 @@ func reviewCmd() *cobra.Command {
 				if hasStdinData() || isPlainMode(cmd) {
 					plain.Errf("%s", err)
 				} else {
-					fmt.Println(styles.Error.Render("Error: " + err.Error()))
+					PrintError(err)
 				}
 			}
 		},
@@ -105,7 +104,7 @@ func runReviewCmd(cmd *cobra.Command) error {
 		ReviewOption:    reviewOption,
 	})
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("error running UI: %w", err)

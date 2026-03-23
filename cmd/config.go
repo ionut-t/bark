@@ -7,7 +7,6 @@ import (
 	"github.com/ionut-t/bark/internal/utils"
 	"github.com/ionut-t/bark/pkg/instructions"
 	"github.com/ionut-t/bark/pkg/reviewers"
-	"github.com/ionut-t/coffee/styles"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +27,7 @@ func configCmd() *cobra.Command {
 
 			if editorFlag != "" {
 				if err := cfg.SetEditor(editorFlag); err != nil {
-					fmt.Println("Error setting editor:", err)
+					PrintError(err)
 					return
 				}
 				flagsSet = true
@@ -36,7 +35,7 @@ func configCmd() *cobra.Command {
 
 			if llmProviderFlag != "" {
 				if err := cfg.SetLLMProvider(llmProviderFlag); err != nil {
-					fmt.Println("Error setting LLM provider:", err)
+					PrintError(err)
 					return
 				}
 				flagsSet = true
@@ -44,7 +43,7 @@ func configCmd() *cobra.Command {
 
 			if llmModelFlag != "" {
 				if err := cfg.SetLLMModel(llmModelFlag); err != nil {
-					fmt.Println("Error setting LLM model:", err)
+					PrintError(err)
 					return
 				}
 				flagsSet = true
@@ -52,7 +51,7 @@ func configCmd() *cobra.Command {
 
 			if maxDiffLinesFlag != 0 {
 				if err := cfg.SetMaxDiffLines(maxDiffLinesFlag); err != nil {
-					fmt.Println("Error setting max diff lines:", err)
+					PrintError(err)
 					return
 				}
 				flagsSet = true
@@ -60,7 +59,7 @@ func configCmd() *cobra.Command {
 
 			if !flagsSet {
 				if err := utils.OpenEditor(configPath); err != nil {
-					fmt.Println(styles.Error.Render("error opening editor: " + err.Error()))
+					PrintError(err)
 				}
 			}
 		},

@@ -5,9 +5,16 @@ import (
 	"io"
 	"os"
 
+	"charm.land/lipgloss/v2"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
+
+var errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000")).Bold(true)
+
+func PrintError(err error) {
+	fmt.Println(errorStyle.Render("Error: " + err.Error()))
+}
 
 // isPlainMode returns true if --plain is set or stdout is not a TTY.
 func isPlainMode(cmd *cobra.Command) bool {

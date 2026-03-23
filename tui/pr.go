@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/pkg/llm"
 	"github.com/ionut-t/coffee/styles"
-	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
+	editor "github.com/ionut-t/goeditor"
 )
 
 var prLoadingMessages = [...]string{
@@ -134,18 +134,16 @@ type prModel struct {
 	prompt           string
 	response         string
 	showPrompt       bool
+	styles           styles.Styles
 }
 
 func newPRModel(llm llm.LLM, width, height int) prModel {
 	textEditor := editor.New(width, height)
-	textEditor.SetLanguage("markdown", styles.EditorLanguageTheme())
 	textEditor.SetExtraHighlightedContextLines(300)
-	textEditor.WithTheme(styles.EditorTheme())
 	textEditor.Focus()
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = styles.Primary
 
 	m := prModel{
 		editor:           textEditor,
@@ -157,6 +155,15 @@ func newPRModel(llm llm.LLM, width, height int) prModel {
 
 	m.loadingMsg = m.getLoadingMessage()
 	return m
+}
+
+func (m *prModel) setStyles(s styles.Styles, isDarkMode bool) {
+	m.styles = s
+
+	m.editor.WithTheme(styles.EditorTheme(s))
+
+	m.editor.SetLanguage("markdown", styles.EditorLanguageTheme(isDarkMode))
+	m.spinner.Style = s.Primary
 }
 
 func (m *prModel) setPrompt(prompt string) {
@@ -237,8 +244,8 @@ func (m prModel) Update(msg tea.Msg) (prModel, tea.Cmd) {
 		}
 	}
 
-	ed, cmd := m.editor.Update(msg)
-	m.editor = ed.(editor.Model)
+	var cmd tea.Cmd
+	m.editor, cmd = m.editor.Update(msg)
 
 	return m, cmd
 }
@@ -248,13 +255,13 @@ func (m prModel) View() string {
 		return lipgloss.NewStyle().Padding(2).Render(lipgloss.JoinHorizontal(
 			lipgloss.Top,
 			m.spinner.View(),
-			styles.Accent.Render(" "+m.loadingMsg),
+			m.styles.Accent.Render(" "+m.loadingMsg),
 		))
 	}
 
 	if m.error != nil {
-		err := styles.Wrap(80, styles.Error.Render("Error: "+m.error.Error()))
-		return styles.Subtext0.Render(
+		err := styles.Wrap(80, m.styles.Error.Render("Error: "+m.error.Error()))
+		return m.styles.Subtext0.Render(
 			lipgloss.JoinVertical(
 				lipgloss.Left,
 				"\n\n",

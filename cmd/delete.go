@@ -3,12 +3,11 @@ package cmd
 import (
 	"fmt"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/internal/config"
 	"github.com/ionut-t/bark/pkg/instructions"
 	"github.com/ionut-t/bark/pkg/reviewers"
 	"github.com/ionut-t/bark/tui"
-	"github.com/ionut-t/coffee/styles"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +27,7 @@ func deleteCmd() *cobra.Command {
 			}
 
 			if err := handleDeleteCmd(cmd, name); err != nil {
-				fmt.Println(styles.Error.Render("Error: " + err.Error()))
+				PrintError(err)
 			}
 		},
 	}
@@ -75,7 +74,7 @@ func handleDeleteCmd(cmd *cobra.Command, name string) error {
 		}
 	}
 
-	p := tea.NewProgram(tui.NewAssetsModel(storage, assetType, tui.AssetActionDelete), tea.WithAltScreen())
+	p := tea.NewProgram(tui.NewAssetsModel(storage, assetType, tui.AssetActionDelete))
 
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("error running UI: %w", err)

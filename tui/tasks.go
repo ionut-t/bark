@@ -1,9 +1,10 @@
 package tui
 
 import (
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/internal/utils"
+	"github.com/ionut-t/coffee/styles"
 )
 
 type Task int
@@ -36,14 +37,14 @@ type tasksModel struct {
 	list list.Model
 }
 
-func newTasksModel() tasksModel {
-	tasks := []list.Item{
-		item{title: TaskReview.String()},
-		item{title: TaskCommit.String()},
-		item{title: TaskPRDescription.String()},
-	}
+var tasks = []list.Item{
+	item{title: TaskReview.String()},
+	item{title: TaskCommit.String()},
+	item{title: TaskPRDescription.String()},
+}
 
-	l := newListModel("Select a task", tasks)
+func newTasksModel(s styles.Styles, isDarkMode bool) tasksModel {
+	l := newListModel("Select a task", tasks, s, isDarkMode)
 	l.SetFilteringEnabled(false)
 
 	return tasksModel{
@@ -51,11 +52,16 @@ func newTasksModel() tasksModel {
 	}
 }
 
+func (m *tasksModel) setStyles(s styles.Styles, isDarkMode bool) {
+	m.list = newListModel("Select a task", tasks, s, isDarkMode)
+	m.list.SetFilteringEnabled(false)
+}
+
 func (m tasksModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m tasksModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m tasksModel) Update(msg tea.Msg) (tasksModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
