@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.12.0](https://github.com/ionut-t/bark/compare/v2.11.2...v2.12.0) (2026-03-23)
+
+
+### Features
+
+* update dependencies and fix breaking changes ([e2034eb](https://github.com/ionut-t/bark/commit/e2034eb80a9a36c3af20442a226b015004954891))
+
 ## [2.11.2](https://github.com/ionut-t/bark/compare/v2.11.1...v2.11.2) (2026-03-16)
 
 
