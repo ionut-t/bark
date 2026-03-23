@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/internal/config"
@@ -46,7 +47,9 @@ type commitStatusMessage struct {
 type Model struct {
 	width, height int
 
-	error       error
+	error     error
+	commitErr error
+
 	currentView view
 
 	llm     llm.LLM
@@ -94,6 +97,8 @@ type Model struct {
 	styles     styles.Styles
 	isDarkMode bool
 	pendingCmd tea.Cmd
+
+	viewport viewport.Model
 }
 
 type Options struct {
@@ -161,6 +166,7 @@ func New(options Options) *Model {
 		pendingCmd:           pendingCmd,
 		isDarkMode:           isDarkMode,
 		styles:               styles,
+		viewport:             viewport.New(),
 	}
 
 	m.branchInput.setStyles(styles)
@@ -179,6 +185,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.viewport.SetWidth(max(msg.Width-2, 10))
+		m.viewport.SetHeight(max(msg.Height-10, 5))
 
 		switch m.currentView {
 		case viewCommits:
@@ -252,13 +260,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.operationCancelFunc = nil
 		}
 
+		m.commitErr = nil
+		m.commitChanges.loading = true
+
 		return m, performCommit(msg.message, msg.commitAll)
 
 	case commitStatusMessage:
 		m.commitChanges.loading = false
 
 		if msg.error != nil {
-			m.error = msg.error
+			m.commitErr = msg.error
+			m.viewport.SetContent(m.styles.Error.Padding(0, 2).Render(msg.error.Error()))
 		} else {
 			return m, tea.Quit
 		}
@@ -321,6 +333,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+			if m.commitErr != nil {
+				m.commitErr = nil
+			}
+
 		case "ctrl+r":
 			switch m.currentView {
 			case viewCommitChanges:
@@ -347,6 +363,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case viewCommitChanges:
 				if m.commitChanges.error != nil {
 					return m.handleCommitMessageRetry()
+				}
+
+				if m.commitErr != nil {
+					return m, m.commitChanges.dispatch()
 				}
 
 			case viewPRDescription:
@@ -404,6 +424,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.branchInput, cmd = m.branchInput.Update(msg)
 	}
 
+	if m.commitErr != nil {
+		m.viewport, cmd = m.viewport.Update(msg)
+	}
+
 	return m, cmd
 }
 
@@ -436,7 +460,7 @@ func (m Model) createView() string {
 				lipgloss.JoinVertical(lipgloss.Left,
 					"Could not find any changes to review.",
 					"This can happen when there are no commits in the repository.",
-					"Stage some changes and run `bark --stage`.",
+					"Stage some changes and run `bark review --stage`.",
 					"\n",
 					"Press `ctrl+c` to exit.",
 				),
@@ -448,7 +472,7 @@ func (m Model) createView() string {
 				lipgloss.JoinVertical(lipgloss.Left,
 					"Could not find any commits.",
 					"This can happen when there are no commits in the repository.",
-					"Try running `bark --stage` to review staged changes.",
+					"Try running `bark review --stage` to review staged changes.",
 					"\n",
 					"Press `ctrl+c` to exit.",
 				),
@@ -456,6 +480,20 @@ func (m Model) createView() string {
 		}
 
 		return m.styles.Error.Padding(2).Render("Error: " + m.error.Error() + "\n" + "Press `ctrl+c` to exit.")
+	}
+
+	if m.commitErr != nil {
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			lipgloss.NewStyle().Margin(1, 0).Padding(0, 2).Render("Error committing changes: "),
+			lipgloss.NewStyle().
+				Width(m.width).
+				Border(lipgloss.NormalBorder(), true, false).
+				Render(m.viewport.View()),
+			m.styles.Info.
+				Margin(1, 2).
+				Render("Press r to retry committing, esc to go back or ctrl+c to exit."),
+		)
 	}
 
 	if m.message != "" {

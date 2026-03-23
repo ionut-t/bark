@@ -266,16 +266,7 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 		case "alt+enter", "ctrl+s":
 			m.loading = true
 			m.loadingMsg = m.getCommittingLoadingMsg()
-			return m, tea.Batch(
-				m.spinner.Tick,
-				m.dispatchCommittingLoadingMsg(),
-				utils.DispatchMsg(
-					commitChangesMsg{
-						message:   m.editor.GetCurrentContent(),
-						commitAll: m.commitAll,
-					},
-				),
-			)
+			return m, m.dispatch()
 		}
 	}
 
@@ -414,4 +405,17 @@ func (m *commitChangesModel) getCommittingLoadingMsg() string {
 
 func (m *commitChangesModel) canRetry() bool {
 	return !m.loading && m.editor.IsNormalMode()
+}
+
+func (m *commitChangesModel) dispatch() tea.Cmd {
+	return tea.Batch(
+		m.spinner.Tick,
+		m.dispatchCommittingLoadingMsg(),
+		utils.DispatchMsg(
+			commitChangesMsg{
+				message:   m.editor.GetCurrentContent(),
+				commitAll: m.commitAll,
+			},
+		),
+	)
 }
