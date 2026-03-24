@@ -326,7 +326,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showHelp = !m.showHelp
 
 		case "esc":
-			m.message = ""
+			if m.selectedTask != TaskCommit {
+				m.message = ""
+			}
+
 			if m.branchErr != nil {
 				m.currentView = viewBranchInput
 				m.branchErr = nil
@@ -678,7 +681,11 @@ func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
 			m.message += "Tip: use 'C' to commit all changes, including unstaged ones.\n"
 		}
 
-		m.message += "Press Esc to go back."
+		if m.selectedTask != TaskCommit {
+			m.message += "Press Esc to go back, or ctrl+c to exit."
+		} else {
+			m.message += "Press ctrl+c to exit."
+		}
 
 		m.message = m.styles.Info.Padding(2).Render(m.message)
 

@@ -234,7 +234,7 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 
 		m.response = utils.RemoveCodeFences(msg.message)
 		m.editor.SetContent(m.response)
-		m.editor.SetSize(m.width-4, max(10, m.height-lipgloss.Height(m.header())-1))
+		m.editor.SetSize(m.width-4, max(10, m.height-lipgloss.Height(m.getHeader())-1))
 
 	case editor.SearchResultsMsg:
 		if len(msg.Positions) == 0 {
@@ -290,7 +290,11 @@ func (m commitChangesModel) View() string {
 		))
 	}
 
-	header := m.header()
+	if m.error != nil {
+		return lipgloss.NewStyle().Padding(2).Render(m.getError())
+	}
+
+	header := m.getHeader()
 	headerHeight := lipgloss.Height(header)
 	editorHeight := m.height - headerHeight - 1
 
@@ -303,27 +307,29 @@ func (m commitChangesModel) View() string {
 	))
 }
 
-func (m *commitChangesModel) header() string {
-	var header string
-	if m.error != nil {
-		err := styles.Wrap(80, m.styles.Error.Render("Error: "+m.error.Error()))
-		header = m.styles.Subtext0.Render(
-			lipgloss.JoinVertical(
-				lipgloss.Left,
-				err,
-				"\n\n",
-				"Press r to retry",
-			),
-		)
-	} else {
-		height := 7
+func (m *commitChangesModel) getError() string {
+	return m.styles.Subtext0.Render(
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			m.styles.Error.Render(styles.Wrap(80, "Error: "+m.error.Error())),
+			"\n",
+			lipgloss.NewStyle().
+				Width(m.width-4).
+				Padding(1, 0).
+				Border(lipgloss.NormalBorder(), true, false, false).
+				Render(m.styles.Info.Render("Press r to retry, or ctrl+c to quit.")),
+		),
+	)
+}
 
-		if m.isShowingPrompt {
-			height = 6
-		}
+func (m *commitChangesModel) getHeader() string {
+	height := 7
 
-		header = lipgloss.NewStyle().Height(height).Render(m.commitChangesHelp())
+	if m.isShowingPrompt {
+		height = 6
 	}
+
+	header := lipgloss.NewStyle().Height(height).Render(m.commitChangesHelp())
 
 	border := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, true, false).
