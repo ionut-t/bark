@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.12.2](https://github.com/ionut-t/bark/compare/v2.12.1...v2.12.2) (2026-03-24)
+
+
+### Bug Fixes
+
+* **tui:** improve commit view interaction and error handling ([39cda3f](https://github.com/ionut-t/bark/commit/39cda3ff15711d56aa38de5a64a0969b166ba1fe))
+
 ## [2.12.1](https://github.com/ionut-t/bark/compare/v2.12.0...v2.12.1) (2026-03-23)
 
 
