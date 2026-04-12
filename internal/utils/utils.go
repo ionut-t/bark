@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/ionut-t/bark/internal/config"
+	"github.com/ionut-t/bark/v2/internal/config"
 )
 
 var codeFenceEndPattern = regexp.MustCompile("(?m)([^\\n])(\\+```|-```)([^\\n\\s]*)\\s*$")

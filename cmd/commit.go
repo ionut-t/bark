@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/ionut-t/bark/internal/config"
-	"github.com/ionut-t/bark/pkg/plain"
-	"github.com/ionut-t/bark/tui"
+	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/pkg/plain"
+	"github.com/ionut-t/bark/v2/tui"
 	"github.com/spf13/cobra"
 )
 

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ionut-t/bark/internal/utils"
+	"github.com/ionut-t/bark/v2/internal/utils"
 )
 
 // Asset holds the name and prompt for a given asset.

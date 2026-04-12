@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ionut-t/bark/internal/assets"
+	"github.com/ionut-t/bark/v2/internal/assets"
 )
 
 //go:embed prompts/*.md

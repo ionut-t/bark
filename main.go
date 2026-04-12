@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/ionut-t/bark/cmd"
+	"github.com/ionut-t/bark/v2/cmd"
 )
 
 func main() {

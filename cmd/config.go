@@ -3,10 +3,10 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/ionut-t/bark/internal/config"
-	"github.com/ionut-t/bark/internal/utils"
-	"github.com/ionut-t/bark/pkg/instructions"
-	"github.com/ionut-t/bark/pkg/reviewers"
+	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/internal/utils"
+	"github.com/ionut-t/bark/v2/pkg/instructions"
+	"github.com/ionut-t/bark/v2/pkg/reviewers"
 	"github.com/spf13/cobra"
 )
 

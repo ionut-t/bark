@@ -6,14 +6,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/ionut-t/bark/internal/config"
-	"github.com/ionut-t/bark/internal/utils"
-	"github.com/ionut-t/bark/pkg/git"
-	"github.com/ionut-t/bark/pkg/instructions"
-	"github.com/ionut-t/bark/pkg/llm"
-	"github.com/ionut-t/bark/pkg/llm/llm_factory"
-	"github.com/ionut-t/bark/pkg/prompt"
-	"github.com/ionut-t/bark/pkg/reviewers"
+	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/internal/utils"
+	"github.com/ionut-t/bark/v2/pkg/git"
+	"github.com/ionut-t/bark/v2/pkg/instructions"
+	"github.com/ionut-t/bark/v2/pkg/llm"
+	"github.com/ionut-t/bark/v2/pkg/llm/llm_factory"
+	"github.com/ionut-t/bark/v2/pkg/prompt"
+	"github.com/ionut-t/bark/v2/pkg/reviewers"
 )
 
 // ReviewOptions configures the plain text review runner.

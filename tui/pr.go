@@ -7,7 +7,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/ionut-t/bark/pkg/llm"
+	"github.com/ionut-t/bark/v2/pkg/llm"
 	"github.com/ionut-t/coffee/styles"
 	editor "github.com/ionut-t/goeditor"
 )

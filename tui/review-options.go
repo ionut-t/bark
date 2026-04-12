@@ -3,7 +3,7 @@ package tui
 import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"github.com/ionut-t/bark/internal/utils"
+	"github.com/ionut-t/bark/v2/internal/utils"
 	"github.com/ionut-t/coffee/styles"
 )
 

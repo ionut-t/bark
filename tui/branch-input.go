@@ -6,7 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/ionut-t/bark/internal/utils"
+	"github.com/ionut-t/bark/v2/internal/utils"
 	"github.com/ionut-t/coffee/styles"
 )
 

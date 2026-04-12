@@ -17,7 +17,7 @@ Bark is a command-line tool that uses AI to review code, generate commit message
 To install Bark, use `go install`:
 
 ```bash
-go install github.com/ionut-t/bark@latest
+go install github.com/ionut-t/bark/v2@latest
 ```
 
 ## Usage
@@ -123,4 +123,3 @@ Bark is built with the help of these amazing open-source libraries:
 - [Glamour](https://github.com/charmbracelet/glamour)
 - [Google Gen AI Go SDK](https://github.com/googleapis/go-genai)
 - [goeditor](https://github.com/ionut-t/goeditor)
-

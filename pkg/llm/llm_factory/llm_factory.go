@@ -7,10 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ionut-t/bark/internal/config"
-	"github.com/ionut-t/bark/pkg/llm"
-	"github.com/ionut-t/bark/pkg/llm/gemini"
-	"github.com/ionut-t/bark/pkg/llm/vertexai"
+	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/pkg/llm"
+	"github.com/ionut-t/bark/v2/pkg/llm/gemini"
+	"github.com/ionut-t/bark/v2/pkg/llm/vertexai"
 )
 
 var (

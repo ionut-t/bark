@@ -7,9 +7,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fang/v2"
-	"github.com/ionut-t/bark/internal/config"
-	"github.com/ionut-t/bark/internal/version"
-	"github.com/ionut-t/bark/tui"
+	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/internal/version"
+	"github.com/ionut-t/bark/v2/tui"
 	"github.com/ionut-t/coffee/styles"
 	"github.com/spf13/cobra"
 )
