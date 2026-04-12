@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.13.0](https://github.com/ionut-t/bark/compare/v2.12.2...v2.13.0) (2026-04-12)
+
+
+### Features
+
+* **module:** adopt go module v2 conventions ([659f2a8](https://github.com/ionut-t/bark/commit/659f2a8230e851f8fc8b2c6688573db506e8295a))
+
 ## [2.12.2](https://github.com/ionut-t/bark/compare/v2.12.1...v2.12.2) (2026-03-24)
 
 
