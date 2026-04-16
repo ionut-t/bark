@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.14.0](https://github.com/ionut-t/bark/compare/v2.13.0...v2.14.0) (2026-04-16)
+
+
+### Features
+
+* **review:** add ability to review GitHub pull requests ([c84894c](https://github.com/ionut-t/bark/commit/c84894c410a8539cbcd52014a18b7e40770a05ec))
+
 ## [2.13.0](https://github.com/ionut-t/bark/compare/v2.12.2...v2.13.0) (2026-04-12)
 
 
