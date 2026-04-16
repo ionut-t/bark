@@ -31,6 +31,7 @@ type ReviewOptions struct {
 	All    bool
 	Branch string
 	Hash   string
+	PR     string
 }
 
 // CommitOptions configures the plain text commit runner.
@@ -55,6 +56,8 @@ func RunReview(opts ReviewOptions) error {
 	if opts.Diff == nil {
 		var err error
 		switch {
+		case opts.PR != "":
+			diff, err = git.GetPRDiff(opts.PR)
 		case opts.Hash != "":
 			diff, err = git.GetDiff(opts.Hash)
 		case opts.Branch != "":

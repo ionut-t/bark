@@ -15,6 +15,7 @@ const (
 	ReviewOptionStagedChanges
 	ReviewOptionCommit
 	ReviewOptionBranch
+	ReviewPR
 )
 
 func (r ReviewOption) String() string {
@@ -27,6 +28,8 @@ func (r ReviewOption) String() string {
 		return "Review a recent commit"
 	case ReviewOptionBranch:
 		return "Review against a branch"
+	case ReviewPR:
+		return "Review a pull request"
 	default:
 		return ""
 	}
@@ -54,6 +57,7 @@ func (i reviewOptionItem) FilterValue() string { return i.title }
 var reviewOptionsItems = []list.Item{
 	reviewOptionItem{id: ReviewOptionCurrentChanges, title: ReviewOptionCurrentChanges.String()},
 	reviewOptionItem{id: ReviewOptionStagedChanges, title: ReviewOptionStagedChanges.String()},
+	reviewOptionItem{id: ReviewPR, title: ReviewPR.String()},
 	reviewOptionItem{id: ReviewOptionCommit, title: ReviewOptionCommit.String()},
 	reviewOptionItem{id: ReviewOptionBranch, title: ReviewOptionBranch.String()},
 }

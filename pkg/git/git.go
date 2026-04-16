@@ -13,6 +13,7 @@ var (
 	ErrNotAGitRepository     = errors.New("not a git repository")
 	ErrNoChangesInRepository = errors.New("no changes in repository")
 	ErrNoCommitsInRepository = errors.New("no commits in repository")
+	ErrGHNotInstalled        = errors.New("gh CLI is not installed (see https://cli.github.com)")
 )
 
 var shortStatRegex = regexp.MustCompile(`(?P<files>\d+) files? changed(?:, (?P<additions>\d+) insertions?\(\+\))?(?:, (?P<deletions>\d+) deletions?\(-\))?`)
@@ -50,8 +51,7 @@ func GetCommits(limit int) ([]Commit, error) {
 
 	output, err := cmd.Output()
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			// Check if the error is due to no commits in the repository
 			if exitErr.ExitCode() == 128 {
 				return nil, ErrNoCommitsInRepository
@@ -355,4 +355,25 @@ func GetBranchInfo(baseBranch string, maxLines uint32) (*BranchInfo, error) {
 		TotalDeletions:    deletions,
 		Diffs:             diffs,
 	}, nil
+}
+
+// GetPRDiff returns the diff for a GitHub pull request using the gh CLI.
+func GetPRDiff(prNumber string) (string, error) {
+	cmd := exec.Command("gh", "pr", "diff", prNumber)
+	output, err := cmd.Output()
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return "", ErrGHNotInstalled
+		}
+
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+			if stderr := strings.TrimSpace(string(exitErr.Stderr)); stderr != "" {
+				return "", fmt.Errorf("%w:\n%s", exitErr, stderr)
+			}
+		}
+
+		return "", fmt.Errorf("failed to get PR diff: %w", err)
+	}
+
+	return string(output), nil
 }

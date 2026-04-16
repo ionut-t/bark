@@ -38,6 +38,7 @@ const (
 	viewCommitChanges
 	viewPRDescription
 	viewBranchInput
+	viewPRNumberInput
 )
 
 type commitStatusMessage struct {
@@ -84,6 +85,9 @@ type Model struct {
 	branchErr   error
 	branchInput branchInputModel
 
+	prNumber      string
+	prNumberInput prNumberInputModel
+
 	pr prModel
 
 	hint string
@@ -106,6 +110,7 @@ type Options struct {
 	ReviewerName    string
 	Instruction     string
 	Branch          string
+	PR              string
 	SelectCommit    bool
 	Config          config.Config
 	StagedOnly      bool
@@ -155,6 +160,8 @@ func New(options Options) *Model {
 		instructionName:      options.Instruction,
 		branch:               options.Branch,
 		branchInput:          newBranchInputModel(options.Branch),
+		prNumber:             options.PR,
+		prNumberInput:        newPRNumberInputModel(options.PR),
 		stagedOnly:           options.StagedOnly,
 		skipInstruction:      options.SkipInstruction,
 		tasks:                newTasksModel(styles, isDarkMode),
@@ -170,6 +177,7 @@ func New(options Options) *Model {
 	}
 
 	m.branchInput.setStyles(styles)
+	m.prNumberInput.setStyles(styles)
 	m.tasks.setStyles(styles, isDarkMode)
 	m.reviewOptions.setStyles(styles, isDarkMode)
 
@@ -286,6 +294,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentView = viewTasks
 		m.selectedReviewOption = ReviewOptionNone
 
+	case prNumberSelectedMsg:
+		m.prNumber = msg.prNumber
+		return m, utils.DispatchMsg(listReviewersMsg{})
+
+	case cancelPRNumberSelectionMsg:
+		m.currentView = viewReviewOptions
+		m.prNumber = ""
+
 	case cancelBranchSelectionMsg:
 		m.currentView = viewReviewOptions
 		m.branch = ""
@@ -297,6 +313,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentView = viewCommits
 		} else if m.branch != "" {
 			m.currentView = viewBranchInput
+		} else if m.selectedReviewOption == ReviewPR {
+			m.currentView = viewPRNumberInput
 		} else {
 			m.currentView = viewReviewOptions
 		}
@@ -425,6 +443,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case viewBranchInput:
 		m.branchInput, cmd = m.branchInput.Update(msg)
+
+	case viewPRNumberInput:
+		m.prNumberInput, cmd = m.prNumberInput.Update(msg)
 	}
 
 	if m.commitErr != nil {
@@ -534,6 +555,10 @@ func (m Model) createView() string {
 
 	case viewBranchInput:
 		return m.branchInput.View()
+
+	case viewPRNumberInput:
+		return m.prNumberInput.View()
+
 	default:
 		return ""
 	}
@@ -609,6 +634,11 @@ func (m *Model) handleSelectedReviewOption(option ReviewOption) (tea.Model, tea.
 		if m.branch != "" {
 			return m, utils.DispatchMsg(listReviewersMsg{})
 		}
+	case ReviewPR:
+		if m.prNumber != "" {
+			return m, utils.DispatchMsg(listReviewersMsg{})
+		}
+		m.currentView = viewPRNumberInput
 	}
 
 	return m, nil
@@ -618,7 +648,9 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 	var diff string
 	var err error
 
-	if m.branch != "" {
+	if m.prNumber != "" {
+		diff, err = git.GetPRDiff(m.prNumber)
+	} else if m.branch != "" {
 		diff, m.branchErr = git.GetBranchDiff(m.branch, m.config.GetMaxDiffLines())
 
 		if m.branchErr != nil {

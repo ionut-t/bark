@@ -34,8 +34,9 @@ func reviewCmd() *cobra.Command {
 	cmd.Flags().BoolP("skip-instruction", "k", false, "Skip the instructions selection step")
 	cmd.Flags().String("hash", "", "Specify a commit hash to review")
 	cmd.Flags().BoolP("stream", "S", false, "Stream the review output in real-time (only for plain mode)")
+	cmd.Flags().StringP("pr", "p", "", "Review a GitHub pull request by number (requires gh CLI)")
 
-	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged", "hash")
+	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged", "hash", "pr")
 
 	return cmd
 }
@@ -55,6 +56,7 @@ func runReviewCmd(cmd *cobra.Command) error {
 	skipInstruction, _ := cmd.Flags().GetBool("skip-instruction")
 	hash, _ := cmd.Flags().GetString("hash")
 	stream, _ := cmd.Flags().GetBool("stream")
+	pr, _ := cmd.Flags().GetString("pr")
 
 	cfg := config.New()
 
@@ -76,6 +78,7 @@ func runReviewCmd(cmd *cobra.Command) error {
 			Branch:          branch,
 			Hash:            hash,
 			Stream:          stream,
+			PR:              pr,
 		})
 	}
 
@@ -89,6 +92,8 @@ func runReviewCmd(cmd *cobra.Command) error {
 		reviewOption = tui.ReviewOptionCommit
 	} else if branch != "" {
 		reviewOption = tui.ReviewOptionBranch
+	} else if pr != "" {
+		reviewOption = tui.ReviewPR
 	}
 
 	m := tui.New(tui.Options{
@@ -102,6 +107,7 @@ func runReviewCmd(cmd *cobra.Command) error {
 		StagedOnly:      staged,
 		SkipInstruction: skipInstruction,
 		ReviewOption:    reviewOption,
+		PR:              pr,
 	})
 
 	p := tea.NewProgram(m)
