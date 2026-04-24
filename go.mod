@@ -10,7 +10,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.2
 	github.com/ionut-t/coffee/help v0.0.0-20260404232152-91b6181d4e02
 	github.com/ionut-t/coffee/styles v0.0.0-20260404232152-91b6181d4e02
-	github.com/ionut-t/goeditor v0.4.10
+	github.com/ionut-t/goeditor v0.4.12
 	github.com/mattn/go-isatty v0.0.21
 	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/spf13/cobra v1.10.2

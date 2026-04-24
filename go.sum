@@ -104,8 +104,8 @@ github.com/ionut-t/coffee/help v0.0.0-20260404232152-91b6181d4e02 h1:kuHFQPyGfCT
 github.com/ionut-t/coffee/help v0.0.0-20260404232152-91b6181d4e02/go.mod h1:eIARjrUqMcmWCchl3zeeWXd2EJF9RSqoIB6pjUOQQ8U=
 github.com/ionut-t/coffee/styles v0.0.0-20260404232152-91b6181d4e02 h1:hxPZSRUExcpyBwqWT58u0PYWgef+1ewZ44H/dUtpsWQ=
 github.com/ionut-t/coffee/styles v0.0.0-20260404232152-91b6181d4e02/go.mod h1:jcHUhhTjjXx2K4UbOJH3Y+yHwkovoZxCkYrsDM9ZSUQ=
-github.com/ionut-t/goeditor v0.4.10 h1:cBoZKC+Wt3axWqqDNoyOXEGqlLKtU80nKAGSF6djwps=
-github.com/ionut-t/goeditor v0.4.10/go.mod h1:sVMC8y3eupOdNaNr1Tb4sF/O+sm6PbXgpBQxg+AckEI=
+github.com/ionut-t/goeditor v0.4.12 h1:KKrvJpM/JYySaB3wRtIgJJIlqSXQCJSL7szbgQXwP7g=
+github.com/ionut-t/goeditor v0.4.12/go.mod h1:sVMC8y3eupOdNaNr1Tb4sF/O+sm6PbXgpBQxg+AckEI=
 github.com/ionut-t/gotable v1.0.0 h1:treAGtzGES5YKrDtdwR9ASGXDj5XXSI2o3KGxwzglHM=
 github.com/ionut-t/gotable v1.0.0/go.mod h1:m+8EqBXdrcVHyxmod8qoO0ieKSLKYAhtfRyriEW57k0=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
