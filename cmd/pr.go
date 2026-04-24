@@ -26,12 +26,16 @@ func prCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringP("branch", "b", "", "The base branch to compare against (optional)")
+	cmd.Flags().StringP("pr", "p", "", "Generate a description for a GitHub pull request by number (requires gh CLI)")
+
+	cmd.MarkFlagsMutuallyExclusive("branch", "pr")
 
 	return cmd
 }
 
 func runPRCmd(cmd *cobra.Command) error {
 	branch, _ := cmd.Flags().GetString("branch")
+	pr, _ := cmd.Flags().GetString("pr")
 
 	cfg := config.New()
 
@@ -44,6 +48,7 @@ func runPRCmd(cmd *cobra.Command) error {
 		return plain.RunPR(plain.PROptions{
 			Diff:   stdinDiff,
 			Branch: branch,
+			PR:     pr,
 			Config: cfg,
 		})
 	}
@@ -59,6 +64,7 @@ func runPRCmd(cmd *cobra.Command) error {
 		Storage: storage,
 		Config:  cfg,
 		Branch:  branch,
+		PR:      pr,
 	})
 
 	p := tea.NewProgram(m)

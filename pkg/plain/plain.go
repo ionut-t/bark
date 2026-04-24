@@ -46,6 +46,7 @@ type CommitOptions struct {
 type PROptions struct {
 	Diff   *string
 	Branch string
+	PR     string
 	Config config.Config
 }
 
@@ -171,9 +172,16 @@ func RunPR(opts PROptions) error {
 
 	var content string
 
-	if opts.Diff != nil {
+	switch {
+	case opts.Diff != nil:
 		content = *opts.Diff
-	} else {
+	case opts.PR != "":
+		var err error
+		content, err = git.GetPRInfo(opts.PR)
+		if err != nil {
+			return err
+		}
+	default:
 		branchInfo, err := git.GetBranchInfo(opts.Branch, opts.Config.GetMaxDiffLines())
 		if err != nil {
 			return err

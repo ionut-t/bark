@@ -1,6 +1,7 @@
 package git
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -376,4 +377,58 @@ func GetPRDiff(prNumber string) (string, error) {
 	}
 
 	return string(output), nil
+}
+
+// GetPRInfo returns a formatted string with commit messages and diff for a GitHub PR.
+func GetPRInfo(prNumber string) (string, error) {
+	commitsCmd := exec.Command("gh", "pr", "view", prNumber, "--json", "commits,title,number")
+	commitsOut, err := commitsCmd.Output()
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return "", ErrGHNotInstalled
+		}
+
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+			if stderr := strings.TrimSpace(string(exitErr.Stderr)); stderr != "" {
+				return "", fmt.Errorf("%s", stderr)
+			}
+		}
+
+		return "", fmt.Errorf("failed to get PR info: %w", err)
+	}
+
+	var prData struct {
+		Number  int    `json:"number"`
+		Title   string `json:"title"`
+		Commits []struct {
+			MessageHeadline string `json:"messageHeadline"`
+			MessageBody     string `json:"messageBody"`
+		} `json:"commits"`
+	}
+
+	if err := json.Unmarshal(commitsOut, &prData); err != nil {
+		return "", fmt.Errorf("failed to parse PR info: %w", err)
+	}
+
+	diff, err := GetPRDiff(prNumber)
+	if err != nil {
+		return "", err
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "PR #%d: %s\n", prData.Number, prData.Title)
+	fmt.Fprintf(&sb, "Total Commits: %d\n", len(prData.Commits))
+	sb.WriteString("Commits:\n")
+
+	for _, c := range prData.Commits {
+		fmt.Fprintf(&sb, " - %s\n", c.MessageHeadline)
+		if c.MessageBody != "" {
+			fmt.Fprintf(&sb, "   %s\n", c.MessageBody)
+		}
+	}
+
+	sb.WriteString("\nDiffs:\n")
+	sb.WriteString(diff)
+
+	return sb.String(), nil
 }

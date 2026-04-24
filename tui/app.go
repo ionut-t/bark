@@ -39,6 +39,7 @@ const (
 	viewPRDescription
 	viewBranchInput
 	viewPRNumberInput
+	viewPRDescriptionOptions
 )
 
 type commitStatusMessage struct {
@@ -87,6 +88,8 @@ type Model struct {
 
 	prNumber      string
 	prNumberInput prNumberInputModel
+
+	prDescriptionOptions prDescriptionOptionsModel
 
 	pr prModel
 
@@ -178,6 +181,7 @@ func New(options Options) *Model {
 
 	m.branchInput.setStyles(styles)
 	m.prNumberInput.setStyles(styles)
+	m.prDescriptionOptions = newPRDescriptionOptionsModel(styles, isDarkMode)
 	m.tasks.setStyles(styles, isDarkMode)
 	m.reviewOptions.setStyles(styles, isDarkMode)
 
@@ -286,6 +290,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prInitReadyMsg:
 		return m.handlePRDescription()
 
+	case prDescriptionOptionSelectedMsg:
+		if msg.useGitHubPR {
+			m.currentView = viewPRNumberInput
+		} else {
+			return m.handlePRDescription()
+		}
+
+	case cancelPRDescriptionOptionsMsg:
+		if m.individualTask {
+			break
+		}
+		m.currentView = viewTasks
+
 	case cancelReviewOptionSelectionMsg:
 		if m.individualTask {
 			break
@@ -296,11 +313,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prNumberSelectedMsg:
 		m.prNumber = msg.prNumber
+		if m.selectedTask == TaskPRDescription {
+			m.pr = newPRModel(m.llm, m.width, m.height)
+			m.pr.setStyles(m.styles, m.isDarkMode)
+			m.currentView = viewPRDescription
+			return m, tea.Batch(m.pr.Init(), utils.DispatchMsg(prInitReadyMsg{}))
+		}
 		return m, utils.DispatchMsg(listReviewersMsg{})
 
 	case cancelPRNumberSelectionMsg:
-		m.currentView = viewReviewOptions
 		m.prNumber = ""
+		if m.selectedTask == TaskPRDescription {
+			m.currentView = viewPRDescriptionOptions
+		} else {
+			m.currentView = viewReviewOptions
+		}
 
 	case cancelBranchSelectionMsg:
 		m.currentView = viewReviewOptions
@@ -446,6 +473,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case viewPRNumberInput:
 		m.prNumberInput, cmd = m.prNumberInput.Update(msg)
+
+	case viewPRDescriptionOptions:
+		m.prDescriptionOptions, cmd = m.prDescriptionOptions.Update(msg)
 	}
 
 	if m.commitErr != nil {
@@ -559,6 +589,9 @@ func (m Model) createView() string {
 	case viewPRNumberInput:
 		return m.prNumberInput.View()
 
+	case viewPRDescriptionOptions:
+		return m.prDescriptionOptions.View()
+
 	default:
 		return ""
 	}
@@ -578,14 +611,13 @@ func (m *Model) handleSelectedTask(task Task) (tea.Model, tea.Cmd) {
 		return m.handleCommitMessage(!m.stagedOnly)
 
 	case TaskPRDescription:
-		m.pr = newPRModel(m.llm, m.width, m.height)
-		m.pr.setStyles(m.styles, m.isDarkMode)
-		m.currentView = viewPRDescription
-
-		return m, tea.Batch(
-			m.pr.Init(),
-			utils.DispatchMsg(prInitReadyMsg{}),
-		)
+		if m.prNumber != "" || m.branch != "" {
+			m.pr = newPRModel(m.llm, m.width, m.height)
+			m.pr.setStyles(m.styles, m.isDarkMode)
+			m.currentView = viewPRDescription
+			return m, tea.Batch(m.pr.Init(), utils.DispatchMsg(prInitReadyMsg{}))
+		}
+		m.currentView = viewPRDescriptionOptions
 	}
 
 	return m, nil
@@ -760,16 +792,28 @@ func (m *Model) handleCommitMessageRetry() (tea.Model, tea.Cmd) {
 func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
 	instructions := m.config.GetPRInstructions()
 
-	branchInfo, err := git.GetBranchInfo(m.branch, m.config.GetMaxDiffLines())
-	if err != nil {
-		m.error = err
-		return m, nil
+	var content string
+
+	if m.prNumber != "" {
+		var err error
+		content, err = git.GetPRInfo(m.prNumber)
+		if err != nil {
+			m.error = err
+			return m, nil
+		}
+	} else {
+		branchInfo, err := git.GetBranchInfo(m.branch, m.config.GetMaxDiffLines())
+		if err != nil {
+			m.error = err
+			return m, nil
+		}
+		content = git.FormatBranchInfo(branchInfo)
 	}
 
 	prompt := fmt.Sprintf(
 		"%s**Analyze the following changes and generate an appropriate PR description:**\n\n%s",
 		instructions,
-		git.FormatBranchInfo(branchInfo),
+		content,
 	)
 
 	m.pr.setPrompt(prompt)
