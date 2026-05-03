@@ -42,10 +42,6 @@ const (
 	viewPRDescriptionOptions
 )
 
-type commitStatusMessage struct {
-	error error
-}
-
 type Model struct {
 	width, height int
 
@@ -274,10 +270,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.commitErr = nil
 		m.commitChanges.loading = true
+		m.commitChanges.gitOutput = nil
 
 		return m, performCommit(msg.message, msg.commitAll)
 
-	case commitStatusMessage:
+	case commitStreamStartMsg:
+		m.commitChanges.outChan = msg.outChan
+		m.commitChanges.errChan = msg.errChan
+		m.viewport.GotoTop()
+		return m, listenCommitOutput(msg.outChan, msg.errChan)
+
+	case commitStatusMsg:
 		m.commitChanges.loading = false
 
 		if msg.error != nil {
@@ -829,7 +832,10 @@ func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
 
 func performCommit(message string, commitAll bool) tea.Cmd {
 	return func() tea.Msg {
-		err := git.CommitChanges(message, commitAll)
-		return commitStatusMessage{error: err}
+		outChan, errChan := git.CommitChanges(message, commitAll)
+		return commitStreamStartMsg{
+			outChan: outChan,
+			errChan: errChan,
+		}
 	}
 }

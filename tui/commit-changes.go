@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 
 	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/v2/internal/utils"
@@ -13,6 +15,11 @@ import (
 	"github.com/ionut-t/coffee/help"
 	"github.com/ionut-t/coffee/styles"
 	editor "github.com/ionut-t/goeditor"
+)
+
+var (
+	loadingViewStyle   = lipgloss.NewStyle().Padding(2, 0, 0)
+	loadingViewPadding = lipgloss.NewStyle().Padding(0, 2)
 )
 
 var generationPhaseLoadingMessages = [...]string{
@@ -134,11 +141,30 @@ type commitChangesModel struct {
 
 	loadingMsgPicker    *loadingMessagePicker
 	committingMsgPicker *loadingMessagePicker
+
+	outChan   <-chan string
+	errChan   <-chan error
+	gitOutput []string
+
+	viewport viewport.Model
 }
 
 type commitChangesMsg struct {
 	message   string
 	commitAll bool
+}
+
+type commitOutputMsg struct {
+	line string
+}
+
+type commitStatusMsg struct {
+	error error
+}
+
+type commitStreamStartMsg struct {
+	outChan <-chan string
+	errChan <-chan error
 }
 
 func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool, width, height int) commitChangesModel {
@@ -158,12 +184,16 @@ func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool, width, he
 		llm:       llm,
 		prompt:    prompt,
 		commitAll: commitAll,
+		viewport:  viewport.New(),
 
 		loadingMsgPicker:    newLoadingMessagePicker(generationPhaseLoadingMessages[:]),
 		committingMsgPicker: newLoadingMessagePicker(commitPhaseLoadingMessages[:]),
 	}
 
 	m.loadingMsg = m.getGenerationLoadingMessage()
+
+	m.viewport.SetWidth(width - 4)
+	m.viewport.SetHeight(max(5, height-5))
 
 	return m
 }
@@ -178,6 +208,8 @@ func (m *commitChangesModel) setStyles(s styles.Styles, isDarkMode bool) {
 func (m *commitChangesModel) setSize(width, height int) {
 	m.width = width
 	m.height = height
+	m.viewport.SetWidth(width - 4)
+	m.viewport.SetHeight(max(5, height-5))
 }
 
 func (m commitChangesModel) Init() tea.Cmd {
@@ -217,6 +249,13 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 
 		m.loadingMsg = msg.message
 		return m, m.dispatchCommittingLoadingMsg()
+
+	case commitOutputMsg:
+		m.gitOutput = append(m.gitOutput, msg.line)
+		m.viewport.SetContent(strings.Join(m.gitOutput, "\n"))
+		m.viewport.GotoBottom()
+
+		return m, listenCommitOutput(m.outChan, m.errChan)
 
 	case commitResponseMsg:
 		m.loading = false
@@ -270,24 +309,46 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 		}
 	}
 
+	var cmds []tea.Cmd
 	var cmd tea.Cmd
 
 	m.editor, cmd = m.editor.Update(msg)
+	cmds = append(cmds, cmd)
 
 	if m.isShowingPrompt {
 		m.prompt = m.editor.GetCurrentContent()
 	}
 
-	return m, cmd
+	m.viewport, cmd = m.viewport.Update(msg)
+	cmds = append(cmds, cmd)
+
+	return m, tea.Batch(cmds...)
 }
 
 func (m commitChangesModel) View() string {
 	if m.loading {
-		return lipgloss.NewStyle().Padding(2, 2, 0).Render(lipgloss.JoinHorizontal(
-			lipgloss.Top,
-			m.spinner.View(),
-			m.styles.Accent.Render(" "+m.loadingMsg),
-		))
+		spinnerView := loadingViewPadding.Render(
+			lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				m.spinner.View(),
+				m.styles.Accent.Render(" "+m.loadingMsg),
+			),
+		)
+
+		if len(m.gitOutput) > 0 {
+			return loadingViewStyle.Render(
+				lipgloss.JoinVertical(
+					lipgloss.Left,
+					spinnerView,
+					loadingViewPadding.
+						Width(m.width).
+						Border(lipgloss.NormalBorder(), true, false, false).
+						Render(m.viewport.View()),
+				),
+			)
+		}
+
+		return loadingViewStyle.Render(spinnerView)
 	}
 
 	if m.error != nil {
@@ -300,11 +361,11 @@ func (m commitChangesModel) View() string {
 
 	m.editor.SetSize(m.width-4, max(10, editorHeight))
 
-	return lipgloss.NewStyle().Padding(0, 2).Render(lipgloss.JoinVertical(
+	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
 		m.editor.View(),
-	))
+	)
 }
 
 func (m *commitChangesModel) getError() string {
@@ -424,4 +485,27 @@ func (m *commitChangesModel) dispatch() tea.Cmd {
 			},
 		),
 	)
+}
+
+func listenCommitOutput(outChan <-chan string, errChan <-chan error) tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case output, ok := <-outChan:
+			if !ok {
+				if err, ok := <-errChan; ok && err != nil {
+					return commitStatusMsg{error: err}
+				}
+				return commitStatusMsg{}
+			}
+
+			return commitOutputMsg{line: output}
+
+		case err, ok := <-errChan:
+			if ok && err != nil {
+				return commitStatusMsg{error: err}
+			}
+
+			return commitStatusMsg{}
+		}
+	}
 }

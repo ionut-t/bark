@@ -1,9 +1,11 @@
 package git
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -176,22 +178,67 @@ func GetBranchDiff(branch string, maxLines uint32) (string, error) {
 	return string(output), nil
 }
 
-func CommitChanges(message string, all bool) error {
-	if all {
-		cmd := exec.Command("git", "add", "-A")
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to stage changes: %w\n\n %s", err, string(out))
+func CommitChanges(message string, all bool) (<-chan string, <-chan error) {
+	outChan := make(chan string)
+	errChan := make(chan error, 1)
+
+	go func() {
+		defer close(outChan)
+		defer close(errChan)
+
+		if all {
+			cmd := exec.Command("git", "add", "-A")
+
+			if out, err := cmd.CombinedOutput(); err != nil {
+				errChan <- fmt.Errorf("failed to stage changes: %w\n\n %s", err, string(out))
+				return
+			}
 		}
-	}
 
-	cmd := exec.Command("git", "commit", "-m", message)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to commit changes: %w\n\n %s", err, string(out))
-	}
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			errChan <- err
+			return
+		}
 
-	return nil
+		cmd := exec.Command("git", "commit", "-m", message)
+		cmd.Stdout = writer
+		cmd.Stderr = writer
+
+		if err := cmd.Start(); err != nil {
+			_ = writer.Close()
+			_ = reader.Close()
+			errChan <- err
+			return
+		}
+
+		if err := writer.Close(); err != nil {
+			_ = reader.Close()
+			errChan <- err
+			return
+		}
+
+		waitDone := make(chan error, 1)
+		go func() {
+			waitDone <- cmd.Wait()
+		}()
+
+		var lines []string
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			line := scanner.Text()
+			lines = append(lines, line)
+			outChan <- line
+		}
+
+		_ = reader.Close()
+
+		if err := <-waitDone; err != nil {
+			errChan <- fmt.Errorf("failed to commit changes: %w\n\n%s", err, strings.Join(lines, "\n"))
+		}
+	}()
+
+	return outChan, errChan
 }
 
 // GetBaseBranch attempts to determine the base branch (main, master, develop)
