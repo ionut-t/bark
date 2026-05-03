@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.15.0](https://github.com/ionut-t/bark/compare/v2.14.0...v2.15.0) (2026-05-03)
+
+
+### Features
+
+* **pr:** generate description from an existing GitHub PR ([e006943](https://github.com/ionut-t/bark/commit/e006943c9a213b1e590c95db6adfa7b6c74dafd3))
+* **tui:** stream git commit output ([558c5c8](https://github.com/ionut-t/bark/commit/558c5c85275c5f8fe611d667b46138576aed1236))
+
 ## [2.14.0](https://github.com/ionut-t/bark/compare/v2.13.0...v2.14.0) (2026-04-16)
 
 
