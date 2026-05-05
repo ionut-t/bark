@@ -297,7 +297,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.useGitHubPR {
 			m.currentView = viewPRNumberInput
 		} else {
-			return m.handlePRDescription()
+			m.pr = newPRModel(m.llm, m.width, m.height)
+			m.pr.setStyles(m.styles, m.isDarkMode)
+			m.currentView = viewPRDescription
+			return m, tea.Batch(m.pr.Init(), utils.DispatchMsg(prInitReadyMsg{}))
 		}
 
 	case cancelPRDescriptionOptionsMsg:
