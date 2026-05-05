@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.15.1](https://github.com/ionut-t/bark/compare/v2.15.0...v2.15.1) (2026-05-05)
+
+
+### Bug Fixes
+
+* **tui:** initialise pr description view correctly ([607575c](https://github.com/ionut-t/bark/commit/607575cd7c71973628cec0e60c6249eb630172d5))
+
 ## [2.15.0](https://github.com/ionut-t/bark/compare/v2.14.0...v2.15.0) (2026-05-03)
 
 
