@@ -31,7 +31,7 @@ runs:
   using: composite
   steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -84,3 +84,21 @@ runs:
           jq -n --arg body "$BODY" '{"body": $body}' | \
             gh api "repos/$REPO/issues/$PR_NUMBER/comments" -X POST --input -
         fi
+
+    - name: Add reviewer label
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        REVIEWER="${{ inputs.reviewer }}"
+        if [ -n "$REVIEWER" ] && [[ "$REVIEWER" != */* ]] && [[ "$REVIEWER" != *.md ]]; then
+          NAME="${REVIEWER^}"
+        else
+          NAME="Bark"
+        fi
+
+        LABEL="Reviewed by $NAME"
+        gh label create "$LABEL" --repo "$REPO" --color "0075ca" --force 2>/dev/null || true
+        gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL"

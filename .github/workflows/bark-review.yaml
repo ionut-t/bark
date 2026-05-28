@@ -34,8 +34,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BARK_MODEL: ${{ vars.BARK_MODEL }}
+          BARK_REVIEWER: ${{ vars.BARK_REVIEWER }}
         run: |
-          ARGS=(review --as linus --pr "${{ github.event.pull_request.number }}")
+          ARGS=(review --pr "${{ github.event.pull_request.number }}")
+          [ -n "$BARK_REVIEWER" ] && ARGS+=(--as "$BARK_REVIEWER")
           [ -n "$BARK_MODEL" ] && ARGS+=(--model "$BARK_MODEL")
           /tmp/bark "${ARGS[@]}" > /tmp/bark-review.txt 2>/tmp/bark-review-error.txt
 
@@ -62,3 +64,13 @@ jobs:
             jq -n --arg body "$BODY" '{"body": $body}' | \
               gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" -X POST --input -
           fi
+
+      - name: Add reviewer label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BARK_REVIEWER: ${{ vars.BARK_REVIEWER }}
+        run: |
+          REVIEWER="${BARK_REVIEWER:-bark}"
+          LABEL="Reviewed by ${REVIEWER^}"
+          gh label create "$LABEL" --repo "${{ github.repository }}" --color "0075ca" --force 2>/dev/null || true
+          gh pr edit "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --add-label "$LABEL"
