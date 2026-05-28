@@ -37,6 +37,7 @@ type Config interface {
 	GetLLMProvider() (string, error)
 	SetLLMModel(model string) error
 	GetLLMModel() (string, error)
+	OverrideModel(model string)
 	GetCommitInstructions() string
 	GetPRInstructions() string
 	SetMaxDiffLines(lines uint32) error
@@ -101,6 +102,12 @@ func (c *config) GetLLMProvider() (string, error) {
 	}
 
 	return provider, nil
+}
+
+func (c *config) OverrideModel(model string) {
+	if model != "" {
+		c.data.LLMModel = model
+	}
 }
 
 func (c *config) SetLLMModel(model string) error {

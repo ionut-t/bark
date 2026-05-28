@@ -1,0 +1,84 @@
+name: Bark AI Code Review
+description: Run bark AI code review on a pull request and post results as a comment
+
+inputs:
+  gemini-api-key:
+    description: Gemini API key
+    required: true
+  reviewer:
+    description: |
+      Reviewer to use. Accepts a built-in name (e.g. linus, bob, rob, yoda),
+      a path to a .md file (e.g. .bark/reviewer.md), or omit to auto-detect
+      .bark/reviewer.md in the repo root.
+    required: false
+    default: ""
+  instructions:
+    description: |
+      Instructions to guide the review. Accepts a built-in name (e.g. go, rust),
+      a path to a .md file (e.g. .bark/instructions.md), raw text, or omit to
+      auto-detect .bark/instructions.md in the repo root.
+    required: false
+    default: ""
+  model:
+    description: LLM model to use (e.g. gemini-2.5-pro, gemini-2.0-flash).
+    required: true
+  github-token:
+    description: GitHub token for posting PR comments
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: "1.26"
+
+    - name: Install bark
+      shell: bash
+      run: go install github.com/ionut-t/bark/v2@latest
+
+    - name: Run bark review
+      shell: bash
+      env:
+        GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        ARGS=(review --pr "${{ github.event.pull_request.number }}")
+
+        if [ -n "${{ inputs.reviewer }}" ]; then
+          ARGS+=(--as "${{ inputs.reviewer }}")
+        fi
+
+        if [ -n "${{ inputs.instructions }}" ]; then
+          ARGS+=(--instructions "${{ inputs.instructions }}")
+        fi
+
+        ARGS+=(--model "${{ inputs.model }}")
+
+        bark "${ARGS[@]}" > /tmp/bark-review.txt
+
+    - name: Post or update PR comment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        MARKER="<!-- bark-review -->"
+        BODY=$(printf '%s\n## Bark AI Code Review\n\n%s' "$MARKER" "$(cat /tmp/bark-review.txt)")
+
+        COMMENT_ID=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+          --jq '.[] | select(.body | startswith("<!-- bark-review -->")) | .id' | head -1)
+
+        if [ -n "$COMMENT_ID" ]; then
+          jq -n --arg body "$BODY" '{"body": $body}' | \
+            gh api "repos/$REPO/issues/comments/$COMMENT_ID" -X PATCH --input -
+        else
+          jq -n --arg body "$BODY" '{"body": $body}' | \
+            gh api "repos/$REPO/issues/$PR_NUMBER/comments" -X POST --input -
+        fi
