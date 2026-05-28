@@ -408,6 +408,18 @@ func GetBranchInfo(baseBranch string, maxLines uint32) (*BranchInfo, error) {
 
 // GetPRDiff returns the diff for a GitHub pull request using the gh CLI.
 func GetPRDiff(prNumber string) (string, error) {
+	// In GitHub Actions PR events, GITHUB_BASE_REF and GITHUB_HEAD_REF are always set.
+	base := os.Getenv("GITHUB_BASE_REF")
+	head := os.Getenv("GITHUB_HEAD_REF")
+	if base != "" && head != "" {
+		cmd := exec.Command("git", "diff", "origin/"+base+"...origin/"+head)
+		output, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to get PR diff: %w", err)
+		}
+		return string(output), nil
+	}
+
 	cmd := exec.Command(
 		"gh", "api",
 		fmt.Sprintf("repos/{owner}/{repo}/pulls/%s", prNumber),
