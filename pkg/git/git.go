@@ -407,7 +407,7 @@ func GetBranchInfo(baseBranch string, maxLines uint32) (*BranchInfo, error) {
 
 // GetPRDiff returns the diff for a GitHub pull request using the gh CLI.
 func GetPRDiff(prNumber string) (string, error) {
-	cmd := exec.Command("gh", "pr", "diff", prNumber)
+	cmd := exec.Command("gh", "pr", "diff", prNumber, "--patch")
 	output, err := cmd.Output()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
