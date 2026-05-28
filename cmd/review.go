@@ -26,6 +26,7 @@ func reviewCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("as", "", "Specify the reviewer to use directly")
+	cmd.Flags().String("model", "", "LLM model to use (overrides config)")
 	cmd.Flags().BoolP("commit", "t", false, "Select commit to review")
 	cmd.Flags().BoolP("changes", "c", false, "Review current changes")
 	cmd.Flags().StringP("instructions", "i", "", "Custom instructions to guide the reviewer's feedback")
@@ -57,6 +58,7 @@ func runReviewCmd(cmd *cobra.Command) error {
 	hash, _ := cmd.Flags().GetString("hash")
 	stream, _ := cmd.Flags().GetBool("stream")
 	pr, _ := cmd.Flags().GetString("pr")
+	model, _ := cmd.Flags().GetString("model")
 
 	cfg := config.New()
 
@@ -71,6 +73,7 @@ func runReviewCmd(cmd *cobra.Command) error {
 			ReviewerName:    reviewerName,
 			Instruction:     instruction,
 			SkipInstruction: skipInstruction,
+			Model:           model,
 			Storage:         storage,
 			Config:          cfg,
 			Staged:          staged,

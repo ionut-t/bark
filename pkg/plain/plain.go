@@ -22,6 +22,7 @@ type ReviewOptions struct {
 	ReviewerName    string
 	Instruction     string
 	SkipInstruction bool
+	Model           string
 	Storage         string
 	Config          config.Config
 	Stream          bool
@@ -79,29 +80,22 @@ func RunReview(opts ReviewOptions) error {
 		return fmt.Errorf("no diff content available")
 	}
 
-	if opts.ReviewerName == "" {
-		return fmt.Errorf("reviewer is required in plain mode (use --as)")
-	}
+	opts.Config.OverrideModel(opts.Model)
 
-	reviewerList, err := reviewers.Get(opts.Storage)
+	reviewer, err := resolveReviewer(opts.ReviewerName, opts.Storage)
 	if err != nil {
-		return fmt.Errorf("error loading reviewers: %w", err)
-	}
-
-	reviewer, err := reviewers.Find(opts.ReviewerName, reviewerList)
-	if err != nil {
-		return fmt.Errorf("reviewer not found: %w", err)
+		return err
 	}
 
 	promptText := reviewer.Prompt
 
-	if !opts.SkipInstruction && opts.Instruction != "" {
-		instructionList, _ := instructions.Get(opts.Storage)
-		if instr, err := instructions.Find(opts.Instruction, instructionList); err == nil {
-			promptText = fmt.Sprintf("%s\nFollow the instructions below when analysing code:\n\n%s", promptText, instr.Prompt)
-		} else {
-			// Use the instruction value as raw instruction text
-			promptText = fmt.Sprintf("%s\nFollow the instructions below when analysing code:\n\n%s", promptText, opts.Instruction)
+	if !opts.SkipInstruction {
+		instructions, err := resolveInstructions(opts.Instruction, opts.Storage)
+		if err != nil {
+			return err
+		}
+		if instructions != "" {
+			promptText = fmt.Sprintf("%s\nFollow the instructions below when analysing code:\n\n%s", promptText, instructions)
 		}
 	}
 
@@ -240,6 +234,56 @@ func fullResponse(ctx context.Context, client llm.LLM, promptText string) error 
 	fmt.Println()
 
 	return nil
+}
+
+// resolveReviewer loads a reviewer from a file path, by name, or from .bark/reviewer.md.
+func resolveReviewer(name, storage string) (*reviewers.Reviewer, error) {
+	if name != "" {
+		if _, err := os.Stat(name); err == nil {
+			return reviewers.FromFile(name)
+		}
+		reviewerList, err := reviewers.Get(storage)
+		if err != nil {
+			return nil, fmt.Errorf("error loading reviewers: %w", err)
+		}
+		r, err := reviewers.Find(name, reviewerList)
+		if err != nil {
+			return nil, fmt.Errorf("reviewer not found: %w", err)
+		}
+		return r, nil
+	}
+
+	if _, err := os.Stat(".bark/reviewer.md"); err == nil {
+		return reviewers.FromFile(".bark/reviewer.md")
+	}
+
+	return nil, fmt.Errorf("reviewer is required in plain mode (use --as or add .bark/reviewer.md)")
+}
+
+// resolveInstructions returns the instruction text from a file path, by name, raw text, or .bark/instructions.md.
+func resolveInstructions(instruction, storage string) (string, error) {
+	if instruction != "" {
+		if _, err := os.Stat(instruction); err == nil {
+			content, err := os.ReadFile(instruction)
+			if err != nil {
+				return "", fmt.Errorf("error reading instructions file: %w", err)
+			}
+			return string(content), nil
+		}
+
+		instructionList, _ := instructions.Get(storage)
+		if instr, err := instructions.Find(instruction, instructionList); err == nil {
+			return instr.Prompt, nil
+		}
+
+		return instruction, nil
+	}
+
+	if content, err := os.ReadFile(".bark/instructions.md"); err == nil {
+		return string(content), nil
+	}
+
+	return "", nil
 }
 
 // Errf writes a formatted error message to stderr.

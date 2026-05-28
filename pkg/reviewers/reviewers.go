@@ -3,6 +3,8 @@ package reviewers
 import (
 	"embed"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/assets"
@@ -50,6 +52,15 @@ func Find(name string, reviewersList []Reviewer) (*Reviewer, error) {
 	}
 
 	return nil, fmt.Errorf("reviewer '%s' not found", name)
+}
+
+func FromFile(path string) (*Reviewer, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("error reading reviewer file: %w", err)
+	}
+	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	return &Reviewer{Name: name, Prompt: string(content)}, nil
 }
 
 func RemoveDir(storage string) error {
