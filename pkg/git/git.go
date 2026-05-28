@@ -313,7 +313,8 @@ func GetBranchStats(baseBranch string) (filesChanged, additions, deletions int, 
 		return 0, 0, 0, err
 	}
 
-	cmd := exec.Command("git", "diff", "--shortstat",
+	cmd := exec.Command(
+		"git", "diff", "--shortstat",
 		fmt.Sprintf("%s...%s", baseBranch, currentBranch),
 	)
 	output, err := cmd.Output()
@@ -407,7 +408,11 @@ func GetBranchInfo(baseBranch string, maxLines uint32) (*BranchInfo, error) {
 
 // GetPRDiff returns the diff for a GitHub pull request using the gh CLI.
 func GetPRDiff(prNumber string) (string, error) {
-	cmd := exec.Command("gh", "pr", "diff", prNumber, "--patch")
+	cmd := exec.Command(
+		"gh", "api",
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%s", prNumber),
+		"--header", "Accept: application/vnd.github.v3.diff",
+	)
 	output, err := cmd.Output()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
