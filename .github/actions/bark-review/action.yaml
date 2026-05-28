@@ -62,7 +62,13 @@ runs:
 
         ARGS+=(--model "${{ inputs.model }}")
 
-        bark "${ARGS[@]}" > /tmp/bark-review.txt
+        bark "${ARGS[@]}" > /tmp/bark-review.txt 2>/tmp/bark-review-error.txt
+
+        if [ ! -s /tmp/bark-review.txt ]; then
+          echo "Review output is empty. Bark stderr:" >&2
+          cat /tmp/bark-review-error.txt >&2
+          exit 1
+        fi
 
     - name: Post or update PR comment
       shell: bash
