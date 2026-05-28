@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.16.0](https://github.com/ionut-t/bark/compare/v2.15.1...v2.16.0) (2026-05-28)
+
+
+### Features
+
+* **review:** enhance configuration and add github action ([#38](https://github.com/ionut-t/bark/issues/38)) ([d78d351](https://github.com/ionut-t/bark/commit/d78d35168d076ce5ddbf70afe2e14df24b412cf0))
+
+
+### Bug Fixes
+
+* improve CI reliability and CLI I/O behaviour ([a7ba73f](https://github.com/ionut-t/bark/commit/a7ba73f56007ac34e309edf359769e616151bbc5))
+
 ## [2.15.1](https://github.com/ionut-t/bark/compare/v2.15.0...v2.15.1) (2026-05-05)
 
 
