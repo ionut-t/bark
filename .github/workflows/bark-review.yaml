@@ -36,14 +36,15 @@ jobs:
         run: |
           ARGS=(review --as linus --pr "${{ github.event.pull_request.number }}")
           [ -n "$BARK_MODEL" ] && ARGS+=(--model "$BARK_MODEL")
-          /tmp/bark "${ARGS[@]}" > /tmp/bark-review.txt
+          /tmp/bark "${ARGS[@]}" > /tmp/bark-review.txt 2>/tmp/bark-review-error.txt
 
       - name: Post or update PR comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ ! -s /tmp/bark-review.txt ]; then
-            echo "Review output is empty — skipping comment" >&2
+            echo "Review output is empty. Bark stderr:" >&2
+            cat /tmp/bark-review-error.txt >&2
             exit 1
           fi
 
