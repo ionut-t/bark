@@ -38,10 +38,13 @@ func readStdin() (string, error) {
 
 func readStdinIfPiped() (*string, error) {
 	if hasStdinData() {
-		var err error
 		stdinDiff, err := readStdin()
 		if err != nil {
 			return nil, err
+		}
+
+		if stdinDiff == "" {
+			return nil, nil
 		}
 
 		return &stdinDiff, nil

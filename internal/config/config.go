@@ -219,7 +219,7 @@ func InitialiseConfigFile() (string, error) {
 				return "", err
 			}
 
-			fmt.Println("Created config at", configPath)
+			fmt.Fprintln(os.Stderr, "Created config at", configPath)
 		} else {
 			viper.SetConfigFile(configPath)
 			return "", viper.ReadInConfig()
