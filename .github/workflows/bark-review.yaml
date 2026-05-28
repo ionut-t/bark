@@ -42,6 +42,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if [ ! -s /tmp/bark-review.txt ]; then
+            echo "Review output is empty — skipping comment" >&2
+            exit 1
+          fi
+
           MARKER="<!-- bark-review -->"
           BODY=$(printf '%s\n## Bark AI Code Review\n\n%s' "$MARKER" "$(cat /tmp/bark-review.txt)")
 
