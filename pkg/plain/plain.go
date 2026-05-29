@@ -45,10 +45,12 @@ type CommitOptions struct {
 
 // PROptions configures the plain text PR runner.
 type PROptions struct {
-	Diff   *string
-	Branch string
-	PR     string
-	Config config.Config
+	Diff         *string
+	Branch       string
+	PR           string
+	Model        string
+	Instructions string
+	Config       config.Config
 }
 
 // RunReview runs a code review and writes the output to stdout.
@@ -162,7 +164,12 @@ func RunCommit(opts CommitOptions) error {
 
 // RunPR generates a PR description and writes it to stdout.
 func RunPR(opts PROptions) error {
-	prInstructions := opts.Config.GetPRInstructions()
+	opts.Config.OverrideModel(opts.Model)
+
+	prInstructions, err := resolvePRInstructions(opts.Instructions, opts.Config)
+	if err != nil {
+		return err
+	}
 
 	var content string
 
@@ -284,6 +291,26 @@ func resolveInstructions(instruction, storage string) (string, error) {
 	}
 
 	return "", nil
+}
+
+// resolvePRInstructions returns the instruction text from a file path.
+func resolvePRInstructions(instruction string, cfg config.Config) (string, error) {
+	if instruction != "" {
+		if _, err := os.Stat(instruction); err == nil {
+			content, err := os.ReadFile(instruction)
+			if err != nil {
+				return "", fmt.Errorf("error reading PR instructions file: %w", err)
+			}
+			return string(content), nil
+		}
+		return instruction, nil
+	}
+
+	if content, err := os.ReadFile(".bark/pull_request_description.md"); err == nil && len(content) > 0 {
+		return string(content), nil
+	}
+
+	return cfg.GetPRInstructions(), nil
 }
 
 // Errf writes a formatted error message to stderr.
