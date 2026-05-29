@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.1](https://github.com/ionut-t/bark/compare/v2.16.0...v2.16.1) (2026-05-29)
+
+
+### Bug Fixes
+
+* **bark-review:** fail action on empty review output ([ba0840b](https://github.com/ionut-t/bark/commit/ba0840b30b59faad3b292502f36045fbcb647a39))
+
 ## [2.16.0](https://github.com/ionut-t/bark/compare/v2.15.1...v2.16.0) (2026-05-28)
 
 
