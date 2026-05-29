@@ -1,0 +1,60 @@
+name: Bark PR Description
+
+on:
+  pull_request:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number
+        required: true
+
+env:
+  GO_VERSION: "1.26"
+
+jobs:
+  pr-description:
+    name: Generate PR Description
+    runs-on: ubuntu-latest
+    if: "github.event_name == 'workflow_dispatch' || github.event.action == 'opened' || (github.event.action == 'labeled' && github.event.label.name == 'bark: describe')"
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build bark
+        run: go build -o /tmp/bark .
+
+      - name: Generate PR description
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BARK_MODEL: ${{ vars.BARK_MODEL }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+        run: |
+          ARGS=(pr --pr "$PR_NUMBER")
+          [ -n "$BARK_MODEL" ] && ARGS+=(--model "$BARK_MODEL")
+          /tmp/bark "${ARGS[@]}" > /tmp/bark-pr.txt 2>/tmp/bark-pr-error.txt
+
+          if [ ! -s /tmp/bark-pr.txt ]; then
+            echo "PR description output is empty. Bark stderr:" >&2
+            cat /tmp/bark-pr-error.txt >&2
+            exit 1
+          fi
+
+      - name: Update PR body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+        run: |
+          jq -n --arg body "$(cat /tmp/bark-pr.txt)" '{"body": $body}' | \
+            gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" -X PATCH --input -

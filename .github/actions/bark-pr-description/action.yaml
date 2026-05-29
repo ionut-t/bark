@@ -1,0 +1,66 @@
+name: Bark PR Description
+description: Generate a pull request description using bark AI and update the PR body
+
+inputs:
+  gemini-api-key:
+    description: Gemini API key
+    required: true
+  model:
+    description: LLM model to use (e.g. gemini-2.5-pro).
+    required: true
+  instructions:
+    description: |
+      Custom instructions for generating the PR description. Accepts a path to a
+      .md file (e.g. .bark/pull_request_description.md) or raw text. Omit to use
+      the default PR instructions.
+    required: false
+    default: ""
+  github-token:
+    description: GitHub token for updating the PR body
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: "1.26"
+
+    - name: Install bark
+      shell: bash
+      run: go install github.com/ionut-t/bark/v2@latest
+
+    - name: Generate PR description
+      shell: bash
+      env:
+        GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        ARGS=(pr --pr "${{ github.event.pull_request.number }}" --model "${{ inputs.model }}")
+        [ -n "${{ inputs.instructions }}" ] && ARGS+=(--instructions "${{ inputs.instructions }}")
+
+        bark "${ARGS[@]}" \
+          > /tmp/bark-pr.txt 2>/tmp/bark-pr-error.txt
+
+        if [ ! -s /tmp/bark-pr.txt ]; then
+          echo "PR description output is empty. Bark stderr:" >&2
+          cat /tmp/bark-pr-error.txt >&2
+          exit 1
+        fi
+
+    - name: Update PR body
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        jq -n --arg body "$(cat /tmp/bark-pr.txt)" '{"body": $body}' | \
+          gh api "repos/$REPO/pulls/$PR_NUMBER" -X PATCH --input -
