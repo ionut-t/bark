@@ -2,6 +2,10 @@ name: Bark PR Description
 description: Generate a pull request description using bark AI and update the PR body
 
 inputs:
+  bark-version:
+    description: Bark version to install. Defaults to latest.
+    required: false
+    default: "latest"
   gemini-api-key:
     description: Gemini API key
     required: true
@@ -35,7 +39,7 @@ runs:
 
     - name: Install bark
       shell: bash
-      run: go install github.com/ionut-t/bark/v2@latest
+      run: go install github.com/ionut-t/bark/v2@${{ inputs.bark-version }}
 
     - name: Generate PR description
       shell: bash

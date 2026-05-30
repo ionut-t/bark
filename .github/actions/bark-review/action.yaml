@@ -2,6 +2,10 @@ name: Bark AI Code Review
 description: Run bark AI code review on a pull request and post results as a comment
 
 inputs:
+  bark-version:
+    description: Bark version to install. Defaults to latest.
+    required: false
+    default: "latest"
   gemini-api-key:
     description: Gemini API key
     required: true
@@ -42,7 +46,7 @@ runs:
 
     - name: Install bark
       shell: bash
-      run: go install github.com/ionut-t/bark/v2@latest
+      run: go install github.com/ionut-t/bark/v2@${{ inputs.bark-version }}
 
     - name: Run bark review
       shell: bash
