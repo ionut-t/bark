@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.17.0](https://github.com/ionut-t/bark/compare/v2.16.0...v2.17.0) (2026-05-30)
+
+
+### Features
+
+* **pr:** allow custom instructions and model override ([#43](https://github.com/ionut-t/bark/issues/43)) ([c55e7fa](https://github.com/ionut-t/bark/commit/c55e7fa376e43a129a1b6460e87cf2421e0e1086))
+
+
+### Bug Fixes
+
+* **bark-review:** fail action on empty review output ([ba0840b](https://github.com/ionut-t/bark/commit/ba0840b30b59faad3b292502f36045fbcb647a39))
+
 ## [2.16.0](https://github.com/ionut-t/bark/compare/v2.15.1...v2.16.0) (2026-05-28)
 
 
