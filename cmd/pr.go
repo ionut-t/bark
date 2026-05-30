@@ -27,8 +27,9 @@ func prCmd() *cobra.Command {
 
 	cmd.Flags().StringP("branch", "b", "", "The base branch to compare against (optional)")
 	cmd.Flags().StringP("pr", "p", "", "Generate a description for a GitHub pull request by number (requires gh CLI)")
-	cmd.Flags().String("model", "", "LLM model to use (overrides config)")
+	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
 	cmd.Flags().StringP("instructions", "i", "", "Custom instructions (file path or raw text, overrides default PR instructions)")
+	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
 
 	cmd.MarkFlagsMutuallyExclusive("branch", "pr")
 
@@ -48,12 +49,17 @@ func runPRCmd(cmd *cobra.Command) error {
 		return err
 	}
 
+	cfg.OverrideModel(model)
+	if cmd.Flags().Changed("max-diff-lines") {
+		maxDiffLines, _ := cmd.Flags().GetUint32("max-diff-lines")
+		cfg.OverrideMaxDiffLines(maxDiffLines)
+	}
+
 	if stdinDiff != nil || isPlainMode(cmd) {
 		return plain.RunPR(plain.PROptions{
 			Diff:         stdinDiff,
 			Branch:       branch,
 			PR:           pr,
-			Model:        model,
 			Instructions: instructions,
 			Config:       cfg,
 		})

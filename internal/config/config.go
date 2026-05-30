@@ -38,6 +38,7 @@ type Config interface {
 	SetLLMModel(model string) error
 	GetLLMModel() (string, error)
 	OverrideModel(model string)
+	OverrideMaxDiffLines(lines uint32)
 	GetCommitInstructions() string
 	GetPRInstructions() string
 	SetMaxDiffLines(lines uint32) error
@@ -110,6 +111,10 @@ func (c *config) OverrideModel(model string) {
 	}
 }
 
+func (c *config) OverrideMaxDiffLines(lines uint32) {
+	c.data.MaxDiffLines = lines
+}
+
 func (c *config) SetLLMModel(model string) error {
 	if model == c.data.LLMModel {
 		return nil
@@ -141,10 +146,6 @@ func (c *config) SetMaxDiffLines(lines uint32) error {
 }
 
 func (c *config) GetMaxDiffLines() uint32 {
-	if c.data.MaxDiffLines == 0 {
-		return DEFAULT_MAX_DIFF_LINES
-	}
-
 	return c.data.MaxDiffLines
 }
 

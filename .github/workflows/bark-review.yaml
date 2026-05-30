@@ -35,10 +35,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           BARK_MODEL: ${{ vars.BARK_MODEL }}
           BARK_REVIEWER: ${{ vars.BARK_REVIEWER }}
+          BARK_MAX_DIFF_LINES: ${{ vars.BARK_MAX_DIFF_LINES }}
         run: |
           ARGS=(review --pr "${{ github.event.pull_request.number }}")
           [ -n "$BARK_REVIEWER" ] && ARGS+=(--as "$BARK_REVIEWER")
           [ -n "$BARK_MODEL" ] && ARGS+=(--model "$BARK_MODEL")
+          [ -n "$BARK_MAX_DIFF_LINES" ] && ARGS+=(--max-diff-lines "$BARK_MAX_DIFF_LINES")
           /tmp/bark "${ARGS[@]}" > /tmp/bark-review.txt 2>/tmp/bark-review-error.txt
 
       - name: Post or update PR comment

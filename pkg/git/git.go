@@ -166,13 +166,15 @@ func GetBranchDiff(branch string, maxLines uint32) (string, error) {
 		return "", fmt.Errorf("failed to get branch diff: %w", err)
 	}
 
-	// truncate diff if too large
-	lines := strings.Split(string(output), "\n")
-	maxAcceptedLines := int(maxLines)
-	if len(lines) > maxAcceptedLines {
-		lines = lines[:maxAcceptedLines]
-		lines = append(lines, "... (truncated)")
-		output = []byte(strings.Join(lines, "\n"))
+	if maxLines > 0 {
+		// truncate diff if too large
+		lines := strings.Split(string(output), "\n")
+		maxAcceptedLines := int(maxLines)
+		if len(lines) > maxAcceptedLines {
+			lines = lines[:maxAcceptedLines]
+			lines = append(lines, "... (truncated)")
+			output = []byte(strings.Join(lines, "\n"))
+		}
 	}
 
 	return string(output), nil
@@ -313,7 +315,8 @@ func GetBranchStats(baseBranch string) (filesChanged, additions, deletions int, 
 		return 0, 0, 0, err
 	}
 
-	cmd := exec.Command("git", "diff", "--shortstat",
+	cmd := exec.Command(
+		"git", "diff", "--shortstat",
 		fmt.Sprintf("%s...%s", baseBranch, currentBranch),
 	)
 	output, err := cmd.Output()
