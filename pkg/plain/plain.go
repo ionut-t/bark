@@ -22,7 +22,6 @@ type ReviewOptions struct {
 	ReviewerName    string
 	Instruction     string
 	SkipInstruction bool
-	Model           string
 	Storage         string
 	Config          config.Config
 	Stream          bool
@@ -48,7 +47,6 @@ type PROptions struct {
 	Diff         *string
 	Branch       string
 	PR           string
-	Model        string
 	Instructions string
 	Config       config.Config
 }
@@ -81,8 +79,6 @@ func RunReview(opts ReviewOptions) error {
 	if diff == "" {
 		return fmt.Errorf("no diff content available")
 	}
-
-	opts.Config.OverrideModel(opts.Model)
 
 	reviewer, err := resolveReviewer(opts.ReviewerName, opts.Storage)
 	if err != nil {
@@ -164,8 +160,6 @@ func RunCommit(opts CommitOptions) error {
 
 // RunPR generates a PR description and writes it to stdout.
 func RunPR(opts PROptions) error {
-	opts.Config.OverrideModel(opts.Model)
-
 	prInstructions, err := resolvePRInstructions(opts.Instructions, opts.Config)
 	if err != nil {
 		return err

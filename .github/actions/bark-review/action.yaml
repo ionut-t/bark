@@ -26,6 +26,10 @@ inputs:
   model:
     description: LLM model to use (e.g. gemini-2.5-pro, gemini-2.0-flash).
     required: true
+  max-diff-lines:
+    description: Maximum number of diff lines to include in the prompt (0 disables the limit).
+    required: false
+    default: ""
   github-token:
     description: GitHub token for posting PR comments
     required: false
@@ -65,6 +69,7 @@ runs:
         fi
 
         ARGS+=(--model "${{ inputs.model }}")
+        [ -n "${{ inputs.max-diff-lines }}" ] && ARGS+=(--max-diff-lines "${{ inputs.max-diff-lines }}")
 
         bark "${ARGS[@]}" > /tmp/bark-review.txt 2>/tmp/bark-review-error.txt
 

@@ -39,10 +39,12 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BARK_MODEL: ${{ vars.BARK_MODEL }}
+          BARK_MAX_DIFF_LINES: ${{ vars.BARK_MAX_DIFF_LINES }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
         run: |
           ARGS=(pr --pr "$PR_NUMBER")
           [ -n "$BARK_MODEL" ] && ARGS+=(--model "$BARK_MODEL")
+          [ -n "$BARK_MAX_DIFF_LINES" ] && ARGS+=(--max-diff-lines "$BARK_MAX_DIFF_LINES")
           /tmp/bark "${ARGS[@]}" > /tmp/bark-pr.txt 2>/tmp/bark-pr-error.txt
 
           if [ ! -s /tmp/bark-pr.txt ]; then

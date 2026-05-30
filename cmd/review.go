@@ -26,7 +26,7 @@ func reviewCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("as", "", "Specify the reviewer to use directly")
-	cmd.Flags().String("model", "", "LLM model to use (overrides config)")
+	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
 	cmd.Flags().BoolP("commit", "t", false, "Select commit to review")
 	cmd.Flags().BoolP("changes", "c", false, "Review current changes")
 	cmd.Flags().StringP("instructions", "i", "", "Custom instructions to guide the reviewer's feedback")
@@ -36,6 +36,7 @@ func reviewCmd() *cobra.Command {
 	cmd.Flags().String("hash", "", "Specify a commit hash to review")
 	cmd.Flags().BoolP("stream", "S", false, "Stream the review output in real-time (only for plain mode)")
 	cmd.Flags().StringP("pr", "p", "", "Review a GitHub pull request by number (requires gh CLI)")
+	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
 
 	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged", "hash", "pr")
 
@@ -67,13 +68,18 @@ func runReviewCmd(cmd *cobra.Command) error {
 		return err
 	}
 
+	cfg.OverrideModel(model)
+	if cmd.Flags().Changed("max-diff-lines") {
+		maxDiffLines, _ := cmd.Flags().GetUint32("max-diff-lines")
+		cfg.OverrideMaxDiffLines(maxDiffLines)
+	}
+
 	if stdinDiff != nil || isPlainMode(cmd) {
 		return plain.RunReview(plain.ReviewOptions{
 			Diff:            stdinDiff,
 			ReviewerName:    reviewerName,
 			Instruction:     instruction,
 			SkipInstruction: skipInstruction,
-			Model:           model,
 			Storage:         storage,
 			Config:          cfg,
 			Staged:          staged,

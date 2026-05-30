@@ -19,6 +19,10 @@ inputs:
       the default PR instructions.
     required: false
     default: ""
+  max-diff-lines:
+    description: Maximum number of diff lines to include in the prompt (0 disables the limit).
+    required: false
+    default: ""
   github-token:
     description: GitHub token for updating the PR body
     required: false
@@ -49,6 +53,7 @@ runs:
       run: |
         ARGS=(pr --pr "${{ github.event.pull_request.number }}" --model "${{ inputs.model }}")
         [ -n "${{ inputs.instructions }}" ] && ARGS+=(--instructions "${{ inputs.instructions }}")
+        [ -n "${{ inputs.max-diff-lines }}" ] && ARGS+=(--max-diff-lines "${{ inputs.max-diff-lines }}")
 
         bark "${ARGS[@]}" \
           > /tmp/bark-pr.txt 2>/tmp/bark-pr-error.txt
