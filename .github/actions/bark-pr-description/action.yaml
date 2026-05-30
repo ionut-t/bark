@@ -15,7 +15,7 @@ inputs:
   instructions:
     description: |
       Custom instructions for generating the PR description. Accepts a path to a
-      .md file (e.g. .bark/pull_request_description.md) or raw text. Omit to use
+      .md file (e.g. .bark/pr.md) or raw text. Omit to use
       the default PR instructions.
     required: false
     default: ""

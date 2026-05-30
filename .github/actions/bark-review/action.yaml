@@ -19,8 +19,8 @@ inputs:
   instructions:
     description: |
       Instructions to guide the review. Accepts a built-in name (e.g. go, rust),
-      a path to a .md file (e.g. .bark/instructions.md), raw text, or omit to
-      auto-detect .bark/instructions.md in the repo root.
+      a path to a .md file (e.g. .bark/review.md), raw text, or omit to
+      auto-detect .bark/review.md in the repo root.
     required: false
     default: ""
   model:

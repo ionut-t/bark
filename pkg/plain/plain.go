@@ -267,7 +267,7 @@ func resolveReviewer(name, storage string) (*reviewers.Reviewer, error) {
 	return nil, fmt.Errorf("reviewer is required in plain mode (use --as or add .bark/reviewer.md)")
 }
 
-// resolveInstructions returns the instruction text from a file path, by name, raw text, or .bark/instructions.md.
+// resolveInstructions returns the instruction text from a file path, by name, raw text, or .bark/review.md.
 func resolveInstructions(instruction, storage string) (string, error) {
 	if instruction != "" {
 		if _, err := os.Stat(instruction); err == nil {
@@ -286,7 +286,7 @@ func resolveInstructions(instruction, storage string) (string, error) {
 		return instruction, nil
 	}
 
-	if content, err := os.ReadFile(".bark/instructions.md"); err == nil {
+	if content, err := os.ReadFile(".bark/review.md"); err == nil {
 		return string(content), nil
 	}
 
@@ -306,7 +306,7 @@ func resolvePRInstructions(instruction string, cfg config.Config) (string, error
 		return instruction, nil
 	}
 
-	if content, err := os.ReadFile(".bark/pull_request_description.md"); err == nil && len(content) > 0 {
+	if content, err := os.ReadFile(".bark/pr.md"); err == nil && len(content) > 0 {
 		return string(content), nil
 	}
 
