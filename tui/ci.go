@@ -114,7 +114,7 @@ func newCIModel(cfg config.Config) ciModel {
 
 	selectStructuredWorkflowInput := huh.NewSelect[bool]().Title("Set up a combined workflow for both code reviews and PR descriptions?").
 		Options(
-			huh.NewOption("Yes", true),
+			huh.NewOption("Yes", true).Selected(true),
 			huh.NewOption("No", false),
 		)
 
@@ -124,7 +124,7 @@ func newCIModel(cfg config.Config) ciModel {
 
 	selectDirectoryInput := huh.NewSelect[bool]().Title("Create `.bark/` directory with default instruction files?").
 		Options(
-			huh.NewOption("Yes", true),
+			huh.NewOption("Yes", true).Selected(true),
 			huh.NewOption("No", false),
 		)
 
