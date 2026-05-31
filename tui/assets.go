@@ -1,12 +1,13 @@
 package tui
 
 import (
-	"os/exec"
+	"log"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/internal/utils"
 	"github.com/ionut-t/bark/v2/pkg/instructions"
 	"github.com/ionut-t/bark/v2/pkg/reviewers"
 	"github.com/ionut-t/coffee/styles"
@@ -131,7 +132,13 @@ func (m AssetsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Quit
 				}
 
-				return m, m.openInEditor(path)
+				cmd, err := m.openInEditor(path)
+				if err != nil {
+					m.error = err
+					return m, nil
+				}
+
+				return m, cmd
 			}
 		}
 	}
@@ -214,11 +221,19 @@ func (m AssetsModel) edit(name string) (string, error) {
 	return path, nil
 }
 
-func (m AssetsModel) openInEditor(path string) tea.Cmd {
-	return tea.ExecProcess(exec.Command(config.GetEditor(), path), func(err error) tea.Msg {
+func (m AssetsModel) openInEditor(path string) (tea.Cmd, error) {
+	cmd, err := utils.OpenInEditorCmd(config.GetEditor(), path)
+	if err != nil {
+		return nil, err
+	}
+
+	processedCmd := tea.ExecProcess(cmd, func(err error) tea.Msg {
 		if err != nil {
+			log.Printf("Error running editor command: %v", err)
 			return tea.Quit
 		}
 		return nil
 	})
+
+	return processedCmd, nil
 }

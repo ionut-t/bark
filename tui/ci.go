@@ -2,7 +2,6 @@ package tui
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -539,10 +538,12 @@ func (m ciWorkflowSummaryModel) Update(msg tea.Msg) (ciWorkflowSummaryModel, tea
 	var cmds []tea.Cmd
 
 	if m.editorFocused {
-		if item, ok := m.list.SelectedItem().(item); ok {
-			m.workflows[item.key] = m.editor.GetCurrentContent()
-		} else if m.combinedWorkflow {
-			m.workflows["bark.yaml"] = m.editor.GetCurrentContent()
+		if m.editor.HasChanges() {
+			if item, ok := m.list.SelectedItem().(item); ok {
+				m.workflows[item.key] = m.editor.GetCurrentContent()
+			} else if m.combinedWorkflow {
+				m.workflows["bark.yaml"] = m.editor.GetCurrentContent()
+			}
 		}
 
 		editor, cmd := m.editor.Update(msg)
@@ -658,7 +659,12 @@ func (m ciWorkflowSummaryModel) openInEditor() tea.Cmd {
 		return utils.DispatchMsg(ciExternalEditorMsg{err: err})
 	}
 
-	return tea.ExecProcess(exec.Command(m.config.GetEditor(), tmpFile.Name()), func(error) tea.Msg {
+	cmd, err := utils.OpenInEditorCmd(m.config.GetEditor(), tmpFile.Name())
+	if err != nil {
+		return utils.DispatchMsg(ciExternalEditorMsg{err: err})
+	}
+
+	return tea.ExecProcess(cmd, func(error) tea.Msg {
 		content, err := os.ReadFile(tmpFile.Name())
 		_ = os.Remove(tmpFile.Name())
 		return ciExternalEditorMsg{content: content, err: err}
