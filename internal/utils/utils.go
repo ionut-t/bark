@@ -1,10 +1,12 @@
 package utils
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
@@ -64,9 +66,11 @@ func RemoveCodeFences(message string) string {
 
 // OpenEditor opens the specified file in the user's preferred text editor.
 func OpenEditor(path string) error {
-	editor := config.GetEditor()
+	cmd, err := OpenInEditorCmd(config.GetEditor(), path)
+	if err != nil {
+		return err
+	}
 
-	cmd := exec.Command(editor, path)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -78,8 +82,28 @@ func OpenEditor(path string) error {
 	return nil
 }
 
+// OpenInEditorCmd returns an exec.Cmd configured to open the specified file in the user's preferred text editor.
+func OpenInEditorCmd(editor, path string) (*exec.Cmd, error) {
+	parts := strings.Fields(editor)
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("editor is not configured")
+	}
+
+	cmd := exec.Command(parts[0], append(parts[1:], path)...)
+
+	return cmd, nil
+}
+
 func DispatchMsg(msg tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		return msg
 	}
+}
+
+type ClearMsg struct{}
+
+func DispatchClearMsg(duration time.Duration) tea.Cmd {
+	return tea.Tick(duration, func(t time.Time) tea.Msg {
+		return ClearMsg{}
+	})
 }

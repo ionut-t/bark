@@ -8,8 +8,11 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	editor "github.com/ionut-t/goeditor"
 )
+
+var viewMargin = lipgloss.NewStyle().Margin(2)
 
 func writeToDisk(editor *editor.Model, filePath *string, content string) tea.Cmd {
 	const duration = 3 * time.Second

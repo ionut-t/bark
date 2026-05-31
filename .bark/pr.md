@@ -8,6 +8,8 @@ Determine the type of PR from the changes and use the appropriate structure:
 
 ### Feature / Enhancement
 
+# [Feature Name]
+
 ## What
 
 One-sentence summary of what this adds or changes.

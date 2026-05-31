@@ -63,6 +63,14 @@ func FromFile(path string) (*Reviewer, error) {
 	return &Reviewer{Name: name, Prompt: string(content)}, nil
 }
 
+func GetEmbedded(name string) (*Reviewer, error) {
+	content, err := reviewers.ReadFile("prompts/" + name + ".md")
+	if err != nil {
+		return nil, fmt.Errorf("reviewer '%s' not found", name)
+	}
+	return &Reviewer{Name: name, Prompt: string(content)}, nil
+}
+
 func RemoveDir(storage string) error {
 	return assets.RemoveAssetDir(storage, assetDirName)
 }
