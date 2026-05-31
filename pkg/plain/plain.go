@@ -132,7 +132,12 @@ func RunCommit(opts CommitOptions) error {
 		return fmt.Errorf("no changes to generate a commit message for")
 	}
 
-	promptText := opts.Config.GetCommitInstructions()
+	var promptText string
+	if content, err := os.ReadFile(".bark/commit.md"); err == nil && len(content) > 0 {
+		promptText = string(content)
+	} else {
+		promptText = opts.Config.GetCommitInstructions()
+	}
 	if opts.Hint != "" {
 		promptText += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
 		promptText += "Commit message hint: " + opts.Hint
@@ -280,7 +285,7 @@ func resolveInstructions(instruction, storage string) (string, error) {
 		return instruction, nil
 	}
 
-	if content, err := os.ReadFile(".bark/review.md"); err == nil {
+	if content, err := os.ReadFile(".bark/review.md"); err == nil && len(content) > 0 {
 		return string(content), nil
 	}
 
