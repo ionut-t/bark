@@ -1,4 +1,4 @@
-package embed
+package templates
 
 import _ "embed"
 

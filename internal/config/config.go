@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ionut-t/bark/v2/internal/embed"
+	"github.com/ionut-t/bark/v2/internal/templates"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/viper"
 )
@@ -144,13 +144,13 @@ func (c *config) GetMaxDiffLines() uint32 {
 }
 
 func (c *config) GetCommitInstructions() string {
-	return getInstructions(commitInstructionsFileName, embed.GetDefaultCommitInstructions())
+	return getInstructions(commitInstructionsFileName, templates.GetDefaultCommitInstructions())
 }
 
 func (c *config) GetPRInstructions() string {
 	content, err := getInstructionsFromCurrentDir(prInstructionsFileName)
 	if err != nil {
-		return getInstructions(prInstructionsFileName, embed.GetDefaultPRInstructions())
+		return getInstructions(prInstructionsFileName, templates.GetDefaultPRInstructions())
 	}
 
 	return content
@@ -229,13 +229,13 @@ func InitialiseCommitInstructions() error {
 	prPath := GetPRFilePath()
 
 	if _, err := os.Stat(commitPath); os.IsNotExist(err) {
-		if err := os.WriteFile(commitPath, []byte(embed.GetDefaultCommitInstructions()), 0o644); err != nil {
+		if err := os.WriteFile(commitPath, []byte(templates.GetDefaultCommitInstructions()), 0o644); err != nil {
 			return fmt.Errorf("failed to write commit instructions: %w", err)
 		}
 	}
 
 	if _, err := os.Stat(prPath); os.IsNotExist(err) {
-		if err := os.WriteFile(prPath, []byte(embed.GetDefaultPRInstructions()), 0o644); err != nil {
+		if err := os.WriteFile(prPath, []byte(templates.GetDefaultPRInstructions()), 0o644); err != nil {
 			return fmt.Errorf("failed to write PR instructions: %w", err)
 		}
 	}

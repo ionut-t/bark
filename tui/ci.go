@@ -12,7 +12,7 @@ import (
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
-	"github.com/ionut-t/bark/v2/internal/embed"
+	"github.com/ionut-t/bark/v2/internal/templates"
 	"github.com/ionut-t/bark/v2/internal/utils"
 	"github.com/ionut-t/bark/v2/pkg/reviewers"
 	"github.com/ionut-t/coffee/styles"
@@ -386,7 +386,7 @@ func (m ciModel) saveFiles() tea.Cmd {
 			barkFiles := map[string]string{
 				"reviewer.md": reviewer.Prompt,
 				"review.md":   defaultReviewInstructions,
-				"pr.md":       embed.GetDefaultPRInstructions(),
+				"pr.md":       templates.GetDefaultPRInstructions(),
 			}
 			for filename, content := range barkFiles {
 				if err := os.WriteFile(filepath.Join(".bark", filename), []byte(content), 0o644); err != nil {
@@ -468,7 +468,7 @@ func (m *ciWorkflowSummaryModel) setWorkflows(options []ciWorkflowOption, combin
 	items := []list.Item{}
 	if combinedWorkflow {
 		if _, ok := m.workflows["bark.yaml"]; !ok {
-			m.workflows["bark.yaml"] = embed.GetDefaultCombinedActionTemplate()
+			m.workflows["bark.yaml"] = templates.GetDefaultCombinedActionTemplate()
 		}
 	} else {
 		for _, workflow := range options {
@@ -479,14 +479,14 @@ func (m *ciWorkflowSummaryModel) setWorkflows(options []ciWorkflowOption, combin
 				title = "Code review"
 				key = reviewWorkflow.WorkflowFileName()
 				if _, ok := m.workflows[key]; !ok {
-					m.workflows[key] = embed.GetDefaultReviewActionTemplate()
+					m.workflows[key] = templates.GetDefaultReviewActionTemplate()
 				}
 
 			case prDescriptionWorkflow:
 				title = "PR description"
 				key = prDescriptionWorkflow.WorkflowFileName()
 				if _, ok := m.workflows[key]; !ok {
-					m.workflows[key] = embed.GetDefaultPRDescriptionActionTemplate()
+					m.workflows[key] = templates.GetDefaultPRDescriptionActionTemplate()
 				}
 			}
 
