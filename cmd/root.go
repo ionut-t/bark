@@ -68,6 +68,7 @@ func Execute() error {
 	rootCmd.AddCommand(addCmd())
 	rootCmd.AddCommand(deleteCmd())
 	rootCmd.AddCommand(editCmd())
+	rootCmd.AddCommand(ciCmd())
 
 	rootCmd.PersistentFlags().Bool("plain", false, "Output plain text instead of TUI (auto-detected when stdout is piped)")
 	rootCmd.Flags().StringP("config", "c", "", "config file (default is $HOME/.bark/config.toml)")
