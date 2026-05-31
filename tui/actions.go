@@ -17,47 +17,47 @@ import (
 	editor "github.com/ionut-t/goeditor"
 )
 
-type cancelCIWorkflowSelectionMsg struct{}
+const actionsListOuterWidth = 38
 
-type ciExternalEditorMsg struct {
+type actionsExternalEditorMsg struct {
 	content []byte
 	err     error
 }
 
 type (
-	ciSavedMsg     struct{}
-	ciSaveErrorMsg struct{ err error }
+	actionsSavedMsg     struct{}
+	actionsSaveErrorMsg struct{ err error }
 )
 
-type ciView int
+type actionsView int
 
 const (
-	ciWorkflowView ciView = iota
-	ciWorkflowStructureView
-	ciWorkflowSummaryView
-	ciConfirmDirectoryView
-	ciSaveView
+	actionsWorkflowView actionsView = iota
+	actionsWorkflowStructureView
+	actionsWorkflowSummaryView
+	actionsConfirmDirectoryView
+	actionsSaveView
 )
 
-type ciWorkflowOption int
+type actionsWorkflowOption int
 
 const (
-	reviewWorkflow ciWorkflowOption = iota
+	reviewWorkflow actionsWorkflowOption = iota
 	prDescriptionWorkflow
 )
 
-func (o ciWorkflowOption) String() string {
+func (o actionsWorkflowOption) string() string {
 	switch o {
 	case reviewWorkflow:
-		return "Set up CI for code reviews"
+		return "Code review"
 	case prDescriptionWorkflow:
-		return "Set up CI for PR descriptions"
+		return "PR description"
 	default:
 		return ""
 	}
 }
 
-func (o ciWorkflowOption) WorkflowFileName() string {
+func (o actionsWorkflowOption) workflowFileName() string {
 	switch o {
 	case reviewWorkflow:
 		return "bark-review.yaml"
@@ -68,34 +68,40 @@ func (o ciWorkflowOption) WorkflowFileName() string {
 	}
 }
 
-type ciModel struct {
+type ActionsModel struct {
 	width, height int
-	config        config.Config
 
-	view   ciView
-	styles styles.Styles
+	config     config.Config
+	styles     styles.Styles
+	isDarkMode bool
 
-	selectedWorkflowOptions []ciWorkflowOption
+	view actionsView
+
+	selectedWorkflowOptions []actionsWorkflowOption
 	combinedWorkflow        bool
 
-	multiselectWorflowInput       *huh.MultiSelect[ciWorkflowOption]
+	multiselectWorkflowInput      *huh.MultiSelect[actionsWorkflowOption]
 	selectStructuredWorkflowInput *huh.Select[bool]
 	confirmDirectoryInput         *huh.Select[bool]
 
-	summary   ciWorkflowSummaryModel
+	summary   actionsWorkflowSummaryModel
 	saveError error
 }
 
-func newCIModel(cfg config.Config) ciModel {
-	multiselectWorkflowInput := huh.NewMultiSelect[ciWorkflowOption]().Title("Select CI workflows to set up").
+func NewActionsModel(cfg config.Config) ActionsModel {
+	isDarkMode := styles.IsDark()
+	appStyles := styles.New(isDarkMode)
+
+	multiselectWorkflowInput := huh.NewMultiSelect[actionsWorkflowOption]().Title("Select workflows").
 		Options(
-			huh.NewOption(reviewWorkflow.String(), reviewWorkflow),
-			huh.NewOption(prDescriptionWorkflow.String(), prDescriptionWorkflow),
+			huh.NewOption(reviewWorkflow.string(), reviewWorkflow),
+			huh.NewOption(prDescriptionWorkflow.string(), prDescriptionWorkflow),
 		)
 
 	multiselectWorkflowInput.WithKeyMap(huh.NewDefaultKeyMap())
 	multiselectWorkflowInput.Focus()
 	multiselectWorkflowInput.Height(3)
+	multiselectWorkflowInput.WithTheme(styles.HuhThemeCatppuccin{Styles: appStyles})
 
 	selectStructuredWorkflowInput := huh.NewSelect[bool]().Title("Set up a combined workflow for both code reviews and PR descriptions?").
 		Options(
@@ -106,126 +112,130 @@ func newCIModel(cfg config.Config) ciModel {
 	selectStructuredWorkflowInput.WithKeyMap(huh.NewDefaultKeyMap())
 	selectStructuredWorkflowInput.Height(3)
 	selectStructuredWorkflowInput.Blur()
+	selectStructuredWorkflowInput.WithTheme(styles.HuhThemeCatppuccin{Styles: appStyles})
 
-	selectDirectoryInput := huh.NewSelect[bool]().Title("Create `.bark/` directory with default instruction files?").
+	confirmDirectoryInput := huh.NewSelect[bool]().Title("Create `.bark/` directory with default instruction files?").
 		Options(
 			huh.NewOption("Yes", true).Selected(true),
 			huh.NewOption("No", false),
 		)
 
-	selectDirectoryInput.WithKeyMap(huh.NewDefaultKeyMap())
-	selectDirectoryInput.Height(3)
-	selectDirectoryInput.Blur()
+	confirmDirectoryInput.WithKeyMap(huh.NewDefaultKeyMap())
+	confirmDirectoryInput.Height(3)
+	confirmDirectoryInput.Blur()
 
-	return ciModel{
+	confirmDirectoryInput.WithTheme(styles.HuhThemeCatppuccin{Styles: appStyles})
+
+	return ActionsModel{
 		config:                        cfg,
-		view:                          ciWorkflowView,
-		multiselectWorflowInput:       multiselectWorkflowInput,
+		view:                          actionsWorkflowView,
+		multiselectWorkflowInput:      multiselectWorkflowInput,
 		selectStructuredWorkflowInput: selectStructuredWorkflowInput,
-		summary:                       newCIWorkflowSummaryModel(cfg),
-		confirmDirectoryInput:         selectDirectoryInput,
+		summary:                       newActionsWorkflowSummaryModel(cfg),
+		confirmDirectoryInput:         confirmDirectoryInput,
+		styles:                        appStyles,
+		isDarkMode:                    isDarkMode,
 	}
 }
 
-func (m *ciModel) setSize(width, height int) {
+func (m *ActionsModel) setSize(width, height int) {
 	m.width = width
 	m.height = height
-	if m.view == ciWorkflowSummaryView {
+	if m.view == actionsWorkflowSummaryView {
 		m.summary.setSize(width, height)
 	}
 }
 
-func (m *ciModel) setStyles(s styles.Styles) {
-	m.styles = s
-	m.multiselectWorflowInput.WithTheme(styles.HuhThemeCatppuccin{Styles: s})
-	m.selectStructuredWorkflowInput.WithTheme(styles.HuhThemeCatppuccin{Styles: s})
-	m.confirmDirectoryInput.WithTheme(styles.HuhThemeCatppuccin{Styles: s})
-}
-
-func (m ciModel) Init() tea.Cmd {
+func (m ActionsModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m ciModel) Update(msg tea.Msg) (ciModel, tea.Cmd) {
+func (m ActionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case ciSavedMsg:
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.setSize(msg.Width, msg.Height)
+
+	case actionsSavedMsg:
 		return m, tea.Quit
 
-	case ciSaveErrorMsg:
+	case actionsSaveErrorMsg:
 		m.saveError = msg.err
 		return m, nil
 
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+
 		case "esc":
 			switch m.view {
-			case ciWorkflowView:
-				return m, utils.DispatchMsg(cancelCIWorkflowSelectionMsg{})
-			case ciWorkflowStructureView:
-				m.view = ciWorkflowView
+			case actionsWorkflowStructureView:
+				m.view = actionsWorkflowView
 				m.selectStructuredWorkflowInput.Blur()
-				m.multiselectWorflowInput.Focus()
+				m.multiselectWorkflowInput.Focus()
 				return m, nil
-			case ciWorkflowSummaryView:
+			case actionsWorkflowSummaryView:
 				if m.summary.shouldPreventExit() {
 					break
 				}
 
 				options := m.selectedWorkflowOptions
 				if len(options) == 1 {
-					m.view = ciWorkflowView
+					m.view = actionsWorkflowView
 				} else {
-					m.view = ciWorkflowStructureView
+					m.view = actionsWorkflowStructureView
 				}
 				m.selectStructuredWorkflowInput.Focus()
 				return m, nil
 
-			case ciConfirmDirectoryView:
-				m.view = ciWorkflowSummaryView
+			case actionsConfirmDirectoryView:
+				m.view = actionsWorkflowSummaryView
 				m.confirmDirectoryInput.Blur()
 				return m, nil
 
-			case ciSaveView:
+			case actionsSaveView:
 				m.saveError = nil
-				m.view = ciConfirmDirectoryView
+				m.view = actionsConfirmDirectoryView
 				m.confirmDirectoryInput.Focus()
 				return m, nil
 			}
 
 		case "enter":
 			switch m.view {
-			case ciWorkflowView:
-				values := m.multiselectWorflowInput.GetValue().([]ciWorkflowOption)
+			case actionsWorkflowView:
+				values := m.multiselectWorkflowInput.GetValue().([]actionsWorkflowOption)
 				if len(values) > 0 {
 					m.selectedWorkflowOptions = values
-					m.multiselectWorflowInput.Blur()
+					m.multiselectWorkflowInput.Blur()
 
 					if len(values) == 1 {
 						m.combinedWorkflow = false
 						m.setWorkflowsSummary()
 					} else {
 						m.selectStructuredWorkflowInput.Focus()
-						m.view = ciWorkflowStructureView
+						m.view = actionsWorkflowStructureView
 					}
 				}
 
-			case ciWorkflowStructureView:
+			case actionsWorkflowStructureView:
 				m.combinedWorkflow = m.selectStructuredWorkflowInput.GetValue().(bool)
 				m.setWorkflowsSummary()
 
-			case ciWorkflowSummaryView:
+			case actionsWorkflowSummaryView:
 				if m.summary.shouldPreventExit() {
 					break
 				}
 				m.confirmDirectoryInput.Focus()
-				m.view = ciConfirmDirectoryView
+				m.view = actionsConfirmDirectoryView
 
-			case ciConfirmDirectoryView:
-				m.view = ciSaveView
+			case actionsConfirmDirectoryView:
+				m.view = actionsSaveView
 
-			case ciSaveView:
+			case actionsSaveView:
 				m.saveError = nil
 				return m, m.saveFiles()
 			}
@@ -233,23 +243,23 @@ func (m ciModel) Update(msg tea.Msg) (ciModel, tea.Cmd) {
 	}
 
 	switch m.view {
-	case ciWorkflowView:
-		m.multiselectWorflowInput.Focus()
-		multiselectWorflowInput, cmd := m.multiselectWorflowInput.Update(msg)
-		m.multiselectWorflowInput = multiselectWorflowInput.(*huh.MultiSelect[ciWorkflowOption])
+	case actionsWorkflowView:
+		m.multiselectWorkflowInput.Focus()
+		multiselectWorflowInput, cmd := m.multiselectWorkflowInput.Update(msg)
+		m.multiselectWorkflowInput = multiselectWorflowInput.(*huh.MultiSelect[actionsWorkflowOption])
 		cmds = append(cmds, cmd)
 
-	case ciWorkflowStructureView:
+	case actionsWorkflowStructureView:
 		selectStructuredWorkflowInput, cmd := m.selectStructuredWorkflowInput.Update(msg)
 		m.selectStructuredWorkflowInput = selectStructuredWorkflowInput.(*huh.Select[bool])
 		cmds = append(cmds, cmd)
 
-	case ciWorkflowSummaryView:
+	case actionsWorkflowSummaryView:
 		summary, cmd := m.summary.Update(msg)
 		m.summary = summary
 		cmds = append(cmds, cmd)
 
-	case ciConfirmDirectoryView:
+	case actionsConfirmDirectoryView:
 		confirmDirectoryInput, cmd := m.confirmDirectoryInput.Update(msg)
 		m.confirmDirectoryInput = confirmDirectoryInput.(*huh.Select[bool])
 		cmds = append(cmds, cmd)
@@ -258,20 +268,27 @@ func (m ciModel) Update(msg tea.Msg) (ciModel, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m ciModel) View() string {
-	switch m.view {
-	case ciWorkflowView:
+func (m ActionsModel) View() tea.View {
+	view := tea.NewView(m.createView())
+	view.AltScreen = true
+	view.WindowTitle = "Bark Actions Setup"
 
-		return viewMargin.Render(m.multiselectWorflowInput.View() + "\n\n" + m.renderHelp(true))
-	case ciWorkflowStructureView:
+	return view
+}
+
+func (m ActionsModel) createView() string {
+	switch m.view {
+	case actionsWorkflowView:
+		return viewMargin.Render(m.multiselectWorkflowInput.View() + "\n\n" + m.renderHelp(true))
+	case actionsWorkflowStructureView:
 		return viewMargin.Render(
 			m.selectStructuredWorkflowInput.View() + "\n\n" + m.renderHelp(false),
 		)
 
-	case ciWorkflowSummaryView:
+	case actionsWorkflowSummaryView:
 		return m.summary.View()
 
-	case ciConfirmDirectoryView:
+	case actionsConfirmDirectoryView:
 		return viewMargin.Render(
 			lipgloss.JoinVertical(
 				lipgloss.Left,
@@ -280,21 +297,21 @@ func (m ciModel) View() string {
 				m.styles.Overlay1.Render(
 					styles.Wrap(
 						min(m.width-4, 80),
-						"Creates reviewer.md, review.md, and pr.md with default templates. Without these, bark falls back to built-in defaults and requires BARK_REVIEWER to be set.",
+						"Creates reviewer.md, review.md, and pr.md with default templates. Without these, bark uses built-in defaults for all instructions and the reviewer persona.",
 					),
 				),
 				"\n",
 				m.renderHelp(false),
 			),
 		)
-	case ciSaveView:
+	case actionsSaveView:
 		return viewMargin.Render(m.renderSaveView())
 	default:
 		return ""
 	}
 }
 
-func (m ciModel) renderSaveView() string {
+func (m ActionsModel) renderSaveView() string {
 	key := m.styles.Subtext0.Render
 	desc := m.styles.Overlay1.Render
 
@@ -313,7 +330,7 @@ func (m ciModel) renderSaveView() string {
 		tree.WriteString(m.styles.Text.Render("    bark.yaml"))
 	} else {
 		for i, opt := range m.selectedWorkflowOptions {
-			tree.WriteString(m.styles.Text.Render("    " + opt.WorkflowFileName()))
+			tree.WriteString(m.styles.Text.Render("    " + opt.workflowFileName()))
 			if i < len(m.selectedWorkflowOptions)-1 {
 				tree.WriteString("\n")
 			}
@@ -345,7 +362,7 @@ func (m ciModel) renderSaveView() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", tree.String(), "", help)
 }
 
-func (m ciModel) saveFiles() tea.Cmd {
+func (m ActionsModel) saveFiles() tea.Cmd {
 	opts := scaffold.Options{
 		Workflows:     m.summary.workflows,
 		CreateBarkDir: m.confirmDirectoryInput.GetValue().(bool),
@@ -353,21 +370,21 @@ func (m ciModel) saveFiles() tea.Cmd {
 
 	return func() tea.Msg {
 		if err := scaffold.Run(opts); err != nil {
-			return ciSaveErrorMsg{err}
+			return actionsSaveErrorMsg{err}
 		}
 
-		return ciSavedMsg{}
+		return actionsSavedMsg{}
 	}
 }
 
-func (m *ciModel) setWorkflowsSummary() {
+func (m *ActionsModel) setWorkflowsSummary() {
 	m.summary.setStyles(m.styles, true)
 	m.summary.setWorkflows(m.selectedWorkflowOptions, m.combinedWorkflow)
 	m.summary.setSize(m.width, m.height)
-	m.view = ciWorkflowSummaryView
+	m.view = actionsWorkflowSummaryView
 }
 
-func (m *ciModel) renderHelp(multiselect bool) string {
+func (m *ActionsModel) renderHelp(multiselect bool) string {
 	key := m.styles.Subtext0.Render
 	desc := m.styles.Overlay1.Render
 
@@ -383,9 +400,7 @@ func (m *ciModel) renderHelp(multiselect bool) string {
 	return help
 }
 
-const ciListOuterWidth = 38
-
-type ciWorkflowSummaryModel struct {
+type actionsWorkflowSummaryModel struct {
 	width, height int
 	styles        styles.Styles
 	config        config.Config
@@ -395,23 +410,23 @@ type ciWorkflowSummaryModel struct {
 	workflows        map[string]string
 	editorFocused    bool
 	combinedWorkflow bool
-	selectedOptions  []ciWorkflowOption
+	selectedOptions  []actionsWorkflowOption
 	error            error
 }
 
-func newCIWorkflowSummaryModel(cfg config.Config) ciWorkflowSummaryModel {
+func newActionsWorkflowSummaryModel(cfg config.Config) actionsWorkflowSummaryModel {
 	textEditor := editor.New(80, 24)
 	textEditor.SetExtraHighlightedContextLines(500)
 	textEditor.DisableCommandMode(true)
 
-	return ciWorkflowSummaryModel{
+	return actionsWorkflowSummaryModel{
 		config:    cfg,
 		editor:    textEditor,
 		workflows: make(map[string]string),
 	}
 }
 
-func (m *ciWorkflowSummaryModel) setStyles(s styles.Styles, isDarkMode bool) {
+func (m *actionsWorkflowSummaryModel) setStyles(s styles.Styles, isDarkMode bool) {
 	m.styles = s
 	m.list = newListModel("", m.list.Items(), s, isDarkMode)
 	m.list.SetFilteringEnabled(false)
@@ -422,7 +437,7 @@ func (m *ciWorkflowSummaryModel) setStyles(s styles.Styles, isDarkMode bool) {
 	m.editor.SetLanguage("yaml", styles.EditorLanguageTheme(isDarkMode))
 }
 
-func (m *ciWorkflowSummaryModel) setWorkflows(options []ciWorkflowOption, combinedWorkflow bool) {
+func (m *actionsWorkflowSummaryModel) setWorkflows(options []actionsWorkflowOption, combinedWorkflow bool) {
 	m.combinedWorkflow = combinedWorkflow
 	m.editorFocused = combinedWorkflow || len(options) == 1
 	m.selectedOptions = options
@@ -439,14 +454,14 @@ func (m *ciWorkflowSummaryModel) setWorkflows(options []ciWorkflowOption, combin
 			switch workflow {
 			case reviewWorkflow:
 				title = "Code review"
-				key = reviewWorkflow.WorkflowFileName()
+				key = reviewWorkflow.workflowFileName()
 				if _, ok := m.workflows[key]; !ok {
 					m.workflows[key] = templates.GetDefaultReviewActionTemplate()
 				}
 
 			case prDescriptionWorkflow:
 				title = "PR description"
-				key = prDescriptionWorkflow.WorkflowFileName()
+				key = prDescriptionWorkflow.workflowFileName()
 				if _, ok := m.workflows[key]; !ok {
 					m.workflows[key] = templates.GetDefaultPRDescriptionActionTemplate()
 				}
@@ -461,7 +476,7 @@ func (m *ciWorkflowSummaryModel) setWorkflows(options []ciWorkflowOption, combin
 
 	m.list.SetItems(items)
 
-	firstKey := options[0].WorkflowFileName()
+	firstKey := options[0].workflowFileName()
 	if combinedWorkflow {
 		firstKey = "bark.yaml"
 	}
@@ -472,29 +487,29 @@ func (m *ciWorkflowSummaryModel) setWorkflows(options []ciWorkflowOption, combin
 	}
 }
 
-func (m *ciWorkflowSummaryModel) setSize(width, height int) {
+func (m *actionsWorkflowSummaryModel) setSize(width, height int) {
 	m.width = width
 	m.height = height
-	m.list.SetSize(ciListOuterWidth-2, height-4)
+	m.list.SetSize(actionsListOuterWidth-2, height-4)
 
 	if m.combinedWorkflow || len(m.selectedOptions) == 1 {
 		m.editor.SetSize(width-6, height-5)
 	} else {
-		m.editor.SetSize(width-ciListOuterWidth-4, height-5)
+		m.editor.SetSize(width-actionsListOuterWidth-4, height-5)
 	}
 }
 
-func (m ciWorkflowSummaryModel) shouldPreventExit() bool {
+func (m actionsWorkflowSummaryModel) shouldPreventExit() bool {
 	return m.editor.IsInsertMode() || m.editor.IsSearchMode()
 }
 
-func (m ciWorkflowSummaryModel) Init() tea.Cmd {
+func (m actionsWorkflowSummaryModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m ciWorkflowSummaryModel) Update(msg tea.Msg) (ciWorkflowSummaryModel, tea.Cmd) {
+func (m actionsWorkflowSummaryModel) Update(msg tea.Msg) (actionsWorkflowSummaryModel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case ciExternalEditorMsg:
+	case actionsExternalEditorMsg:
 		if msg.err != nil {
 			m.error = msg.err
 			return m, utils.DispatchClearMsg(5 * time.Second)
@@ -567,7 +582,7 @@ func (m ciWorkflowSummaryModel) Update(msg tea.Msg) (ciWorkflowSummaryModel, tea
 	return m, tea.Batch(cmds...)
 }
 
-func (m ciWorkflowSummaryModel) View() string {
+func (m actionsWorkflowSummaryModel) View() string {
 	title := lipgloss.NewStyle().MarginLeft(2).Render(
 		m.styles.Primary.Bold(true).Render("Preview & Edit Workflows"),
 	)
@@ -579,7 +594,7 @@ func (m ciWorkflowSummaryModel) View() string {
 	} else {
 		leftBorder = m.styles.InactiveBorder
 	}
-	leftPanel := leftBorder.Width(ciListOuterWidth - 2).Render(leftContent)
+	leftPanel := leftBorder.Width(actionsListOuterWidth - 2).Render(leftContent)
 
 	var filenameStr string
 	if selected, ok := m.list.SelectedItem().(item); ok {
@@ -590,7 +605,7 @@ func (m ciWorkflowSummaryModel) View() string {
 
 	editorContent := lipgloss.JoinVertical(lipgloss.Left, filenameStr, m.editor.View())
 
-	rightWidth := m.width - ciListOuterWidth - 2
+	rightWidth := m.width - actionsListOuterWidth - 2
 	if m.combinedWorkflow || len(m.selectedOptions) == 1 {
 		rightWidth = m.width - 4
 	}
@@ -616,7 +631,7 @@ func (m ciWorkflowSummaryModel) View() string {
 	)
 }
 
-func (m ciWorkflowSummaryModel) renderHelp() string {
+func (m actionsWorkflowSummaryModel) renderHelp() string {
 	if m.error != nil {
 		return m.styles.Error.Bold(true).Render("Error: " + m.error.Error())
 	}
@@ -649,24 +664,24 @@ func (m ciWorkflowSummaryModel) renderHelp() string {
 	return help
 }
 
-func (m ciWorkflowSummaryModel) openInEditor() tea.Cmd {
+func (m actionsWorkflowSummaryModel) openInEditor() tea.Cmd {
 	tmpFile, err := os.CreateTemp(os.TempDir(), "*.yaml")
 	if err != nil {
-		return utils.DispatchMsg(ciExternalEditorMsg{err: err})
+		return utils.DispatchMsg(actionsExternalEditorMsg{err: err})
 	}
 
 	if _, err = tmpFile.WriteString(m.editor.GetCurrentContent()); err != nil {
-		return utils.DispatchMsg(ciExternalEditorMsg{err: err})
+		return utils.DispatchMsg(actionsExternalEditorMsg{err: err})
 	}
 
 	cmd, err := utils.OpenInEditorCmd(m.config.GetEditor(), tmpFile.Name())
 	if err != nil {
-		return utils.DispatchMsg(ciExternalEditorMsg{err: err})
+		return utils.DispatchMsg(actionsExternalEditorMsg{err: err})
 	}
 
 	return tea.ExecProcess(cmd, func(error) tea.Msg {
 		content, err := os.ReadFile(tmpFile.Name())
 		_ = os.Remove(tmpFile.Name())
-		return ciExternalEditorMsg{content: content, err: err}
+		return actionsExternalEditorMsg{content: content, err: err}
 	})
 }

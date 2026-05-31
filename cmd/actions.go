@@ -9,12 +9,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func ciCmd() *cobra.Command {
+func actionsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "ci",
-		Short: "Set up CI integration for bark",
+		Use:   "actions",
+		Short: "Scaffold GitHub Actions workflows",
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := runCIcmd(cmd); err != nil {
+			if err := runActionsCmd(); err != nil {
 				PrintError(err)
 			}
 		},
@@ -23,13 +23,10 @@ func ciCmd() *cobra.Command {
 	return cmd
 }
 
-func runCIcmd(cmd *cobra.Command) error {
+func runActionsCmd() error {
 	cfg := config.New()
 
-	m := tui.New(tui.Options{
-		Task:   tui.TaskCI,
-		Config: cfg,
-	})
+	m := tui.NewActionsModel(cfg)
 
 	p := tea.NewProgram(m)
 
