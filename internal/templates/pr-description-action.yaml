@@ -15,6 +15,7 @@ jobs:
     steps:
       - uses: ionut-t/bark/.github/actions/bark-pr-description@main
         with:
+          bark-version: latest
           gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
           model: ${{ vars.BARK_MODEL }}
           max-diff-lines: ${{ vars.BARK_MAX_DIFF_LINES }}
