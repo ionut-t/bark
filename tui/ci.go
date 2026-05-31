@@ -218,6 +218,7 @@ func (m ciModel) Update(msg tea.Msg) (ciModel, tea.Cmd) {
 					m.multiselectWorflowInput.Blur()
 
 					if len(values) == 1 {
+						m.combinedWorkflow = false
 						m.setWorkflowsSummary()
 					} else {
 						m.selectStructuredWorkflowInput.Focus()
@@ -226,6 +227,7 @@ func (m ciModel) Update(msg tea.Msg) (ciModel, tea.Cmd) {
 				}
 
 			case ciWorkflowStructureView:
+				m.combinedWorkflow = m.selectStructuredWorkflowInput.GetValue().(bool)
 				m.setWorkflowsSummary()
 
 			case ciWorkflowSummaryView:
@@ -400,7 +402,6 @@ func (m ciModel) saveFiles() tea.Cmd {
 }
 
 func (m *ciModel) setWorkflowsSummary() {
-	m.combinedWorkflow = m.selectStructuredWorkflowInput.GetValue().(bool)
 	m.summary.setStyles(m.styles, true)
 	m.summary.setWorkflows(m.selectedWorkflowOptions, m.combinedWorkflow)
 	m.summary.setSize(m.width, m.height)
@@ -435,6 +436,7 @@ type ciWorkflowSummaryModel struct {
 	workflows        map[string]string
 	editorFocused    bool
 	combinedWorkflow bool
+	selectedOptions  []ciWorkflowOption
 	error            error
 }
 
@@ -462,8 +464,9 @@ func (m *ciWorkflowSummaryModel) setStyles(s styles.Styles, isDarkMode bool) {
 }
 
 func (m *ciWorkflowSummaryModel) setWorkflows(options []ciWorkflowOption, combinedWorkflow bool) {
-	m.combinedWorkflow = combinedWorkflow || len(options) == 1
-	m.editorFocused = m.combinedWorkflow
+	m.combinedWorkflow = combinedWorkflow
+	m.editorFocused = combinedWorkflow || len(options) == 1
+	m.selectedOptions = options
 
 	items := []list.Item{}
 	if combinedWorkflow {
@@ -515,7 +518,7 @@ func (m *ciWorkflowSummaryModel) setSize(width, height int) {
 	m.height = height
 	m.list.SetSize(ciListOuterWidth-2, height-4)
 
-	if m.combinedWorkflow {
+	if m.combinedWorkflow || len(m.selectedOptions) == 1 {
 		m.editor.SetSize(width-6, height-5)
 	} else {
 		m.editor.SetSize(width-ciListOuterWidth-4, height-5)
@@ -552,7 +555,7 @@ func (m ciWorkflowSummaryModel) Update(msg tea.Msg) (ciWorkflowSummaryModel, tea
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab":
-			if m.combinedWorkflow {
+			if m.combinedWorkflow || len(m.selectedOptions) == 1 {
 				break
 			}
 
@@ -620,11 +623,14 @@ func (m ciWorkflowSummaryModel) View() string {
 	var filenameStr string
 	if selected, ok := m.list.SelectedItem().(item); ok {
 		filenameStr = m.styles.Subtext0.PaddingLeft(1).Render(".github/workflows/" + selected.key)
+	} else {
+		filenameStr = m.styles.Subtext0.PaddingLeft(1).Render("bark.yaml")
 	}
+
 	editorContent := lipgloss.JoinVertical(lipgloss.Left, filenameStr, m.editor.View())
 
 	rightWidth := m.width - ciListOuterWidth - 2
-	if m.combinedWorkflow {
+	if m.combinedWorkflow || len(m.selectedOptions) == 1 {
 		rightWidth = m.width - 4
 	}
 
@@ -638,7 +644,7 @@ func (m ciWorkflowSummaryModel) View() string {
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, " ", rightPanel)
 
-	if m.combinedWorkflow {
+	if m.combinedWorkflow || len(m.selectedOptions) == 1 {
 		content = rightPanel
 	}
 
