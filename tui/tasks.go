@@ -14,6 +14,7 @@ const (
 	TaskReview
 	TaskCommit
 	TaskPRDescription
+	TaskCI
 )
 
 func (c Task) String() string {
@@ -24,6 +25,8 @@ func (c Task) String() string {
 		return "Generate commit message"
 	case TaskPRDescription:
 		return "Generate PR description"
+	case TaskCI:
+		return "Set up CI integration"
 	default:
 		return ""
 	}
@@ -41,6 +44,7 @@ var tasks = []list.Item{
 	item{title: TaskReview.String()},
 	item{title: TaskCommit.String()},
 	item{title: TaskPRDescription.String()},
+	item{title: TaskCI.String()},
 }
 
 func newTasksModel(s styles.Styles, isDarkMode bool) tasksModel {
@@ -75,6 +79,8 @@ func (m tasksModel) Update(msg tea.Msg) (tasksModel, tea.Cmd) {
 					task = TaskCommit
 				case TaskPRDescription.String():
 					task = TaskPRDescription
+				case TaskCI.String():
+					task = TaskCI
 				}
 
 				return m, utils.DispatchMsg(taskSelectedMsg{task: task})

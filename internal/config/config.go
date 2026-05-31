@@ -1,20 +1,14 @@
 package config
 
 import (
-	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/ionut-t/bark/v2/internal/embed"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/viper"
 )
-
-//go:embed commit.md
-var defaultCommitInstructions string
-
-//go:embed pull_request_description.md
-var defaultPRInstructions string
 
 const (
 	EditorKey       = "editor"
@@ -150,13 +144,13 @@ func (c *config) GetMaxDiffLines() uint32 {
 }
 
 func (c *config) GetCommitInstructions() string {
-	return getInstructions(commitInstructionsFileName, defaultCommitInstructions)
+	return getInstructions(commitInstructionsFileName, embed.GetDefaultCommitInstructions())
 }
 
 func (c *config) GetPRInstructions() string {
 	content, err := getInstructionsFromCurrentDir(prInstructionsFileName)
 	if err != nil {
-		return getInstructions(prInstructionsFileName, defaultPRInstructions)
+		return getInstructions(prInstructionsFileName, embed.GetDefaultPRInstructions())
 	}
 
 	return content
@@ -235,13 +229,13 @@ func InitialiseCommitInstructions() error {
 	prPath := GetPRFilePath()
 
 	if _, err := os.Stat(commitPath); os.IsNotExist(err) {
-		if err := os.WriteFile(commitPath, []byte(defaultCommitInstructions), 0o644); err != nil {
+		if err := os.WriteFile(commitPath, []byte(embed.GetDefaultCommitInstructions()), 0o644); err != nil {
 			return fmt.Errorf("failed to write commit instructions: %w", err)
 		}
 	}
 
 	if _, err := os.Stat(prPath); os.IsNotExist(err) {
-		if err := os.WriteFile(prPath, []byte(defaultPRInstructions), 0o644); err != nil {
+		if err := os.WriteFile(prPath, []byte(embed.GetDefaultPRInstructions()), 0o644); err != nil {
 			return fmt.Errorf("failed to write PR instructions: %w", err)
 		}
 	}

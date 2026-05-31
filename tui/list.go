@@ -28,7 +28,7 @@ type genericItem interface {
 }
 
 type item struct {
-	title, prompt string
+	title, prompt, key string
 }
 
 func (i item) Title() string       { return i.title }

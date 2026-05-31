@@ -40,6 +40,7 @@ const (
 	viewBranchInput
 	viewPRNumberInput
 	viewPRDescriptionOptions
+	viewCI
 )
 
 type Model struct {
@@ -102,6 +103,8 @@ type Model struct {
 	pendingCmd tea.Cmd
 
 	viewport viewport.Model
+
+	ci ciModel
 }
 
 type Options struct {
@@ -173,6 +176,7 @@ func New(options Options) *Model {
 		isDarkMode:           isDarkMode,
 		styles:               styles,
 		viewport:             viewport.New(),
+		ci:                   newCIModel(),
 	}
 
 	m.branchInput.setStyles(styles)
@@ -180,6 +184,7 @@ func New(options Options) *Model {
 	m.prDescriptionOptions = newPRDescriptionOptionsModel(styles, isDarkMode)
 	m.tasks.setStyles(styles, isDarkMode)
 	m.reviewOptions.setStyles(styles, isDarkMode)
+	m.ci.setStyles(styles)
 
 	return m
 }
@@ -209,6 +214,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.commitChanges.setSize(m.width, m.height)
 		case viewPRDescription:
 			m.pr.setSize(m.width, m.height)
+		case viewCI:
+			m.ci.setSize(m.width, m.height)
 		}
 
 	case taskSelectedMsg:
@@ -360,6 +367,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentView = viewReviewers
 		m.selectedInstruction = ""
 
+	case cancelCIWorkflowSelectionMsg:
+		if m.pendingCmd == nil {
+			m.currentView = viewTasks
+			m.selectedTask = TaskNone
+		}
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
@@ -482,6 +495,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case viewPRDescriptionOptions:
 		m.prDescriptionOptions, cmd = m.prDescriptionOptions.Update(msg)
+
+	case viewCI:
+		m.ci, cmd = m.ci.Update(msg)
 	}
 
 	if m.commitErr != nil {
@@ -508,6 +524,8 @@ func (m Model) getTitle() string {
 		title += " - Commit Changes"
 	case TaskPRDescription:
 		title += " - PR Description"
+	case TaskCI:
+		title += " - CI Setup"
 	}
 
 	return title
@@ -517,7 +535,8 @@ func (m Model) createView() string {
 	if m.error != nil {
 		if errors.Is(m.error, git.ErrNoChangesInRepository) {
 			return m.styles.Info.Padding(2).Render(
-				lipgloss.JoinVertical(lipgloss.Left,
+				lipgloss.JoinVertical(
+					lipgloss.Left,
 					"Could not find any changes to review.",
 					"This can happen when there are no commits in the repository.",
 					"Stage some changes and run `bark review --stage`.",
@@ -529,7 +548,8 @@ func (m Model) createView() string {
 
 		if errors.Is(m.error, git.ErrNoCommitsInRepository) {
 			return m.styles.Info.Padding(2).Render(
-				lipgloss.JoinVertical(lipgloss.Left,
+				lipgloss.JoinVertical(
+					lipgloss.Left,
 					"Could not find any commits.",
 					"This can happen when there are no commits in the repository.",
 					"Try running `bark review --stage` to review staged changes.",
@@ -598,6 +618,9 @@ func (m Model) createView() string {
 	case viewPRDescriptionOptions:
 		return m.prDescriptionOptions.View()
 
+	case viewCI:
+		return m.ci.View()
+
 	default:
 		return ""
 	}
@@ -624,6 +647,10 @@ func (m *Model) handleSelectedTask(task Task) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.pr.Init(), utils.DispatchMsg(prInitReadyMsg{}))
 		}
 		m.currentView = viewPRDescriptionOptions
+
+	case TaskCI:
+		m.currentView = viewCI
+		m.ci.setSize(m.width, m.height)
 	}
 
 	return m, nil
