@@ -132,10 +132,12 @@ func RunCommit(opts CommitOptions) error {
 		return fmt.Errorf("no changes to generate a commit message for")
 	}
 
-	var promptText string
-	if content, err := os.ReadFile(".bark/commit.md"); err == nil && len(content) > 0 {
-		promptText = string(content)
-	} else {
+	override, err := utils.ReadLocalOverride(".bark/commit.md")
+	if err != nil {
+		return err
+	}
+	promptText := override
+	if promptText == "" {
 		promptText = opts.Config.GetCommitInstructions()
 	}
 	if opts.Hint != "" {
@@ -285,11 +287,7 @@ func resolveInstructions(instruction, storage string) (string, error) {
 		return instruction, nil
 	}
 
-	if content, err := os.ReadFile(".bark/review.md"); err == nil && len(content) > 0 {
-		return string(content), nil
-	}
-
-	return "", nil
+	return utils.ReadLocalOverride(".bark/review.md")
 }
 
 // resolvePRInstructions returns the instruction text from a file path.
@@ -305,10 +303,13 @@ func resolvePRInstructions(instruction string, cfg config.Config) (string, error
 		return instruction, nil
 	}
 
-	if content, err := os.ReadFile(".bark/pr.md"); err == nil && len(content) > 0 {
-		return string(content), nil
+	override, err := utils.ReadLocalOverride(".bark/pr.md")
+	if err != nil {
+		return "", err
 	}
-
+	if override != "" {
+		return override, nil
+	}
 	return cfg.GetPRInstructions(), nil
 }
 

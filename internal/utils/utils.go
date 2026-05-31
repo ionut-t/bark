@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -92,6 +93,23 @@ func OpenInEditorCmd(editor, path string) (*exec.Cmd, error) {
 	cmd := exec.Command(parts[0], append(parts[1:], path)...)
 
 	return cmd, nil
+}
+
+// ReadLocalOverride reads the content of a .bark/ override file.
+// Returns ("", nil) if the file does not exist or is empty — use the fallback.
+// Returns ("", err) for any other I/O error — the caller should surface this to the user.
+func ReadLocalOverride(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("could not read %s: %w", path, err)
+	}
+	if len(content) == 0 {
+		return "", nil
+	}
+	return string(content), nil
 }
 
 func DispatchMsg(msg tea.Msg) tea.Cmd {

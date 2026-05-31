@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"charm.land/bubbles/v2/viewport"
@@ -651,8 +650,11 @@ func (m *Model) handleSelectedReviewer(reviewer *reviewers.Reviewer) (tea.Model,
 		}
 	}
 
-	if content, err := os.ReadFile(".bark/review.md"); err == nil && len(content) > 0 {
-		return m, utils.DispatchMsg(instructionSelectedMsg{instruction: string(content)})
+	if override, err := utils.ReadLocalOverride(".bark/review.md"); err != nil {
+		m.error = err
+		return m, nil
+	} else if override != "" {
+		return m, utils.DispatchMsg(instructionSelectedMsg{instruction: override})
 	}
 
 	if err != nil {
@@ -748,10 +750,13 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 }
 
 func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
-	var instructions string
-	if content, err := os.ReadFile(".bark/commit.md"); err == nil && len(content) > 0 {
-		instructions = string(content)
-	} else {
+	override, err := utils.ReadLocalOverride(".bark/commit.md")
+	if err != nil {
+		m.error = err
+		return m, nil
+	}
+	instructions := override
+	if instructions == "" {
 		instructions = m.config.GetCommitInstructions()
 	}
 
@@ -812,10 +817,13 @@ func (m *Model) handleCommitMessageRetry() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
-	var instructions string
-	if content, err := os.ReadFile(".bark/pr.md"); err == nil && len(content) > 0 {
-		instructions = string(content)
-	} else {
+	override, err := utils.ReadLocalOverride(".bark/pr.md")
+	if err != nil {
+		m.error = err
+		return m, nil
+	}
+	instructions := override
+	if instructions == "" {
 		instructions = m.config.GetPRInstructions()
 	}
 
