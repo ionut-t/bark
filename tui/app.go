@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"charm.land/bubbles/v2/viewport"
@@ -250,6 +251,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.reviewers = newReviewersModel(listReviewers, m.styles, m.isDarkMode)
 				return m, utils.DispatchMsg(reviewerSelectedMsg{Reviewer: reviewer})
 			}
+		}
+
+		if reviewer, err := reviewers.FromFile(".bark/reviewer.md"); err == nil {
+			return m, utils.DispatchMsg(reviewerSelectedMsg{Reviewer: reviewer})
+		} else if !errors.Is(err, os.ErrNotExist) {
+			m.error = err
+			return m, nil
 		}
 
 		m.currentView = viewReviewers
@@ -646,6 +654,13 @@ func (m *Model) handleSelectedReviewer(reviewer *reviewers.Reviewer) (tea.Model,
 		}
 	}
 
+	if override, err := utils.ReadLocalOverride(".bark/review.md"); err != nil {
+		m.error = err
+		return m, nil
+	} else if override != "" {
+		return m, utils.DispatchMsg(instructionSelectedMsg{instruction: override})
+	}
+
 	if err != nil {
 		m.error = err
 	}
@@ -739,7 +754,11 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 }
 
 func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
-	instructions := m.config.GetCommitInstructions()
+	instructions, err := utils.GetInstructions(".bark/commit.md", m.config.GetCommitInstructions())
+	if err != nil {
+		m.error = err
+		return m, nil
+	}
 
 	diff, err := git.GetWorkingTreeDiff(commitAll)
 	if err != nil {
@@ -798,7 +817,11 @@ func (m *Model) handleCommitMessageRetry() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
-	instructions := m.config.GetPRInstructions()
+	instructions, err := utils.GetInstructions(".bark/pr.md", m.config.GetPRInstructions())
+	if err != nil {
+		m.error = err
+		return m, nil
+	}
 
 	var content string
 

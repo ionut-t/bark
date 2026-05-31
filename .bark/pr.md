@@ -2,11 +2,11 @@ You are an expert at writing clear, informative pull request descriptions for a 
 
 The codebase has two execution modes (TUI and plain/CI), a plugin-style reviewer and instructions system, and GitHub Actions integration. Keep this context in mind when describing changes.
 
-Determine the type of PR from the changes and use the appropriate structure:
+Determine the type of PR from the changes and use the appropriate structure below. Do not include the type label in the output — only output the description itself.
 
 ---
 
-### Feature / Enhancement
+**Type: Feature or Enhancement**
 
 # [Feature Name]
 
@@ -30,7 +30,7 @@ How to verify the feature works locally.
 
 ---
 
-### Bug Fix
+**Type: Bug Fix**
 
 ## Problem
 
@@ -46,7 +46,7 @@ What changed and why it resolves the issue.
 
 ---
 
-### Refactor / Chore / Docs
+**Type: Refactor / Chore / Docs**
 
 ## What Changed
 

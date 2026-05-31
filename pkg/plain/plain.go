@@ -132,7 +132,10 @@ func RunCommit(opts CommitOptions) error {
 		return fmt.Errorf("no changes to generate a commit message for")
 	}
 
-	promptText := opts.Config.GetCommitInstructions()
+	promptText, err := utils.GetInstructions(".bark/commit.md", opts.Config.GetCommitInstructions())
+	if err != nil {
+		return err
+	}
 	if opts.Hint != "" {
 		promptText += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
 		promptText += "Commit message hint: " + opts.Hint
@@ -280,11 +283,7 @@ func resolveInstructions(instruction, storage string) (string, error) {
 		return instruction, nil
 	}
 
-	if content, err := os.ReadFile(".bark/review.md"); err == nil {
-		return string(content), nil
-	}
-
-	return "", nil
+	return utils.ReadLocalOverride(".bark/review.md")
 }
 
 // resolvePRInstructions returns the instruction text from a file path.
@@ -300,11 +299,7 @@ func resolvePRInstructions(instruction string, cfg config.Config) (string, error
 		return instruction, nil
 	}
 
-	if content, err := os.ReadFile(".bark/pr.md"); err == nil && len(content) > 0 {
-		return string(content), nil
-	}
-
-	return cfg.GetPRInstructions(), nil
+	return utils.GetInstructions(".bark/pr.md", cfg.GetPRInstructions())
 }
 
 // Errf writes a formatted error message to stderr.
