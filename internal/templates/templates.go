@@ -17,22 +17,27 @@ var defaultPRDescriptionActionTemplate string
 //go:embed combined-action.yaml
 var defaultCombinedActionTemplate string
 
+// GetDefaultCommitInstructions returns the default commit message instructions.
 func GetDefaultCommitInstructions() string {
 	return defaultCommitInstructions
 }
 
+// GetDefaultPRInstructions returns the default pull request description instructions.
 func GetDefaultPRInstructions() string {
 	return defaultPRInstructions
 }
 
+// GetDefaultReviewActionTemplate returns the default GitHub Actions workflow template for AI code reviews.
 func GetDefaultReviewActionTemplate() string {
 	return defaultReviewActionTemplate
 }
 
+// GetDefaultPRDescriptionActionTemplate returns the default GitHub Actions workflow template for PR description generation.
 func GetDefaultPRDescriptionActionTemplate() string {
 	return defaultPRDescriptionActionTemplate
 }
 
+// GetDefaultCombinedActionTemplate returns the default GitHub Actions workflow template combining code review and PR description generation.
 func GetDefaultCombinedActionTemplate() string {
 	return defaultCombinedActionTemplate
 }
