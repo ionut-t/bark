@@ -45,6 +45,7 @@ func detectProjectType() string {
 		{"Cargo.toml", "Rust"},
 		{"build.zig", "Zig"},
 		{"angular.json", "Angular"},
+		{"tsconfig.json", "TypeScript"},
 	} {
 		if _, err := os.Stat(c.file); err == nil {
 			return c.project
