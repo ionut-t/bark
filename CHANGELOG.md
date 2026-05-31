@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.18.0](https://github.com/ionut-t/bark/compare/v2.17.0...v2.18.0) (2026-05-31)
+
+
+### Features
+
+* **actions:** add interactive command for GitHub Actions setup ([#47](https://github.com/ionut-t/bark/issues/47)) ([cb32eb6](https://github.com/ionut-t/bark/commit/cb32eb62054d7d1c830cd435a88dbf0bbe59d4ae))
+* **config:** local bark instruction overrides ([#48](https://github.com/ionut-t/bark/issues/48)) ([cc99927](https://github.com/ionut-t/bark/commit/cc99927621ca98ccf85d313198ba3c5c41b2f6e1))
+* **llm-context:** add option to limit diff lines in prompts ([#45](https://github.com/ionut-t/bark/issues/45)) ([2b5295d](https://github.com/ionut-t/bark/commit/2b5295d6e0367f11150e02e6dae151246289e931))
+
 ## [2.17.0](https://github.com/ionut-t/bark/compare/v2.16.0...v2.17.0) (2026-05-30)
 
 
