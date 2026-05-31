@@ -35,36 +35,3 @@ func writeToDisk(editor *editor.Model, filePath *string, content string) tea.Cmd
 func DispatchNoSearchResultsError(editor *editor.Model) tea.Cmd {
 	return editor.DispatchError(errors.New("no search results found"), 2*time.Second)
 }
-
-func detectProjectType() string {
-	for _, c := range []struct {
-		file    string
-		project string
-	}{
-		{"go.mod", "Go"},
-		{"Cargo.toml", "Rust"},
-		{"build.zig", "Zig"},
-		{"angular.json", "Angular"},
-		{"tsconfig.json", "TypeScript"},
-	} {
-		if _, err := os.Stat(c.file); err == nil {
-			return c.project
-		}
-	}
-
-	if _, err := os.Stat("nx.json"); err == nil {
-		if content, err := os.ReadFile("package.json"); err == nil {
-			if strings.Contains(string(content), `"@angular/core"`) {
-				return "Angular"
-			}
-		}
-	}
-
-	for _, f := range []string{"pyproject.toml", "requirements.txt", "setup.py"} {
-		if _, err := os.Stat(f); err == nil {
-			return "Python"
-		}
-	}
-
-	return ""
-}

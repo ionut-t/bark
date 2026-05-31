@@ -3,7 +3,6 @@ package tui
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,10 +11,9 @@ import (
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/internal/scaffold"
 	"github.com/ionut-t/bark/v2/internal/templates"
 	"github.com/ionut-t/bark/v2/internal/utils"
-	"github.com/ionut-t/bark/v2/pkg/instructions"
-	"github.com/ionut-t/bark/v2/pkg/reviewers"
 	"github.com/ionut-t/coffee/styles"
 	editor "github.com/ionut-t/goeditor"
 )
@@ -41,19 +39,6 @@ const (
 	ciConfirmDirectoryView
 	ciSaveView
 )
-
-const defaultReviewInstructions = `You are a senior software engineer conducting a thorough code review.
-
-## Review Focus
-
-- **Correctness**: Logic errors, edge cases, and potential bugs
-- **Security**: Vulnerabilities and unsafe practices
-- **Maintainability**: Overly complex or brittle code
-- **Performance**: Obvious inefficiencies worth addressing
-- **Conventions**: Language idioms and project-specific patterns
-
-Be specific and actionable. Explain why a change is needed, not just what to change.
-`
 
 type ciWorkflowOption int
 
@@ -362,47 +347,14 @@ func (m ciModel) renderSaveView() string {
 }
 
 func (m ciModel) saveFiles() tea.Cmd {
-	workflows := m.summary.workflows
-	createBarkDir := m.confirmDirectoryInput.GetValue().(bool)
+	opts := scaffold.Options{
+		Workflows:     m.summary.workflows,
+		CreateBarkDir: m.confirmDirectoryInput.GetValue().(bool),
+	}
 
 	return func() tea.Msg {
-		if err := os.MkdirAll(filepath.Join(".github", "workflows"), 0o755); err != nil {
+		if err := scaffold.Run(opts); err != nil {
 			return ciSaveErrorMsg{err}
-		}
-
-		for filename, content := range workflows {
-			if err := os.WriteFile(filepath.Join(".github", "workflows", filename), []byte(content), 0o644); err != nil {
-				return ciSaveErrorMsg{err}
-			}
-		}
-
-		if createBarkDir {
-			if err := os.MkdirAll(".bark", 0o755); err != nil {
-				return ciSaveErrorMsg{err}
-			}
-
-			reviewer, err := reviewers.GetEmbedded("Linus Torvalds")
-			if err != nil {
-				return ciSaveErrorMsg{err}
-			}
-
-			reviewContent := defaultReviewInstructions
-			if projectType := detectProjectType(); projectType != "" {
-				if instr, err := instructions.GetEmbedded(projectType); err == nil {
-					reviewContent = instr.Prompt
-				}
-			}
-
-			barkFiles := map[string]string{
-				"reviewer.md": reviewer.Prompt,
-				"review.md":   reviewContent,
-				"pr.md":       templates.GetDefaultPRInstructions(),
-			}
-			for filename, content := range barkFiles {
-				if err := os.WriteFile(filepath.Join(".bark", filename), []byte(content), 0o644); err != nil {
-					return ciSaveErrorMsg{err}
-				}
-			}
 		}
 
 		return ciSavedMsg{}
