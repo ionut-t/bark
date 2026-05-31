@@ -14,6 +14,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/templates"
 	"github.com/ionut-t/bark/v2/internal/utils"
+	"github.com/ionut-t/bark/v2/pkg/instructions"
 	"github.com/ionut-t/bark/v2/pkg/reviewers"
 	"github.com/ionut-t/coffee/styles"
 	editor "github.com/ionut-t/goeditor"
@@ -385,9 +386,16 @@ func (m ciModel) saveFiles() tea.Cmd {
 				return ciSaveErrorMsg{err}
 			}
 
+			reviewContent := defaultReviewInstructions
+			if projectType := detectProjectType(); projectType != "" {
+				if instr, err := instructions.GetEmbedded(projectType); err == nil {
+					reviewContent = instr.Prompt
+				}
+			}
+
 			barkFiles := map[string]string{
 				"reviewer.md": reviewer.Prompt,
-				"review.md":   defaultReviewInstructions,
+				"review.md":   reviewContent,
 				"pr.md":       templates.GetDefaultPRInstructions(),
 			}
 			for filename, content := range barkFiles {

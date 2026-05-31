@@ -51,6 +51,14 @@ func Find(name string, instructionsList []Instruction) (*Instruction, error) {
 	return nil, fmt.Errorf("instruction not found")
 }
 
+func GetEmbedded(name string) (*Instruction, error) {
+	content, err := instructions.ReadFile("prompts/" + name + ".md")
+	if err != nil {
+		return nil, fmt.Errorf("instruction '%s' not found", name)
+	}
+	return &Instruction{Name: name, Prompt: string(content)}, nil
+}
+
 func RemoveDir(storage string) error {
 	return assets.RemoveAssetDir(storage, assetDirName)
 }
