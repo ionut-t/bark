@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
@@ -82,4 +83,12 @@ func DispatchMsg(msg tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		return msg
 	}
+}
+
+type ClearMsg struct{}
+
+func DispatchClearMsg(duration time.Duration) tea.Cmd {
+	return tea.Tick(duration, func(t time.Time) tea.Msg {
+		return ClearMsg{}
+	})
 }

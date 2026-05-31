@@ -2,13 +2,16 @@ package tui
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/embed"
 	"github.com/ionut-t/bark/v2/internal/utils"
 	"github.com/ionut-t/bark/v2/pkg/reviewers"
@@ -17,6 +20,11 @@ import (
 )
 
 type cancelCIWorkflowSelectionMsg struct{}
+
+type ciExternalEditorMsg struct {
+	content []byte
+	err     error
+}
 
 type (
 	ciSavedMsg     struct{}
@@ -77,6 +85,7 @@ func (o ciWorkflowOption) WorkflowFileName() string {
 
 type ciModel struct {
 	width, height int
+	config        config.Config
 
 	view   ciView
 	styles styles.Styles
@@ -92,7 +101,7 @@ type ciModel struct {
 	saveError error
 }
 
-func newCIModel() ciModel {
+func newCIModel(cfg config.Config) ciModel {
 	multiselectWorkflowInput := huh.NewMultiSelect[ciWorkflowOption]().Title("Select CI workflows to set up").
 		Options(
 			huh.NewOption(reviewWorkflow.String(), reviewWorkflow),
@@ -124,10 +133,11 @@ func newCIModel() ciModel {
 	selectDirectoryInput.Blur()
 
 	return ciModel{
+		config:                        cfg,
 		view:                          ciWorkflowView,
 		multiselectWorflowInput:       multiselectWorkflowInput,
 		selectStructuredWorkflowInput: selectStructuredWorkflowInput,
-		summary:                       newCIWorkflowSummaryModel(),
+		summary:                       newCIWorkflowSummaryModel(cfg),
 		confirmDirectoryInput:         selectDirectoryInput,
 	}
 }
@@ -418,20 +428,23 @@ const ciListOuterWidth = 38
 type ciWorkflowSummaryModel struct {
 	width, height int
 	styles        styles.Styles
+	config        config.Config
 
 	editor           editor.Model
 	list             list.Model
 	workflows        map[string]string
 	editorFocused    bool
 	combinedWorkflow bool
+	error            error
 }
 
-func newCIWorkflowSummaryModel() ciWorkflowSummaryModel {
+func newCIWorkflowSummaryModel(cfg config.Config) ciWorkflowSummaryModel {
 	textEditor := editor.New(80, 24)
 	textEditor.SetExtraHighlightedContextLines(500)
 	textEditor.DisableCommandMode(true)
 
 	return ciWorkflowSummaryModel{
+		config:    cfg,
 		editor:    textEditor,
 		workflows: make(map[string]string),
 	}
@@ -519,6 +532,23 @@ func (m ciWorkflowSummaryModel) Init() tea.Cmd {
 
 func (m ciWorkflowSummaryModel) Update(msg tea.Msg) (ciWorkflowSummaryModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case ciExternalEditorMsg:
+		if msg.err != nil {
+			m.error = msg.err
+			return m, utils.DispatchClearMsg(5 * time.Second)
+		}
+
+		m.editor.SetBytes(msg.content)
+
+		if selected, ok := m.list.SelectedItem().(item); ok {
+			m.workflows[selected.key] = m.editor.GetCurrentContent()
+		} else if m.combinedWorkflow {
+			m.workflows["bark.yaml"] = m.editor.GetCurrentContent()
+		}
+
+	case utils.ClearMsg:
+		m.error = nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab":
@@ -534,6 +564,11 @@ func (m ciWorkflowSummaryModel) Update(msg tea.Msg) (ciWorkflowSummaryModel, tea
 				m.editor.Focus()
 			} else {
 				m.editor.Blur()
+			}
+
+		case "ctrl+e":
+			if !m.shouldPreventExit() {
+				return m, m.openInEditor()
 			}
 		}
 	}
@@ -615,6 +650,10 @@ func (m ciWorkflowSummaryModel) View() string {
 }
 
 func (m ciWorkflowSummaryModel) renderHelp() string {
+	if m.error != nil {
+		return m.styles.Error.Bold(true).Render("Error: " + m.error.Error())
+	}
+
 	key := m.styles.Subtext0.Render
 	desc := m.styles.Overlay1.Render
 
@@ -641,4 +680,21 @@ func (m ciWorkflowSummaryModel) renderHelp() string {
 	help += desc(" • ") + key("ctrl+c") + desc(" quit")
 
 	return help
+}
+
+func (m ciWorkflowSummaryModel) openInEditor() tea.Cmd {
+	tmpFile, err := os.CreateTemp(os.TempDir(), "*.yaml")
+	if err != nil {
+		return utils.DispatchMsg(ciExternalEditorMsg{err: err})
+	}
+
+	if _, err = tmpFile.WriteString(m.editor.GetCurrentContent()); err != nil {
+		return utils.DispatchMsg(ciExternalEditorMsg{err: err})
+	}
+
+	return tea.ExecProcess(exec.Command(m.config.GetEditor(), tmpFile.Name()), func(error) tea.Msg {
+		content, err := os.ReadFile(tmpFile.Name())
+		_ = os.Remove(tmpFile.Name())
+		return ciExternalEditorMsg{content: content, err: err}
+	})
 }

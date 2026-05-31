@@ -176,7 +176,7 @@ func New(options Options) *Model {
 		isDarkMode:           isDarkMode,
 		styles:               styles,
 		viewport:             viewport.New(),
-		ci:                   newCIModel(),
+		ci:                   newCIModel(options.Config),
 	}
 
 	m.branchInput.setStyles(styles)
