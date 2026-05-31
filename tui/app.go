@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"charm.land/bubbles/v2/viewport"
@@ -254,6 +255,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if reviewer, err := reviewers.FromFile(".bark/reviewer.md"); err == nil {
 			return m, utils.DispatchMsg(reviewerSelectedMsg{Reviewer: reviewer})
+		} else if !errors.Is(err, os.ErrNotExist) {
+			m.error = err
+			return m, nil
 		}
 
 		m.currentView = viewReviewers
@@ -750,14 +754,10 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 }
 
 func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
-	override, err := utils.ReadLocalOverride(".bark/commit.md")
+	instructions, err := utils.GetInstructions(".bark/commit.md", m.config.GetCommitInstructions())
 	if err != nil {
 		m.error = err
 		return m, nil
-	}
-	instructions := override
-	if instructions == "" {
-		instructions = m.config.GetCommitInstructions()
 	}
 
 	diff, err := git.GetWorkingTreeDiff(commitAll)
@@ -817,14 +817,10 @@ func (m *Model) handleCommitMessageRetry() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
-	override, err := utils.ReadLocalOverride(".bark/pr.md")
+	instructions, err := utils.GetInstructions(".bark/pr.md", m.config.GetPRInstructions())
 	if err != nil {
 		m.error = err
 		return m, nil
-	}
-	instructions := override
-	if instructions == "" {
-		instructions = m.config.GetPRInstructions()
 	}
 
 	var content string

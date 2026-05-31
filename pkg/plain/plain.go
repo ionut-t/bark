@@ -132,13 +132,9 @@ func RunCommit(opts CommitOptions) error {
 		return fmt.Errorf("no changes to generate a commit message for")
 	}
 
-	override, err := utils.ReadLocalOverride(".bark/commit.md")
+	promptText, err := utils.GetInstructions(".bark/commit.md", opts.Config.GetCommitInstructions())
 	if err != nil {
 		return err
-	}
-	promptText := override
-	if promptText == "" {
-		promptText = opts.Config.GetCommitInstructions()
 	}
 	if opts.Hint != "" {
 		promptText += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
@@ -303,14 +299,7 @@ func resolvePRInstructions(instruction string, cfg config.Config) (string, error
 		return instruction, nil
 	}
 
-	override, err := utils.ReadLocalOverride(".bark/pr.md")
-	if err != nil {
-		return "", err
-	}
-	if override != "" {
-		return override, nil
-	}
-	return cfg.GetPRInstructions(), nil
+	return utils.GetInstructions(".bark/pr.md", cfg.GetPRInstructions())
 }
 
 // Errf writes a formatted error message to stderr.

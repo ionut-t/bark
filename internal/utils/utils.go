@@ -112,6 +112,20 @@ func ReadLocalOverride(path string) (string, error) {
 	return string(content), nil
 }
 
+// GetInstructions returns the content of a .bark/ override file, or fallback if the file does not exist or is empty.
+func GetInstructions(path, fallback string) (string, error) {
+	override, err := ReadLocalOverride(path)
+	if err != nil {
+		return "", err
+	}
+
+	if override != "" {
+		return override, nil
+	}
+
+	return fallback, nil
+}
+
 func DispatchMsg(msg tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		return msg
