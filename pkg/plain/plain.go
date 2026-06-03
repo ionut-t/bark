@@ -16,6 +16,8 @@ import (
 	"github.com/ionut-t/bark/v2/pkg/reviewers"
 )
 
+const gitTimeout = 30 * time.Second
+
 // ReviewOptions configures the plain text review runner.
 type ReviewOptions struct {
 	Diff            *string
@@ -56,18 +58,21 @@ func RunReview(opts ReviewOptions) error {
 	var diff string
 
 	if opts.Diff == nil {
+		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer gitCancel()
+
 		var err error
 		switch {
 		case opts.PR != "":
-			diff, err = git.GetPRDiff(opts.PR)
+			diff, err = git.GetPRDiff(gitCtx, opts.PR)
 		case opts.Hash != "":
-			diff, err = git.GetDiff(opts.Hash)
+			diff, err = git.GetDiff(gitCtx, opts.Hash)
 		case opts.Branch != "":
-			diff, err = git.GetBranchDiff(opts.Branch, opts.Config.GetMaxDiffLines())
+			diff, err = git.GetBranchDiff(gitCtx, opts.Branch, opts.Config.GetMaxDiffLines())
 		case opts.Staged:
-			diff, err = git.GetWorkingTreeDiff(false)
+			diff, err = git.GetWorkingTreeDiff(gitCtx, false)
 		default:
-			diff, err = git.GetWorkingTreeDiff(true)
+			diff, err = git.GetWorkingTreeDiff(gitCtx, true)
 		}
 		if err != nil {
 			return err
@@ -104,14 +109,14 @@ func RunReview(opts ReviewOptions) error {
 		return fmt.Errorf("error creating LLM client: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	llmCtx, llmCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer llmCancel()
 
 	if opts.Stream {
-		return streamResponse(ctx, client, promptText)
+		return streamResponse(llmCtx, client, promptText)
 	}
 
-	return fullResponse(ctx, client, promptText)
+	return fullResponse(llmCtx, client, promptText)
 }
 
 // RunCommit generates a commit message and writes it to stdout.
@@ -119,8 +124,11 @@ func RunCommit(opts CommitOptions) error {
 	var diff string
 
 	if opts.Diff == nil {
+		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer gitCancel()
+
 		var err error
-		diff, err = git.GetWorkingTreeDiff(opts.All)
+		diff, err = git.GetWorkingTreeDiff(gitCtx, opts.All)
 		if err != nil {
 			return err
 		}
@@ -147,10 +155,10 @@ func RunCommit(opts CommitOptions) error {
 		return fmt.Errorf("error creating LLM client: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
+	llmCtx, llmCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer llmCancel()
 
-	result, err := client.Generate(ctx, promptText)
+	result, err := client.Generate(llmCtx, promptText)
 	if err != nil {
 		return fmt.Errorf("error generating commit message: %w", err)
 	}
@@ -173,18 +181,23 @@ func RunPR(opts PROptions) error {
 	switch {
 	case opts.Diff != nil:
 		content = *opts.Diff
-	case opts.PR != "":
-		var err error
-		content, err = git.GetPRInfo(opts.PR)
-		if err != nil {
-			return err
-		}
 	default:
-		branchInfo, err := git.GetBranchInfo(opts.Branch, opts.Config.GetMaxDiffLines())
+		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer gitCancel()
+
+		var err error
+		if opts.PR != "" {
+			content, err = git.GetPRInfo(gitCtx, opts.PR)
+		} else {
+			var branchInfo *git.BranchInfo
+			branchInfo, err = git.GetBranchInfo(gitCtx, opts.Branch, opts.Config.GetMaxDiffLines())
+			if err == nil {
+				content = git.FormatBranchInfo(branchInfo)
+			}
+		}
 		if err != nil {
 			return err
 		}
-		content = git.FormatBranchInfo(branchInfo)
 	}
 
 	promptText := fmt.Sprintf(
@@ -198,10 +211,10 @@ func RunPR(opts PROptions) error {
 		return fmt.Errorf("error creating LLM client: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
+	llmCtx, llmCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer llmCancel()
 
-	result, err := client.Generate(ctx, promptText)
+	result, err := client.Generate(llmCtx, promptText)
 	if err != nil {
 		return fmt.Errorf("error generating PR description: %w", err)
 	}

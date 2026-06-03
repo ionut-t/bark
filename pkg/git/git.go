@@ -2,6 +2,7 @@ package git
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,8 +50,8 @@ func IsGitRepo() bool {
 }
 
 // GetCommits returns a list of the most recent commits.
-func GetCommits(limit int) ([]Commit, error) {
-	cmd := exec.Command("git", "log", "--pretty=format:%H|%an|%ar|%s", "-n", strconv.Itoa(limit))
+func GetCommits(ctx context.Context, limit int) ([]Commit, error) {
+	cmd := exec.CommandContext(ctx, "git", "log", "--pretty=format:%H|%an|%ar|%s", "-n", strconv.Itoa(limit))
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -84,8 +85,8 @@ func GetCommits(limit int) ([]Commit, error) {
 }
 
 // GetCommit returns a single commit.
-func GetCommit(hash string) (*Commit, error) {
-	cmd := exec.Command("git", "show", "--pretty=format:%H|%an|%ar|%s", "-s", hash)
+func GetCommit(ctx context.Context, hash string) (*Commit, error) {
+	cmd := exec.CommandContext(ctx, "git", "show", "--pretty=format:%H|%an|%ar|%s", "-s", hash)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit %s: %w", hash, err)
@@ -106,12 +107,12 @@ func GetCommit(hash string) (*Commit, error) {
 }
 
 // GetDiff returns the diff for a given commit hash.
-func GetDiff(hash string) (string, error) {
+func GetDiff(ctx context.Context, hash string) (string, error) {
 	if !IsGitRepo() {
 		return "", ErrNotAGitRepository
 	}
 
-	cmd := exec.Command("git", "show", hash)
+	cmd := exec.CommandContext(ctx, "git", "show", hash)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get diff for commit %s: %w", hash, err)
@@ -121,16 +122,16 @@ func GetDiff(hash string) (string, error) {
 }
 
 // GetWorkingTreeDiff returns the current uncommitted changes in the working directory.
-func GetWorkingTreeDiff(all bool) (string, error) {
+func GetWorkingTreeDiff(ctx context.Context, all bool) (string, error) {
 	if !IsGitRepo() {
 		return "", ErrNotAGitRepository
 	}
 
 	var cmd *exec.Cmd
 	if all {
-		cmd = exec.Command("git", "diff", "HEAD")
+		cmd = exec.CommandContext(ctx, "git", "diff", "HEAD")
 	} else {
-		cmd = exec.Command("git", "diff", "--staged")
+		cmd = exec.CommandContext(ctx, "git", "diff", "--staged")
 	}
 
 	output, err := cmd.Output()
@@ -149,8 +150,8 @@ func GetWorkingTreeDiff(all bool) (string, error) {
 	return string(output), nil
 }
 
-func GetCurrentBranch() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+func GetCurrentBranch(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current branch: %w", err)
@@ -159,28 +160,57 @@ func GetCurrentBranch() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-func GetBranchDiff(branch string, maxLines uint32) (string, error) {
-	cmd := exec.Command("git", "diff", branch)
-	output, err := cmd.Output()
+func GetBranchDiff(ctx context.Context, branch string, maxLines uint32) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "diff", branch)
+
+	if maxLines == 0 {
+		output, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to get branch diff: %w", err)
+		}
+		return string(output), nil
+	}
+
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", fmt.Errorf("failed to get branch diff: %w", err)
 	}
-
-	if maxLines > 0 {
-		// truncate diff if too large
-		lines := strings.Split(string(output), "\n")
-		maxAcceptedLines := int(maxLines)
-		if len(lines) > maxAcceptedLines {
-			lines = lines[:maxAcceptedLines]
-			lines = append(lines, "... (truncated)")
-			output = []byte(strings.Join(lines, "\n"))
-		}
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("failed to get branch diff: %w", err)
 	}
 
-	return string(output), nil
+	var sb strings.Builder
+	truncated := false
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for lineCount := uint32(0); scanner.Scan(); lineCount++ {
+		if lineCount >= maxLines {
+			truncated = true
+			break
+		}
+		sb.WriteString(scanner.Text())
+		sb.WriteByte('\n')
+	}
+
+	_ = stdout.Close()
+
+	if scanErr := scanner.Err(); scanErr != nil && !truncated {
+		_ = cmd.Wait()
+		return "", fmt.Errorf("failed to read branch diff: %w", scanErr)
+	}
+
+	if waitErr := cmd.Wait(); waitErr != nil && !truncated {
+		return "", fmt.Errorf("failed to get branch diff: %w", waitErr)
+	}
+
+	if truncated {
+		sb.WriteString("... (truncated)\n")
+	}
+
+	return sb.String(), nil
 }
 
-func CommitChanges(message string, all bool) (<-chan string, <-chan error) {
+func CommitChanges(ctx context.Context, message string, all bool) (<-chan string, <-chan error) {
 	outChan := make(chan string)
 	errChan := make(chan error, 1)
 
@@ -189,7 +219,7 @@ func CommitChanges(message string, all bool) (<-chan string, <-chan error) {
 		defer close(errChan)
 
 		if all {
-			cmd := exec.Command("git", "add", "-A")
+			cmd := exec.CommandContext(ctx, "git", "add", "-A")
 
 			if out, err := cmd.CombinedOutput(); err != nil {
 				errChan <- fmt.Errorf("failed to stage changes: %w\n\n %s", err, string(out))
@@ -203,7 +233,7 @@ func CommitChanges(message string, all bool) (<-chan string, <-chan error) {
 			return
 		}
 
-		cmd := exec.Command("git", "commit", "-m", message)
+		cmd := exec.CommandContext(ctx, "git", "commit", "-m", message)
 		cmd.Stdout = writer
 		cmd.Stderr = writer
 
@@ -235,8 +265,12 @@ func CommitChanges(message string, all bool) (<-chan string, <-chan error) {
 
 		_ = reader.Close()
 
-		if err := <-waitDone; err != nil {
+		err = <-waitDone
+		if err != nil {
 			errChan <- fmt.Errorf("failed to commit changes: %w\n\n%s", err, strings.Join(lines, "\n"))
+		}
+		if scanErr := scanner.Err(); scanErr != nil {
+			errChan <- fmt.Errorf("failed to read commit output: %w", scanErr)
 		}
 	}()
 
@@ -244,9 +278,9 @@ func CommitChanges(message string, all bool) (<-chan string, <-chan error) {
 }
 
 // GetBaseBranch attempts to determine the base branch (main, master, develop)
-func GetBaseBranch() (string, error) {
+func GetBaseBranch(ctx context.Context) (string, error) {
 	// Try to find the default branch from remote
-	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	cmd := exec.CommandContext(ctx, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	output, err := cmd.Output()
 	if err == nil {
 		parts := strings.Split(strings.TrimSpace(string(output)), "/")
@@ -259,15 +293,15 @@ func GetBaseBranch() (string, error) {
 }
 
 // GetBranchCommits gets all commits on current branch that aren't in base branch
-func GetBranchCommits(baseBranch string) ([]Commit, error) {
-	currentBranch, err := GetCurrentBranch()
+func GetBranchCommits(ctx context.Context, baseBranch string) ([]Commit, error) {
+	currentBranch, err := GetCurrentBranch(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get commits that are in current branch but not in base
 	// Format: %H = hash, %an = author, %ar = date relative, %s = subject, %b = body
-	cmd := exec.Command("git", "log",
+	cmd := exec.CommandContext(ctx, "git", "log",
 		fmt.Sprintf("%s..%s", baseBranch, currentBranch),
 		"--pretty=format:%H|%an|%ar|%s|%b||END||")
 
@@ -309,13 +343,14 @@ func GetBranchCommits(baseBranch string) ([]Commit, error) {
 }
 
 // GetBranchStats gets addition/deletion stats for the branch compared to base
-func GetBranchStats(baseBranch string) (filesChanged, additions, deletions int, err error) {
-	currentBranch, err := GetCurrentBranch()
+func GetBranchStats(ctx context.Context, baseBranch string) (filesChanged, additions, deletions int, err error) {
+	currentBranch, err := GetCurrentBranch(ctx)
 	if err != nil {
 		return 0, 0, 0, err
 	}
 
-	cmd := exec.Command(
+	cmd := exec.CommandContext(
+		ctx,
 		"git", "diff", "--shortstat",
 		fmt.Sprintf("%s...%s", baseBranch, currentBranch),
 	)
@@ -365,20 +400,20 @@ func GetBranchStats(baseBranch string) (filesChanged, additions, deletions int, 
 }
 
 // GetBranchInfo gets comprehensive info about the current branch for PR description
-func GetBranchInfo(baseBranch string, maxLines uint32) (*BranchInfo, error) {
-	currentBranch, err := GetCurrentBranch()
+func GetBranchInfo(ctx context.Context, baseBranch string, maxLines uint32) (*BranchInfo, error) {
+	currentBranch, err := GetCurrentBranch(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	if baseBranch == "" {
-		baseBranch, err = GetBaseBranch()
+		baseBranch, err = GetBaseBranch(ctx)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	commits, err := GetBranchCommits(baseBranch)
+	commits, err := GetBranchCommits(ctx, baseBranch)
 	if err != nil {
 		return nil, err
 	}
@@ -387,12 +422,12 @@ func GetBranchInfo(baseBranch string, maxLines uint32) (*BranchInfo, error) {
 		return nil, fmt.Errorf("no commits found on branch %s", currentBranch)
 	}
 
-	diffs, err := GetBranchDiff(baseBranch, maxLines)
+	diffs, err := GetBranchDiff(ctx, baseBranch, maxLines)
 	if err != nil {
 		return nil, err
 	}
 
-	filesChanged, additions, deletions, err := GetBranchStats(baseBranch)
+	filesChanged, additions, deletions, err := GetBranchStats(ctx, baseBranch)
 	if err != nil {
 		return nil, err
 	}
@@ -409,8 +444,8 @@ func GetBranchInfo(baseBranch string, maxLines uint32) (*BranchInfo, error) {
 }
 
 // GetPRDiff returns the diff for a GitHub pull request using the gh CLI.
-func GetPRDiff(prNumber string) (string, error) {
-	cmd := exec.Command("gh", "pr", "diff", prNumber)
+func GetPRDiff(ctx context.Context, prNumber string) (string, error) {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "diff", prNumber)
 	output, err := cmd.Output()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
@@ -430,8 +465,8 @@ func GetPRDiff(prNumber string) (string, error) {
 }
 
 // GetPRInfo returns a formatted string with commit messages and diff for a GitHub PR.
-func GetPRInfo(prNumber string) (string, error) {
-	commitsCmd := exec.Command("gh", "pr", "view", prNumber, "--json", "commits,title,number")
+func GetPRInfo(ctx context.Context, prNumber string) (string, error) {
+	commitsCmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "commits,title,number")
 	commitsOut, err := commitsCmd.Output()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
@@ -460,7 +495,7 @@ func GetPRInfo(prNumber string) (string, error) {
 		return "", fmt.Errorf("failed to parse PR info: %w", err)
 	}
 
-	diff, err := GetPRDiff(prNumber)
+	diff, err := GetPRDiff(ctx, prNumber)
 	if err != nil {
 		return "", err
 	}

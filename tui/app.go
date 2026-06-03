@@ -24,6 +24,7 @@ import (
 const (
 	defaultCommitLimit = 25
 	ctxTimeout         = 5 * time.Minute
+	gitTimeout         = 30 * time.Second
 )
 
 type view int
@@ -871,7 +872,7 @@ func (m *Model) handlePRDataLoaded(msg prDataLoadedMsg) (tea.Model, tea.Cmd) {
 
 func performCommit(message string, commitAll bool) tea.Cmd {
 	return func() tea.Msg {
-		outChan, errChan := git.CommitChanges(message, commitAll)
+		outChan, errChan := git.CommitChanges(context.Background(), message, commitAll)
 		return commitStreamStartMsg{
 			outChan: outChan,
 			errChan: errChan,
