@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/utils"
 	"github.com/ionut-t/bark/v2/pkg/git"
@@ -19,7 +21,9 @@ type commitsLoadedMsg struct {
 
 func loadCommitsCmd(limit int) tea.Cmd {
 	return func() tea.Msg {
-		commits, err := git.GetCommits(limit)
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		commits, err := git.GetCommits(ctx, limit)
 		return commitsLoadedMsg{commits: commits, err: err}
 	}
 }
@@ -83,18 +87,21 @@ type reviewDiffCmdParams struct {
 
 func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+
 		var diff string
 		var err, branchErr error
 
 		switch {
 		case params.prNumber != "":
-			diff, err = git.GetPRDiff(params.prNumber)
+			diff, err = git.GetPRDiff(ctx, params.prNumber)
 		case params.branch != "":
-			diff, branchErr = git.GetBranchDiff(params.branch, params.maxLines)
+			diff, branchErr = git.GetBranchDiff(ctx, params.branch, params.maxLines)
 		case params.selectCommit:
-			diff, err = git.GetDiff(params.commitHash)
+			diff, err = git.GetDiff(ctx, params.commitHash)
 		default:
-			diff, err = git.GetWorkingTreeDiff(!params.stagedOnly)
+			diff, err = git.GetWorkingTreeDiff(ctx, !params.stagedOnly)
 		}
 
 		return reviewDiffLoadedMsg{
@@ -115,12 +122,15 @@ type commitDataLoadedMsg struct {
 
 func loadCommitDataCmd(fallbackInstructions string, commitAll bool) tea.Cmd {
 	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+
 		instr, err := utils.GetInstructions(".bark/commit.md", fallbackInstructions)
 		if err != nil {
 			return commitDataLoadedMsg{commitAll: commitAll, err: err}
 		}
 
-		diff, err := git.GetWorkingTreeDiff(commitAll)
+		diff, err := git.GetWorkingTreeDiff(ctx, commitAll)
 		return commitDataLoadedMsg{
 			instructions: instr,
 			diff:         diff,
@@ -145,6 +155,9 @@ type prDataCmdParams struct {
 
 func loadPRDataCmd(params prDataCmdParams) tea.Cmd {
 	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+
 		instr, err := utils.GetInstructions(".bark/pr.md", params.fallbackInstructions)
 		if err != nil {
 			return prDataLoadedMsg{err: err}
@@ -152,12 +165,12 @@ func loadPRDataCmd(params prDataCmdParams) tea.Cmd {
 
 		var content string
 		if params.prNumber != "" {
-			content, err = git.GetPRInfo(params.prNumber)
+			content, err = git.GetPRInfo(ctx, params.prNumber)
 			if err != nil {
 				return prDataLoadedMsg{err: err}
 			}
 		} else {
-			branchInfo, infoErr := git.GetBranchInfo(params.branch, params.maxLines)
+			branchInfo, infoErr := git.GetBranchInfo(ctx, params.branch, params.maxLines)
 			if infoErr != nil {
 				return prDataLoadedMsg{err: infoErr}
 			}
