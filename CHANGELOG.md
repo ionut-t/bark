@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.1](https://github.com/ionut-t/bark/compare/v2.18.0...v2.18.1) (2026-06-03)
+
+
+### Bug Fixes
+
+* **tui:** prevent UI blocking by offloading I/O to commands ([#49](https://github.com/ionut-t/bark/issues/49)) ([93c1969](https://github.com/ionut-t/bark/commit/93c1969b80c01945a4d8e9ded62188a40a468fda))
+
 ## [2.18.0](https://github.com/ionut-t/bark/compare/v2.17.0...v2.18.0) (2026-05-31)
 
 
