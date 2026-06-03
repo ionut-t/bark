@@ -223,13 +223,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, utils.DispatchMsg(listReviewersMsg{})
 
 	case listCommitsMsg:
-		commits, err := git.GetCommits(defaultCommitLimit)
-		if err != nil {
-			m.error = err
+		return m, loadCommitsCmd(defaultCommitLimit)
+
+	case commitsLoadedMsg:
+		if msg.err != nil {
+			m.error = msg.err
 			return m, nil
 		}
 
-		m.commits = newCommitsModel(commits)
+		m.commits = newCommitsModel(msg.commits)
 		m.commits.setSize(m.width, m.height)
 		m.commits.setStyles(m.styles, m.isDarkMode)
 		m.currentView = viewCommits
@@ -239,9 +241,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, utils.DispatchMsg(listReviewersMsg{})
 
 	case listReviewersMsg:
-		listReviewers, err := reviewers.Get(m.storage)
-		if err != nil {
-			m.error = err
+		return m, loadReviewersCmd(m.storage)
+
+	case reviewersLoadedMsg:
+		listReviewers := msg.reviewers
+		if msg.reviewersErr != nil {
+			m.error = msg.reviewersErr
 		}
 		m.reviewers = newReviewersModel(listReviewers, m.styles, m.isDarkMode)
 
@@ -253,10 +258,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if reviewer, err := reviewers.FromFile(".bark/reviewer.md"); err == nil {
-			return m, utils.DispatchMsg(reviewerSelectedMsg{Reviewer: reviewer})
-		} else if !errors.Is(err, os.ErrNotExist) {
-			m.error = err
+		if msg.fileErr == nil {
+			return m, utils.DispatchMsg(reviewerSelectedMsg{Reviewer: msg.fileReviewer})
+		} else if !errors.Is(msg.fileErr, os.ErrNotExist) {
+			m.error = msg.fileErr
 			return m, nil
 		}
 
@@ -266,8 +271,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reviewerSelectedMsg:
 		return m.handleSelectedReviewer(msg.Reviewer)
 
+	case reviewInstructionsLoadedMsg:
+		listInstructions := msg.instructions
+
+		if m.instructionName != "" {
+			if instruction, err := instructions.Find(m.instructionName, listInstructions); err == nil {
+				m.selectedInstruction = instruction.Prompt
+				return m, utils.DispatchMsg(instructionSelectedMsg{instruction: instruction.Prompt})
+			}
+		}
+
+		if msg.overrideErr != nil {
+			m.error = msg.overrideErr
+			return m, nil
+		} else if msg.override != "" {
+			return m, utils.DispatchMsg(instructionSelectedMsg{instruction: msg.override})
+		}
+
+		if msg.instructionsErr != nil {
+			m.error = msg.instructionsErr
+		}
+
+		if len(listInstructions) == 0 {
+			return m, utils.DispatchMsg(instructionSelectedMsg{instruction: ""})
+		}
+
+		m.instructions = newInstructionsModel(listInstructions, m.styles, m.isDarkMode)
+		m.currentView = viewInstructions
+
 	case instructionSelectedMsg:
 		return m.handleSelectedInstruction(msg.instruction)
+
+	case reviewDiffLoadedMsg:
+		return m.handleReviewDiffLoaded(msg)
+
+	case commitDataLoadedMsg:
+		return m.handleCommitDataLoaded(msg)
+
+	case prDataLoadedMsg:
+		return m.handlePRDataLoaded(msg)
 
 	case commitChangesMsg:
 		// Clean up the commit context since operation completed
@@ -641,38 +683,12 @@ func (m *Model) handleSelectedTask(task Task) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleSelectedReviewer(reviewer *reviewers.Reviewer) (tea.Model, tea.Cmd) {
 	m.selectedReviewer = reviewer
-	listInstructions, err := instructions.Get(m.storage)
 
 	if m.skipInstruction {
 		return m, utils.DispatchMsg(instructionSelectedMsg{instruction: ""})
 	}
 
-	if m.instructionName != "" {
-		if instruction, err := instructions.Find(m.instructionName, listInstructions); err == nil {
-			m.selectedInstruction = instruction.Prompt
-			return m, utils.DispatchMsg(instructionSelectedMsg{instruction: instruction.Prompt})
-		}
-	}
-
-	if override, err := utils.ReadLocalOverride(".bark/review.md"); err != nil {
-		m.error = err
-		return m, nil
-	} else if override != "" {
-		return m, utils.DispatchMsg(instructionSelectedMsg{instruction: override})
-	}
-
-	if err != nil {
-		m.error = err
-	}
-
-	if len(listInstructions) == 0 {
-		return m, utils.DispatchMsg(instructionSelectedMsg{instruction: ""})
-	}
-
-	m.instructions = newInstructionsModel(listInstructions, m.styles, m.isDarkMode)
-	m.currentView = viewInstructions
-
-	return m, nil
+	return m, loadReviewInstructionsCmd(m.storage)
 }
 
 func (m *Model) handleSelectedReviewOption(option ReviewOption) (tea.Model, tea.Cmd) {
@@ -700,44 +716,50 @@ func (m *Model) handleSelectedReviewOption(option ReviewOption) (tea.Model, tea.
 }
 
 func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cmd) {
-	var diff string
-	var err error
-
-	if m.prNumber != "" {
-		diff, err = git.GetPRDiff(m.prNumber)
-	} else if m.branch != "" {
-		diff, m.branchErr = git.GetBranchDiff(m.branch, m.config.GetMaxDiffLines())
-
-		if m.branchErr != nil {
-			m.message = fmt.Sprintf(
-				"Could not check against %s.\n\nPress Esc to try a different branch.",
-				m.styles.Accent.Render(m.branch),
-			)
-
-			m.message = m.styles.Info.Padding(2).Render(m.message)
-			return m, nil
-		}
-
-	} else if m.selectCommit {
-		diff, err = git.GetDiff(m.selectedCommit.Hash)
-	} else {
-		diff, err = git.GetWorkingTreeDiff(!m.stagedOnly)
+	var commitHash string
+	if m.selectCommit && m.selectedCommit != nil {
+		commitHash = m.selectedCommit.Hash
 	}
 
-	if err != nil {
-		m.error = err
+	return m, loadReviewDiffCmd(
+		reviewDiffCmdParams{
+			prNumber:     m.prNumber,
+			branch:       m.branch,
+			maxLines:     m.config.GetMaxDiffLines(),
+			selectCommit: m.selectCommit,
+			commitHash:   commitHash,
+			stagedOnly:   m.stagedOnly,
+			instruction:  instruction,
+		},
+	)
+}
+
+func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.branchErr != nil {
+		m.branchErr = msg.branchErr
+		m.message = fmt.Sprintf(
+			"Could not check against %s.\n\nPress Esc to try a different branch.",
+			m.styles.Accent.Render(m.branch),
+		)
+
+		m.message = m.styles.Info.Padding(2).Render(m.message)
+		return m, nil
+	}
+
+	if msg.err != nil {
+		m.error = msg.err
 
 		return m, nil
 	}
 
 	prompt := m.selectedReviewer.Prompt
 
-	if instruction != "" {
-		m.selectedInstruction = instruction
-		prompt = fmt.Sprintf("%s\nFollow the instructions below when analysing code:\n\n%s", prompt, instruction)
+	if msg.instruction != "" {
+		m.selectedInstruction = msg.instruction
+		prompt = fmt.Sprintf("%s\nFollow the instructions below when analysing code:\n\n%s", prompt, msg.instruction)
 	}
 
-	prompt = fmt.Sprintf("%s%s---\n\n**Code to review:**\n%s", prompt, prompt_pkg.FormattingRequirements, diff)
+	prompt = fmt.Sprintf("%s%s---\n\n**Code to review:**\n%s", prompt, prompt_pkg.FormattingRequirements, msg.diff)
 
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
@@ -754,21 +776,18 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 }
 
 func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
-	instructions, err := utils.GetInstructions(".bark/commit.md", m.config.GetCommitInstructions())
-	if err != nil {
-		m.error = err
+	return m, loadCommitDataCmd(m.config.GetCommitInstructions(), commitAll)
+}
+
+func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.error = msg.err
 		return m, nil
 	}
 
-	diff, err := git.GetWorkingTreeDiff(commitAll)
-	if err != nil {
-		m.error = err
-		return m, nil
-	}
-
-	if diff == "" {
+	if msg.diff == "" {
 		m.message = "No changes to commit.\n"
-		if !commitAll {
+		if !msg.commitAll {
 			m.message += "Tip: use 'C' to commit all changes, including unstaged ones.\n"
 		}
 
@@ -783,13 +802,13 @@ func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	prompt := instructions
+	prompt := msg.instructions
 	if m.hint != "" {
 		prompt += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
 		prompt += "Commit message hint: " + m.hint
 	}
 
-	prompt += "\n\n" + diff
+	prompt += "\n\n" + msg.diff
 
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
@@ -798,7 +817,7 @@ func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
 	}
 	m.operationCancelFunc = cancel
 
-	m.commitChanges = newCommitChangesModel(m.llm, prompt, commitAll, m.width, m.height)
+	m.commitChanges = newCommitChangesModel(m.llm, prompt, msg.commitAll, m.width, m.height)
 	m.commitChanges.setStyles(m.styles, m.isDarkMode)
 	m.currentView = viewCommitChanges
 	return m, m.commitChanges.startCommitGeneration(ctx)
@@ -817,34 +836,26 @@ func (m *Model) handleCommitMessageRetry() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
-	instructions, err := utils.GetInstructions(".bark/pr.md", m.config.GetPRInstructions())
-	if err != nil {
-		m.error = err
+	return m, loadPRDataCmd(
+		prDataCmdParams{
+			fallbackInstructions: m.config.GetPRInstructions(),
+			prNumber:             m.prNumber,
+			branch:               m.branch,
+			maxLines:             m.config.GetMaxDiffLines(),
+		},
+	)
+}
+
+func (m *Model) handlePRDataLoaded(msg prDataLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.error = msg.err
 		return m, nil
-	}
-
-	var content string
-
-	if m.prNumber != "" {
-		var err error
-		content, err = git.GetPRInfo(m.prNumber)
-		if err != nil {
-			m.error = err
-			return m, nil
-		}
-	} else {
-		branchInfo, err := git.GetBranchInfo(m.branch, m.config.GetMaxDiffLines())
-		if err != nil {
-			m.error = err
-			return m, nil
-		}
-		content = git.FormatBranchInfo(branchInfo)
 	}
 
 	prompt := fmt.Sprintf(
 		"%s**Analyze the following changes and generate an appropriate PR description:**\n\n%s",
-		instructions,
-		content,
+		msg.instructions,
+		msg.content,
 	)
 
 	m.pr.setPrompt(prompt)
