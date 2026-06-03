@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.2](https://github.com/ionut-t/bark/compare/v2.18.1...v2.18.2) (2026-06-03)
+
+
+### Bug Fixes
+
+* **git:** add context support and timeouts to git operations ([#51](https://github.com/ionut-t/bark/issues/51)) ([ea5af6f](https://github.com/ionut-t/bark/commit/ea5af6fd5055eb78748089687a774edf81b20c3b))
+
 ## [2.18.1](https://github.com/ionut-t/bark/compare/v2.18.0...v2.18.1) (2026-06-03)
 
 
