@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.19.0](https://github.com/ionut-t/bark/compare/v2.18.2...v2.19.0) (2026-06-06)
+
+
+### Features
+
+* **tui:** add support for persisting relative line numbers in editor ([#54](https://github.com/ionut-t/bark/issues/54)) ([7c71100](https://github.com/ionut-t/bark/commit/7c7110011208f057528d57c120567bbe9be7c9fc))
+
 ## [2.18.2](https://github.com/ionut-t/bark/compare/v2.18.1...v2.18.2) (2026-06-03)
 
 
