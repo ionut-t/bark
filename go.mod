@@ -10,7 +10,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/ionut-t/coffee/help v0.0.0-20260404232152-91b6181d4e02
 	github.com/ionut-t/coffee/styles v0.0.0-20260404232152-91b6181d4e02
-	github.com/ionut-t/goeditor v0.4.14
+	github.com/ionut-t/goeditor v0.4.15
 	github.com/mattn/go-isatty v0.0.22
 	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/spf13/cobra v1.10.2
@@ -39,7 +39,7 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/dlclark/regexp2/v2 v2.1.1 // indirect
+	github.com/dlclark/regexp2/v2 v2.1.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect

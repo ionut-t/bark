@@ -11,10 +11,11 @@ import (
 )
 
 const (
-	EditorKey       = "editor"
-	LLMProviderKey  = "llm_provider"
-	LLMModelKey     = "llm_model"
-	MaxDiffLinesKey = "max_diff_lines"
+	EditorKey         = "editor"
+	LLMProviderKey    = "llm_provider"
+	LLMModelKey       = "llm_model"
+	MaxDiffLinesKey   = "max_diff_lines"
+	RelativeNumberKey = "relative_number"
 
 	rootDir                    = ".bark"
 	configFileName             = ".config.toml"
@@ -37,13 +38,16 @@ type Config interface {
 	GetPRInstructions() string
 	SetMaxDiffLines(lines uint32) error
 	GetMaxDiffLines() uint32
+	SetRelativeNumber(relative bool) error
+	GetRelativeNumber() bool
 }
 
 type configData struct {
-	Editor       string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
-	LLMProvider  string `toml:"llm_provider" comment:"It can be set to Gemini or Vertex AI"`
-	LLMModel     string `toml:"llm_model" comment:"The LLM model is required for Vertex AI/Gemini LLMs, e.g., gemini-2.5-pro"`
-	MaxDiffLines uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt"`
+	Editor         string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
+	LLMProvider    string `toml:"llm_provider" comment:"It can be set to Gemini or Vertex AI"`
+	LLMModel       string `toml:"llm_model" comment:"The LLM model is required for Vertex AI/Gemini LLMs, e.g., gemini-2.5-pro"`
+	MaxDiffLines   uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt"`
+	RelativeNumber bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
 }
 
 type config struct {
@@ -52,10 +56,11 @@ type config struct {
 
 func getConfigData() configData {
 	return configData{
-		Editor:       GetEditor(),
-		LLMProvider:  viper.GetString(LLMProviderKey),
-		LLMModel:     viper.GetString(LLMModelKey),
-		MaxDiffLines: viper.GetUint32(MaxDiffLinesKey),
+		Editor:         GetEditor(),
+		LLMProvider:    viper.GetString(LLMProviderKey),
+		LLMModel:       viper.GetString(LLMModelKey),
+		MaxDiffLines:   viper.GetUint32(MaxDiffLinesKey),
+		RelativeNumber: viper.GetBool(RelativeNumberKey),
 	}
 }
 
@@ -156,10 +161,24 @@ func (c *config) GetPRInstructions() string {
 	return content
 }
 
+func (c *config) SetRelativeNumber(relative bool) error {
+	if relative == c.data.RelativeNumber {
+		return nil
+	}
+
+	c.data.RelativeNumber = relative
+
+	return writeConfig(c.data)
+}
+
+func (c *config) GetRelativeNumber() bool {
+	return c.data.RelativeNumber
+}
+
 func writeConfig(config configData) error {
 	out, err := toml.Marshal(config)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
 	return os.WriteFile(GetConfigFilePath(), out, 0o644)
@@ -209,6 +228,7 @@ func InitialiseConfigFile() (string, error) {
 			viper.SetDefault(LLMProviderKey, "")
 			viper.SetDefault(LLMModelKey, "gemini-2.0-flash")
 			viper.SetDefault(MaxDiffLinesKey, DEFAULT_MAX_DIFF_LINES)
+			viper.SetDefault(RelativeNumberKey, false)
 
 			if err := writeConfig(getConfigData()); err != nil {
 				return "", err

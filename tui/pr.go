@@ -228,7 +228,7 @@ func (m prModel) Update(msg tea.Msg) (prModel, tea.Cmd) {
 
 	case editor.SearchResultsMsg:
 		if len(msg.Positions) == 0 {
-			return m, DispatchNoSearchResultsError(&m.editor)
+			return m, dispatchNoSearchResultsError(&m.editor)
 		}
 
 	case tea.KeyMsg:

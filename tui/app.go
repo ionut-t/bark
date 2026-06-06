@@ -19,6 +19,7 @@ import (
 	prompt_pkg "github.com/ionut-t/bark/v2/pkg/prompt"
 	"github.com/ionut-t/bark/v2/pkg/reviewers"
 	"github.com/ionut-t/coffee/styles"
+	editor "github.com/ionut-t/goeditor"
 )
 
 const (
@@ -212,6 +213,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case viewPRDescription:
 			m.pr.setSize(m.width, m.height)
 		}
+
+	case editor.RelativeNumbersChangeMsg:
+		return m, setRelativeNumberCmd(m.config, msg.Enabled)
 
 	case taskSelectedMsg:
 		return m.handleSelectedTask(msg.task)
@@ -771,6 +775,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 
 	m.review = newReviewModel(*m.selectedReviewer, prompt, m.width, m.height, m.llm)
 	m.review.setStyles(m.styles, m.isDarkMode)
+	m.review.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.currentView = viewReview
 
 	return m, m.review.startReview(ctx)
@@ -820,6 +825,7 @@ func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.
 
 	m.commitChanges = newCommitChangesModel(m.llm, prompt, msg.commitAll, m.width, m.height)
 	m.commitChanges.setStyles(m.styles, m.isDarkMode)
+	m.commitChanges.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.currentView = viewCommitChanges
 	return m, m.commitChanges.startCommitGeneration(ctx)
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
@@ -169,7 +170,6 @@ type commitStreamStartMsg struct {
 
 func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool, width, height int) commitChangesModel {
 	textEditor := editor.New(width, height)
-	textEditor.DisableCommandMode(true)
 	textEditor.Focus()
 
 	sp := spinner.New()
@@ -196,6 +196,10 @@ func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool, width, he
 	m.viewport.SetHeight(max(5, height-5))
 
 	return m
+}
+
+func (m *commitChangesModel) showRelativeLineNumbers(enabled bool) {
+	m.editor.ShowRelativeLineNumbers(enabled)
 }
 
 func (m *commitChangesModel) setStyles(s styles.Styles, isDarkMode bool) {
@@ -277,8 +281,11 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 
 	case editor.SearchResultsMsg:
 		if len(msg.Positions) == 0 {
-			return m, DispatchNoSearchResultsError(&m.editor)
+			return m, dispatchNoSearchResultsError(&m.editor)
 		}
+
+	case configErrMsg:
+		return m, m.editor.DispatchError(msg, 2*time.Second)
 
 	case tea.KeyMsg:
 		if m.loading {
@@ -434,10 +441,11 @@ func (m *commitChangesModel) commitChangesHelp() string {
 			},
 		)
 
-		commands = slices.Insert(commands, 0, struct {
-			Command     string
-			Description string
-		}{"esc", "exit insert mode"},
+		commands = slices.Insert(
+			commands, 0, struct {
+				Command     string
+				Description string
+			}{"esc", "exit insert mode"},
 		)
 	}
 
