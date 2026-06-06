@@ -417,7 +417,7 @@ type actionsWorkflowSummaryModel struct {
 func newActionsWorkflowSummaryModel(cfg config.Config) actionsWorkflowSummaryModel {
 	textEditor := editor.New(80, 24)
 	textEditor.SetExtraHighlightedContextLines(500)
-	textEditor.DisableCommandMode(true)
+	textEditor.ShowRelativeLineNumbers(cfg.GetRelativeNumber())
 
 	return actionsWorkflowSummaryModel{
 		config:    cfg,
@@ -500,7 +500,7 @@ func (m *actionsWorkflowSummaryModel) setSize(width, height int) {
 }
 
 func (m actionsWorkflowSummaryModel) shouldPreventExit() bool {
-	return m.editor.IsInsertMode() || m.editor.IsSearchMode()
+	return m.editor.IsInsertMode() || m.editor.IsSearchMode() || m.editor.IsCommandMode()
 }
 
 func (m actionsWorkflowSummaryModel) Init() tea.Cmd {
@@ -525,6 +525,9 @@ func (m actionsWorkflowSummaryModel) Update(msg tea.Msg) (actionsWorkflowSummary
 
 	case utils.ClearMsg:
 		m.error = nil
+
+	case editor.RelativeNumbersChangeMsg:
+		return m, setRelativeNumberCmd(m.config, msg.Enabled)
 
 	case tea.KeyMsg:
 		switch msg.String() {

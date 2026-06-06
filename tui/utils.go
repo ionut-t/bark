@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/ionut-t/bark/v2/internal/config"
 	editor "github.com/ionut-t/goeditor"
 )
 
@@ -32,6 +33,18 @@ func writeToDisk(editor *editor.Model, filePath *string, content string) tea.Cmd
 	return editor.DispatchMessage("saved to "+*filePath, duration)
 }
 
-func DispatchNoSearchResultsError(editor *editor.Model) tea.Cmd {
+func dispatchNoSearchResultsError(editor *editor.Model) tea.Cmd {
 	return editor.DispatchError(errors.New("no search results found"), 2*time.Second)
+}
+
+type configErrMsg error
+
+func setRelativeNumberCmd(cfg config.Config, value bool) tea.Cmd {
+	return func() tea.Msg {
+		if err := cfg.SetRelativeNumber(value); err != nil {
+			return configErrMsg(err)
+		}
+
+		return nil
+	}
 }

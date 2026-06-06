@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -152,6 +153,10 @@ func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height in
 	return m
 }
 
+func (m *reviewModel) showRelativeLineNumbers(enabled bool) {
+	m.editor.ShowRelativeLineNumbers(enabled)
+}
+
 func (m *reviewModel) setStyles(s styles.Styles, isDarkMode bool) {
 	m.styles = s
 
@@ -234,8 +239,11 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 
 	case editor.SearchResultsMsg:
 		if len(msg.Positions) == 0 {
-			return m, DispatchNoSearchResultsError(&m.editor)
+			return m, dispatchNoSearchResultsError(&m.editor)
 		}
+
+	case configErrMsg:
+		return m, m.editor.DispatchError(msg, 2*time.Second)
 
 	case tea.KeyMsg:
 		switch msg.String() {
