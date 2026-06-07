@@ -10,6 +10,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/pkg/llm"
 	"github.com/ionut-t/bark/v2/pkg/llm/gemini"
+	"github.com/ionut-t/bark/v2/pkg/llm/openai"
 	"github.com/ionut-t/bark/v2/pkg/llm/vertexai"
 )
 
@@ -24,8 +25,10 @@ type providerCredentials struct {
 	geminiAPIKey      string
 	vertexAIProjectID string
 	vertexAILocation  string
+	openAIAPIKey      string
 	hasGemini         bool
 	hasVertexAI       bool
+	hasOpenAI         bool
 }
 
 // loadCredentials reads and validates environment variables
@@ -34,10 +37,12 @@ func loadCredentials() *providerCredentials {
 		geminiAPIKey:      os.Getenv("GEMINI_API_KEY"),
 		vertexAIProjectID: os.Getenv("VERTEXAI_PROJECT_ID"),
 		vertexAILocation:  os.Getenv("VERTEXAI_LOCATION"),
+		openAIAPIKey:      os.Getenv("OPENAI_API_KEY"),
 	}
 
 	creds.hasGemini = creds.geminiAPIKey != ""
 	creds.hasVertexAI = creds.vertexAIProjectID != "" && creds.vertexAILocation != ""
+	creds.hasOpenAI = creds.openAIAPIKey != ""
 
 	return creds
 }
@@ -50,7 +55,10 @@ func (c *providerCredentials) detectProvider() (string, error) {
 	if c.hasVertexAI {
 		return "vertexai", nil
 	}
-	return "", fmt.Errorf("%w: set GEMINI_API_KEY or both VERTEXAI_PROJECT_ID and VERTEXAI_LOCATION", ErrNoProviderConfigured)
+	if c.hasOpenAI {
+		return "openai", nil
+	}
+	return "", fmt.Errorf("%w: set GEMINI_API_KEY, OPENAI_API_KEY, or both VERTEXAI_PROJECT_ID and VERTEXAI_LOCATION", ErrNoProviderConfigured)
 }
 
 // validateProvider checks if credentials exist for the specified provider
@@ -71,8 +79,12 @@ func (c *providerCredentials) validateProvider(provider string) error {
 			}
 			return fmt.Errorf("%w for Vertex AI: %s not set", ErrMissingCredentials, strings.Join(missing, " and "))
 		}
+	case "openai":
+		if !c.hasOpenAI {
+			return fmt.Errorf("%w for OpenAI: OPENAI_API_KEY not set", ErrMissingCredentials)
+		}
 	default:
-		return fmt.Errorf("%w: %s (supported: gemini, vertexai)", ErrInvalidProvider, provider)
+		return fmt.Errorf("%w: %s (supported: gemini, vertexai, openai)", ErrInvalidProvider, provider)
 	}
 
 	return nil
@@ -106,6 +118,8 @@ func New(ctx context.Context, cfg config.Config) (llm.LLM, error) {
 		return gemini.New(ctx, model, creds.geminiAPIKey)
 	case "vertexai":
 		return vertexai.New(ctx, model, creds.vertexAIProjectID, creds.vertexAILocation)
+	case "openai":
+		return openai.New(model, creds.openAIAPIKey), nil
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrInvalidProvider, provider)
 	}
