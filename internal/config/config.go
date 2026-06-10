@@ -33,6 +33,7 @@ type Config interface {
 	SetLLMModel(model string) error
 	GetLLMModel() (string, error)
 	OverrideModel(model string)
+	OverrideProvider(provider string) error
 	OverrideMaxDiffLines(lines uint32)
 	GetCommitInstructions() string
 	GetPRInstructions() string
@@ -108,6 +109,15 @@ func (c *config) OverrideModel(model string) {
 	if model != "" {
 		c.data.LLMModel = model
 	}
+}
+
+func (c *config) OverrideProvider(provider string) error {
+	if provider != "" && !isValidProvider(provider) {
+		return fmt.Errorf("invalid provider: %s. Supported providers are 'gemini', 'vertexai', and 'openai'", provider)
+	}
+
+	c.data.LLMProvider = provider
+	return nil
 }
 
 func (c *config) OverrideMaxDiffLines(lines uint32) {
@@ -331,4 +341,8 @@ func getInstructionsFromCurrentDir(fileName string) (string, error) {
 	}
 
 	return string(content), nil
+}
+
+func isValidProvider(provider string) bool {
+	return provider == "gemini" || provider == "vertexai" || provider == "openai"
 }

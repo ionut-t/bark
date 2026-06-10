@@ -6,11 +6,14 @@ inputs:
     description: Bark version to install. Defaults to latest.
     required: false
     default: "latest"
-  gemini-api-key:
-    description: Gemini API key
+  provider:
+    description: "LLM provider to use: gemini or openai."
+    required: true
+  api-key:
+    description: API key for the configured provider.
     required: true
   model:
-    description: LLM model to use (e.g. gemini-2.5-pro).
+    description: LLM model to use (e.g. gemini-2.5-pro, gpt-5.4-mini).
     required: true
   instructions:
     description: |
@@ -48,10 +51,23 @@ runs:
     - name: Generate PR description
       shell: bash
       env:
-        GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
-        ARGS=(pr --pr "${{ github.event.pull_request.number }}" --model "${{ inputs.model }}")
+        PROVIDER=$(echo "${{ inputs.provider }}" | tr '[:upper:]' '[:lower:]')
+        case "$PROVIDER" in
+          "gemini")
+            export GEMINI_API_KEY="${{ inputs.api-key }}"
+            ;;
+          "openai")
+            export OPENAI_API_KEY="${{ inputs.api-key }}"
+            ;;
+          *)
+            echo "Error: Unknown provider $PROVIDER"
+            exit 1
+            ;;
+        esac
+
+        ARGS=(pr --pr "${{ github.event.pull_request.number }}" --provider "$PROVIDER" --model "${{ inputs.model }}")
         [ -n "${{ inputs.instructions }}" ] && ARGS+=(--instructions "${{ inputs.instructions }}")
         [ -n "${{ inputs.max-diff-lines }}" ] && ARGS+=(--max-diff-lines "${{ inputs.max-diff-lines }}")
 

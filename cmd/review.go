@@ -27,6 +27,7 @@ func reviewCmd() *cobra.Command {
 
 	cmd.Flags().String("as", "", "Specify the reviewer to use directly")
 	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
+	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config): gemini, vertexai, openai")
 	cmd.Flags().BoolP("commit", "t", false, "Select commit to review")
 	cmd.Flags().BoolP("changes", "c", false, "Review current changes")
 	cmd.Flags().StringP("instructions", "i", "", "Custom instructions to guide the reviewer's feedback")
@@ -60,6 +61,7 @@ func runReviewCmd(cmd *cobra.Command) error {
 	stream, _ := cmd.Flags().GetBool("stream")
 	pr, _ := cmd.Flags().GetString("pr")
 	model, _ := cmd.Flags().GetString("model")
+	provider, _ := cmd.Flags().GetString("provider")
 
 	cfg := config.New()
 
@@ -69,6 +71,11 @@ func runReviewCmd(cmd *cobra.Command) error {
 	}
 
 	cfg.OverrideModel(model)
+
+	if err := cfg.OverrideProvider(provider); err != nil {
+		return fmt.Errorf("error overriding provider: %w", err)
+	}
+
 	if cmd.Flags().Changed("max-diff-lines") {
 		maxDiffLines, _ := cmd.Flags().GetUint32("max-diff-lines")
 		cfg.OverrideMaxDiffLines(maxDiffLines)
