@@ -13,7 +13,7 @@ import (
 func prCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pr",
-		Short: "Generate a pull request message",
+		Short: "Generate a pull request description",
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := runPRCmd(cmd); err != nil {
 				if hasStdinData() || isPlainMode(cmd) {
@@ -28,6 +28,7 @@ func prCmd() *cobra.Command {
 	cmd.Flags().StringP("branch", "b", "", "The base branch to compare against (optional)")
 	cmd.Flags().StringP("pr", "p", "", "Generate a description for a GitHub pull request by number (requires gh CLI)")
 	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
+	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config): gemini, vertexai, openai")
 	cmd.Flags().StringP("instructions", "i", "", "Custom instructions (file path or raw text, overrides default PR instructions)")
 	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
 
@@ -40,6 +41,7 @@ func runPRCmd(cmd *cobra.Command) error {
 	branch, _ := cmd.Flags().GetString("branch")
 	pr, _ := cmd.Flags().GetString("pr")
 	model, _ := cmd.Flags().GetString("model")
+	provider, _ := cmd.Flags().GetString("provider")
 	instructions, _ := cmd.Flags().GetString("instructions")
 
 	cfg := config.New()
@@ -50,6 +52,11 @@ func runPRCmd(cmd *cobra.Command) error {
 	}
 
 	cfg.OverrideModel(model)
+
+	if err := cfg.OverrideProvider(provider); err != nil {
+		return fmt.Errorf("error overriding provider: %w", err)
+	}
+
 	if cmd.Flags().Changed("max-diff-lines") {
 		maxDiffLines, _ := cmd.Flags().GetUint32("max-diff-lines")
 		cfg.OverrideMaxDiffLines(maxDiffLines)
