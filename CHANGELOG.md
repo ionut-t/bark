@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.20.0](https://github.com/ionut-t/bark/compare/v2.19.0...v2.20.0) (2026-06-10)
+
+
+### Features
+
+* **llm:** add OpenAI provider support ([#56](https://github.com/ionut-t/bark/issues/56)) ([c7d7305](https://github.com/ionut-t/bark/commit/c7d730549ca2a1192ca07fe43c4dddc46b10fffd))
+
 ## [2.19.0](https://github.com/ionut-t/bark/compare/v2.18.2...v2.19.0) (2026-06-06)
 
 
