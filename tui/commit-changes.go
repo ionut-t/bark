@@ -202,6 +202,10 @@ func (m *commitChangesModel) showRelativeLineNumbers(enabled bool) {
 	m.editor.ShowRelativeLineNumbers(enabled)
 }
 
+func (m *commitChangesModel) displayUsedModel(model string) {
+	m.editor.StatusLineFunc = createEditorStatusLine(model + " ")
+}
+
 func (m *commitChangesModel) setStyles(s styles.Styles, isDarkMode bool) {
 	m.styles = s
 	m.isDarkMode = isDarkMode
@@ -277,7 +281,7 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 
 		m.response = utils.RemoveCodeFences(msg.message)
 		m.editor.SetContent(m.response)
-		m.editor.SetSize(m.width-4, max(10, m.height-lipgloss.Height(m.getHeader())-1))
+		m.editor.SetSize(m.width, max(10, m.height-lipgloss.Height(m.getHeader())-1))
 
 	case editor.SearchResultsMsg:
 		if len(msg.Positions) == 0 {
@@ -366,7 +370,7 @@ func (m commitChangesModel) View() string {
 	headerHeight := lipgloss.Height(header)
 	editorHeight := m.height - headerHeight - 1
 
-	m.editor.SetSize(m.width-4, max(10, editorHeight))
+	m.editor.SetSize(m.width, max(10, editorHeight))
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,

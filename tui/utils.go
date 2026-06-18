@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
 	editor "github.com/ionut-t/goeditor"
+	"github.com/ionut-t/goeditor/core"
 )
 
 var viewMargin = lipgloss.NewStyle().Margin(2)
@@ -46,5 +48,52 @@ func setRelativeNumberCmd(cfg config.Config, value bool) tea.Cmd {
 		}
 
 		return nil
+	}
+}
+
+func createEditorStatusLine(args ...string) func(ctx editor.StatusLineContext) string {
+	return func(ctx editor.StatusLineContext) string {
+		statusLine := getEditorMode(ctx)
+		cursorInfo := getEditorCursorInfo(ctx)
+
+		var info strings.Builder
+
+		for _, arg := range args {
+			info.WriteString(" | ")
+			info.WriteString(arg)
+		}
+
+		infoStr := info.String()
+		width := ctx.Width - (lipgloss.Width(cursorInfo) + lipgloss.Width(statusLine) + lipgloss.Width(infoStr))
+		gap := strings.Repeat(" ", max(0, width))
+
+		statusLine += ctx.Theme.StatusLineStyle.Render(
+			gap + cursorInfo + infoStr,
+		)
+
+		return statusLine
+	}
+}
+
+func getEditorCursorInfo(ctx editor.StatusLineContext) string {
+	return fmt.Sprintf("%d:%d", ctx.Cursor.Position.Row+1, ctx.Cursor.Position.Col+1)
+}
+
+func getEditorMode(ctx editor.StatusLineContext) string {
+	switch ctx.State.Mode {
+	case core.NormalMode:
+		return ctx.Theme.NormalModeStyle.Render(" NORMAL ")
+	case core.InsertMode:
+		return ctx.Theme.InsertModeStyle.Render(" INSERT ")
+	case core.VisualMode:
+		return ctx.Theme.VisualModeStyle.Render(" VISUAL ")
+	case core.VisualLineMode:
+		return ctx.Theme.VisualModeStyle.Render(" VISUAL LINE ")
+	case core.CommandMode:
+		return ctx.Theme.CommandModeStyle.Render(" COMMAND ")
+	case core.SearchMode:
+		return ctx.Theme.SearchModeStyle.Render(" SEARCH ")
+	default:
+		return ""
 	}
 }

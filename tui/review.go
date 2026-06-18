@@ -124,10 +124,11 @@ type reviewModel struct {
 	loadingMsgPicker *loadingMessagePicker
 	error            error
 	styles           styles.Styles
+	llmModel         string
 }
 
 func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height int, llm llm.LLM) reviewModel {
-	textEditor := editor.New(width, height-1)
+	textEditor := editor.New(width, height)
 	textEditor.DisableInsertMode(true)
 	textEditor.SetExtraHighlightedContextLines(500)
 	textEditor.Focus()
@@ -153,6 +154,10 @@ func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height in
 	return m
 }
 
+func (m *reviewModel) setUsedModel(model string) {
+	m.llmModel = model
+}
+
 func (m *reviewModel) showRelativeLineNumbers(enabled bool) {
 	m.editor.ShowRelativeLineNumbers(enabled)
 }
@@ -169,10 +174,7 @@ func (m *reviewModel) setSize(width, height int) {
 	m.width = width
 	m.height = height
 
-	const statusBarHeight = 2
-	contentHeight := height - statusBarHeight
-
-	m.editor.SetSize(width, contentHeight)
+	m.editor.SetSize(width, height)
 }
 
 func (m reviewModel) Init() tea.Cmd {
@@ -211,6 +213,11 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		m.editor.SetContent(content)
 		_ = m.editor.SetCursorPositionEnd()
 
+		reviewerAction := m.styles.Accent.Background(m.styles.Surface1.GetBackground()).Render(m.reviewer.Name + " is reviewing... ")
+		spacer := m.styles.Surface1.Render(" ")
+		reviewerInfo := m.styles.Surface1.Render(m.spinner.View()) + spacer + reviewerAction
+		m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
+
 		var cmd tea.Cmd
 		m.editor, cmd = m.editor.Update(msg)
 
@@ -229,6 +236,8 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		m.loadingChunks = false
 		m.response = m.editor.GetCurrentContent() + "\n\n"
 		m.editor.SetContent(m.response)
+		reviewerInfo := m.styles.Accent.Render("Reviewed by " + m.reviewer.Name + " ")
+		m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
 		_ = m.editor.SetCursorPosition(0, 0)
 
 	case editor.QuitMsg:
@@ -319,7 +328,7 @@ func (m reviewModel) View() string {
 		)
 	}
 
-	return m.editor.View() + "\n" + m.statusBar()
+	return m.editor.View()
 }
 
 func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
@@ -342,24 +351,6 @@ func (m *reviewModel) dispatchLoadingMsg() tea.Cmd {
 
 func (m *reviewModel) getLoadingMessage() string {
 	return m.loadingMsgPicker.next()
-}
-
-func (m *reviewModel) statusBar() string {
-	var statusBar string
-	if m.loadingChunks {
-		reviewer := m.reviewer.Name + " is typing..."
-		statusBar = m.styles.Crust.Render(m.spinner.View()) + m.styles.Accent.Background(m.styles.Crust.GetBackground()).Render(" "+reviewer)
-	} else {
-		reviewer := m.reviewer.Name + " is done reviewing"
-		statusBar = m.styles.Accent.Render(reviewer)
-	}
-
-	help := m.styles.Primary.Background(m.styles.Crust.GetBackground()).Render("?")
-	gap := m.width - lipgloss.Width(statusBar) - lipgloss.Width(help) - 2
-
-	statusBar += m.styles.Crust.Render(strings.Repeat(" ", max(0, gap)))
-
-	return m.styles.Crust.Width(m.width).Padding(0, 1).Render(statusBar + help)
 }
 
 func reviewHelp(width int, forCommits bool, s styles.Styles) string {
