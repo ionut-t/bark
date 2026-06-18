@@ -45,7 +45,7 @@ type Config interface {
 
 type configData struct {
 	Editor         string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
-	LLMProvider    string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI or OpenAI. If not set, Bark will try to auto-detect the provider based on available credentials."`
+	LLMProvider    string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI or Ollama. If not set, Bark will try to auto-detect the provider based on available credentials."`
 	LLMModel       string `toml:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
 	MaxDiffLines   uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt"`
 	RelativeNumber bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
@@ -113,7 +113,7 @@ func (c *config) OverrideModel(model string) {
 
 func (c *config) OverrideProvider(provider string) error {
 	if provider != "" && !isValidProvider(provider) {
-		return fmt.Errorf("invalid provider: %s. Supported providers are 'gemini', 'vertexai', and 'openai'", provider)
+		return fmt.Errorf("invalid provider: %s. Supported providers are 'gemini', 'vertexai', 'openai', and 'ollama'", provider)
 	}
 
 	c.data.LLMProvider = provider
@@ -344,5 +344,5 @@ func getInstructionsFromCurrentDir(fileName string) (string, error) {
 }
 
 func isValidProvider(provider string) bool {
-	return provider == "gemini" || provider == "vertexai" || provider == "openai"
+	return provider == "gemini" || provider == "vertexai" || provider == "openai" || provider == "ollama"
 }
