@@ -354,6 +354,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.pr = newPRModel(m.llm, m.width, m.height)
 			m.pr.setStyles(m.styles, m.isDarkMode)
+			m.pr.displayUsedModel(m.getLlmModelName())
 			m.currentView = viewPRDescription
 			return m, tea.Batch(m.pr.Init(), utils.DispatchMsg(prInitReadyMsg{}))
 		}
@@ -377,6 +378,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.selectedTask == TaskPRDescription {
 			m.pr = newPRModel(m.llm, m.width, m.height)
 			m.pr.setStyles(m.styles, m.isDarkMode)
+			m.pr.displayUsedModel(m.getLlmModelName())
 			m.currentView = viewPRDescription
 			return m, tea.Batch(m.pr.Init(), utils.DispatchMsg(prInitReadyMsg{}))
 		}
@@ -677,6 +679,7 @@ func (m *Model) handleSelectedTask(task Task) (tea.Model, tea.Cmd) {
 		if m.prNumber != "" || m.branch != "" {
 			m.pr = newPRModel(m.llm, m.width, m.height)
 			m.pr.setStyles(m.styles, m.isDarkMode)
+			m.pr.displayUsedModel(m.getLlmModelName())
 			m.currentView = viewPRDescription
 			return m, tea.Batch(m.pr.Init(), utils.DispatchMsg(prInitReadyMsg{}))
 		}
@@ -776,6 +779,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	m.review = newReviewModel(*m.selectedReviewer, prompt, m.width, m.height, m.llm)
 	m.review.setStyles(m.styles, m.isDarkMode)
 	m.review.showRelativeLineNumbers(m.config.GetRelativeNumber())
+	m.review.setUsedModel(m.getLlmModelName())
 	m.currentView = viewReview
 
 	return m, m.review.startReview(ctx)
@@ -826,6 +830,7 @@ func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.
 	m.commitChanges = newCommitChangesModel(m.llm, prompt, msg.commitAll, m.width, m.height)
 	m.commitChanges.setStyles(m.styles, m.isDarkMode)
 	m.commitChanges.showRelativeLineNumbers(m.config.GetRelativeNumber())
+	m.commitChanges.displayUsedModel(m.getLlmModelName())
 	m.currentView = viewCommitChanges
 	return m, m.commitChanges.startCommitGeneration(ctx)
 }
@@ -874,6 +879,15 @@ func (m *Model) handlePRDataLoaded(msg prDataLoadedMsg) (tea.Model, tea.Cmd) {
 	m.operationCancelFunc = cancel
 
 	return m, m.pr.startPRDescriptionGeneration(ctx)
+}
+
+func (m *Model) getLlmModelName() string {
+	model, err := m.config.GetLLMModel()
+	if err != nil {
+		return "unknown"
+	}
+
+	return model
 }
 
 func performCommit(message string, commitAll bool) tea.Cmd {

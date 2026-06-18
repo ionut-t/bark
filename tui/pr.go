@@ -170,6 +170,10 @@ func (m *prModel) setPrompt(prompt string) {
 	m.prompt = prompt
 }
 
+func (m *prModel) displayUsedModel(model string) {
+	m.editor.StatusLineFunc = createEditorStatusLine(model + " ")
+}
+
 func (m *prModel) setSize(width, height int) {
 	m.editor.SetSize(width, height)
 }
