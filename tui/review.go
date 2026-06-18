@@ -360,7 +360,7 @@ func reviewHelp(width int, forCommits bool, s styles.Styles) string {
 		{"tab", "toggle between review and prompt"},
 		{"c", "generate commit message (for staged changes)"},
 		{"C", "generate commit message for all changes (staged and unstaged)"},
-		{"?", "toggle help"},
+		{"esc", "close help"},
 		{"ctrl+c", "quit"},
 	}
 

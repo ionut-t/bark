@@ -430,10 +430,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			return m, tea.Quit
 
-		case "?":
+		case "f1":
 			m.showHelp = !m.showHelp
 
 		case "esc":
+			m.showHelp = false
+
 			if m.selectedTask != TaskCommit {
 				m.message = ""
 			}
