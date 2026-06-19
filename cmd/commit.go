@@ -27,6 +27,8 @@ func commitCmd() *cobra.Command {
 
 	cmd.Flags().BoolP("all", "a", false, "Include all changes")
 	cmd.Flags().StringP("hint", "i", "", "Provide a hint for the commit message generation (e.g., 'feature/fix/docs')")
+	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
+	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config): gemini, vertexai, openai, anthropic, ollama")
 
 	return cmd
 }
@@ -34,8 +36,16 @@ func commitCmd() *cobra.Command {
 func runCommitCmd(cmd *cobra.Command) error {
 	all, _ := cmd.Flags().GetBool("all")
 	hint, _ := cmd.Flags().GetString("hint")
+	model, _ := cmd.Flags().GetString("model")
+	provider, _ := cmd.Flags().GetString("provider")
 
 	cfg := config.New()
+
+	cfg.OverrideModel(model)
+
+	if err := cfg.OverrideProvider(provider); err != nil {
+		return fmt.Errorf("error overriding provider: %w", err)
+	}
 
 	// Read stdin if piped
 	stdinDiff, err := readStdinIfPiped()
