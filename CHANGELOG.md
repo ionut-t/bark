@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.21.0](https://github.com/ionut-t/bark/compare/v2.20.0...v2.21.0) (2026-06-19)
+
+
+### Features
+
+* **cli:** add flags to override model and provider for the commit cmd ([#63](https://github.com/ionut-t/bark/issues/63)) ([c1098f1](https://github.com/ionut-t/bark/commit/c1098f1e2408c50e73468ab99d593ba51b2fbb6b))
+* **llm:** add Anthropic provider support ([#62](https://github.com/ionut-t/bark/issues/62)) ([824167b](https://github.com/ionut-t/bark/commit/824167bddc3393b2f66670a9d8c1bc4838c9e2b4))
+* **llm:** add Ollama support ([#60](https://github.com/ionut-t/bark/issues/60)) ([69db58a](https://github.com/ionut-t/bark/commit/69db58aca54d618a8922e4b1947894d38af0322e))
+* **tui:** display LLM model in editor status line ([#58](https://github.com/ionut-t/bark/issues/58)) ([8c1b451](https://github.com/ionut-t/bark/commit/8c1b4513f56af5ecef247147718954e4e9d33888))
+
+
+### Bug Fixes
+
+* **tui:** change help key to f1 to resolve search conflict ([#61](https://github.com/ionut-t/bark/issues/61)) ([a1be5b1](https://github.com/ionut-t/bark/commit/a1be5b1adeab91556f6dd9cb2330ba566e9cf3f4))
+
 ## [2.20.0](https://github.com/ionut-t/bark/compare/v2.19.0...v2.20.0) (2026-06-10)
 
 
