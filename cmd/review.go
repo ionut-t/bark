@@ -27,7 +27,7 @@ func reviewCmd() *cobra.Command {
 
 	cmd.Flags().String("as", "", "Specify the reviewer to use directly")
 	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
-	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config): gemini, vertexai, openai")
+	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config): gemini, vertexai, openai, anthropic, ollama")
 	cmd.Flags().BoolP("commit", "t", false, "Select commit to review")
 	cmd.Flags().BoolP("changes", "c", false, "Review current changes")
 	cmd.Flags().StringP("instructions", "i", "", "Custom instructions to guide the reviewer's feedback")
