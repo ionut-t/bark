@@ -778,7 +778,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 		"%s\n%s---\n\n%s%s%s**Code to review:**\n%s",
 		prompt,
 		prompt_pkg.FormattingRequirements,
-		msg.prHeader,
+		msg.contextHeader,
 		commitsSection,
 		statSection,
 		msg.diff,

@@ -69,13 +69,13 @@ func loadReviewInstructionsCmd(storage string) tea.Cmd {
 }
 
 type reviewDiffLoadedMsg struct {
-	instruction string
-	diff        string
-	stat        string
-	commits     []git.Commit
-	prHeader    string
-	err         error
-	branchErr   error
+	instruction   string
+	diff          string
+	stat          string
+	commits       []git.Commit
+	contextHeader string
+	err           error
+	branchErr     error
 }
 
 type reviewDiffCmdParams struct {
@@ -93,7 +93,7 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 
-		var diff, stat, prHeader string
+		var diff, stat, contextHeader string
 		var commits []git.Commit
 		var err, branchErr error
 
@@ -102,7 +102,7 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 			diff, err = git.GetPRDiff(ctx, params.prNumber)
 			if err == nil {
 				if meta, metaErr := git.GetPRMeta(ctx, params.prNumber); metaErr == nil {
-					prHeader = git.FormatPRHeader(meta)
+					contextHeader = git.FormatPRHeader(meta)
 					commits = meta.Commits
 				}
 			}
@@ -118,16 +118,18 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 		default:
 			diff, err = git.GetWorkingTreeDiff(ctx, !params.stagedOnly)
 			stat = git.GetWorkingTreeStat(ctx, !params.stagedOnly)
+			branch, _ := git.GetCurrentBranch(ctx)
+			contextHeader = git.FormatBranchHeader(branch)
 		}
 
 		return reviewDiffLoadedMsg{
-			instruction: params.instruction,
-			diff:        diff,
-			stat:        stat,
-			commits:     commits,
-			prHeader:    prHeader,
-			err:         err,
-			branchErr:   branchErr,
+			instruction:   params.instruction,
+			diff:          diff,
+			stat:          stat,
+			commits:       commits,
+			contextHeader: contextHeader,
+			err:           err,
+			branchErr:     branchErr,
 		}
 	}
 }

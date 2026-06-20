@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -25,6 +26,17 @@ func FormatCommitsSection(commits []Commit) string {
 	}
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+var noisyBranches = [...]string{"main", "master", "develop", "development", "head"}
+
+// FormatBranchHeader returns a "## Branch:" header for meaningful branch names.
+// Returns empty string for trunk/default branches that carry no intent signal.
+func FormatBranchHeader(branch string) string {
+	if branch == "" || slices.Contains(noisyBranches[:], strings.ToLower(branch)) {
+		return ""
+	}
+	return fmt.Sprintf("## Branch: %s\n\n", branch)
 }
 
 // FormatPRHeader returns a short markdown header line for a pull request.

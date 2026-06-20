@@ -55,7 +55,7 @@ type PROptions struct {
 
 // RunReview runs a code review and writes the output to stdout.
 func RunReview(opts ReviewOptions) error {
-	var diff, stat, prHeader string
+	var diff, stat, contextHeader string
 	var commits []git.Commit
 
 	if opts.Diff == nil {
@@ -68,7 +68,7 @@ func RunReview(opts ReviewOptions) error {
 			diff, err = git.GetPRDiff(gitCtx, opts.PR)
 			if err == nil {
 				if meta, metaErr := git.GetPRMeta(gitCtx, opts.PR); metaErr == nil {
-					prHeader = git.FormatPRHeader(meta)
+					contextHeader = git.FormatPRHeader(meta)
 					commits = meta.Commits
 				}
 			}
@@ -84,9 +84,13 @@ func RunReview(opts ReviewOptions) error {
 		case opts.Staged:
 			diff, err = git.GetWorkingTreeDiff(gitCtx, false)
 			stat = git.GetWorkingTreeStat(gitCtx, false)
+			branch, _ := git.GetCurrentBranch(gitCtx)
+			contextHeader = git.FormatBranchHeader(branch)
 		default:
 			diff, err = git.GetWorkingTreeDiff(gitCtx, true)
 			stat = git.GetWorkingTreeStat(gitCtx, true)
+			branch, _ := git.GetCurrentBranch(gitCtx)
+			contextHeader = git.FormatBranchHeader(branch)
 		}
 		if err != nil {
 			return err
@@ -125,7 +129,7 @@ func RunReview(opts ReviewOptions) error {
 		"%s\n%s---\n\n%s%s%s**Code to review:**\n%s",
 		promptText,
 		prompt.FormattingRequirements,
-		prHeader,
+		contextHeader,
 		commitsSection,
 		statSection,
 		diff,
