@@ -16,19 +16,12 @@
 
 - Present all code suggestions as unified diff format
 - Do not ident the diff/code blocks. This is critical.
-  a. Format the blocks like so:
+  Format the blocks like so:
 
 ```diff
 - old/incorrect line
 + new/corrected line
 ```
-
-b. And not like this:
-
-    ```diff
-    - old/incorrect line
-    + new/corrected line
-    ```
 
 ## Critical Rules
 

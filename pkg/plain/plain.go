@@ -55,7 +55,8 @@ type PROptions struct {
 
 // RunReview runs a code review and writes the output to stdout.
 func RunReview(opts ReviewOptions) error {
-	var diff string
+	var diff, stat, prHeader string
+	var commits []git.Commit
 
 	if opts.Diff == nil {
 		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -65,14 +66,27 @@ func RunReview(opts ReviewOptions) error {
 		switch {
 		case opts.PR != "":
 			diff, err = git.GetPRDiff(gitCtx, opts.PR)
+			if err == nil {
+				if meta, metaErr := git.GetPRMeta(gitCtx, opts.PR); metaErr == nil {
+					prHeader = git.FormatPRHeader(meta)
+					commits = meta.Commits
+				}
+			}
 		case opts.Hash != "":
 			diff, err = git.GetDiff(gitCtx, opts.Hash)
+			stat = git.GetCommitStat(gitCtx, opts.Hash)
 		case opts.Branch != "":
 			diff, err = git.GetBranchDiff(gitCtx, opts.Branch, opts.Config.GetMaxDiffLines())
+			stat = git.GetBranchDiffStat(gitCtx, opts.Branch)
+			if err == nil {
+				commits, _ = git.GetBranchCommits(gitCtx, opts.Branch)
+			}
 		case opts.Staged:
 			diff, err = git.GetWorkingTreeDiff(gitCtx, false)
+			stat = git.GetWorkingTreeStat(gitCtx, false)
 		default:
 			diff, err = git.GetWorkingTreeDiff(gitCtx, true)
+			stat = git.GetWorkingTreeStat(gitCtx, true)
 		}
 		if err != nil {
 			return err
@@ -102,7 +116,20 @@ func RunReview(opts ReviewOptions) error {
 		}
 	}
 
-	promptText = fmt.Sprintf("%s%s---\n\n**Code to review:**\n%s", promptText, prompt.FormattingRequirements, diff)
+	commitsSection := git.FormatCommitsSection(commits)
+	statSection := ""
+	if stat != "" {
+		statSection = fmt.Sprintf("## Files Changed\n%s\n\n", stat)
+	}
+	promptText = fmt.Sprintf(
+		"%s\n%s---\n\n%s%s%s**Code to review:**\n%s",
+		promptText,
+		prompt.FormattingRequirements,
+		prHeader,
+		commitsSection,
+		statSection,
+		diff,
+	)
 
 	client, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {

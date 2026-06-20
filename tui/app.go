@@ -769,7 +769,20 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 		prompt = fmt.Sprintf("%s\nFollow the instructions below when analysing code:\n\n%s", prompt, msg.instruction)
 	}
 
-	prompt = fmt.Sprintf("%s%s---\n\n**Code to review:**\n%s", prompt, prompt_pkg.FormattingRequirements, msg.diff)
+	commitsSection := git.FormatCommitsSection(msg.commits)
+	statSection := ""
+	if msg.stat != "" {
+		statSection = fmt.Sprintf("## Files Changed\n%s\n\n", msg.stat)
+	}
+	prompt = fmt.Sprintf(
+		"%s\n%s---\n\n%s%s%s**Code to review:**\n%s",
+		prompt,
+		prompt_pkg.FormattingRequirements,
+		msg.prHeader,
+		commitsSection,
+		statSection,
+		msg.diff,
+	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 

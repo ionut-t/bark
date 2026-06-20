@@ -71,6 +71,9 @@ func loadReviewInstructionsCmd(storage string) tea.Cmd {
 type reviewDiffLoadedMsg struct {
 	instruction string
 	diff        string
+	stat        string
+	commits     []git.Commit
+	prHeader    string
 	err         error
 	branchErr   error
 }
@@ -90,23 +93,39 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 
-		var diff string
+		var diff, stat, prHeader string
+		var commits []git.Commit
 		var err, branchErr error
 
 		switch {
 		case params.prNumber != "":
 			diff, err = git.GetPRDiff(ctx, params.prNumber)
+			if err == nil {
+				if meta, metaErr := git.GetPRMeta(ctx, params.prNumber); metaErr == nil {
+					prHeader = git.FormatPRHeader(meta)
+					commits = meta.Commits
+				}
+			}
 		case params.branch != "":
 			diff, branchErr = git.GetBranchDiff(ctx, params.branch, params.maxLines)
+			stat = git.GetBranchDiffStat(ctx, params.branch)
+			if branchErr == nil {
+				commits, _ = git.GetBranchCommits(ctx, params.branch)
+			}
 		case params.selectCommit:
 			diff, err = git.GetDiff(ctx, params.commitHash)
+			stat = git.GetCommitStat(ctx, params.commitHash)
 		default:
 			diff, err = git.GetWorkingTreeDiff(ctx, !params.stagedOnly)
+			stat = git.GetWorkingTreeStat(ctx, !params.stagedOnly)
 		}
 
 		return reviewDiffLoadedMsg{
 			instruction: params.instruction,
 			diff:        diff,
+			stat:        stat,
+			commits:     commits,
+			prHeader:    prHeader,
 			err:         err,
 			branchErr:   branchErr,
 		}

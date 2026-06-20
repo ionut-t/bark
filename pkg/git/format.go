@@ -5,6 +5,33 @@ import (
 	"strings"
 )
 
+// FormatCommitsSection formats a list of commits into a "## Commits" markdown section.
+// Returns an empty string when the list is empty.
+func FormatCommitsSection(commits []Commit) string {
+	if len(commits) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## Commits\n")
+	for _, c := range commits {
+		if c.Date != "" {
+			fmt.Fprintf(&sb, " - %s (%s)\n", c.Message, c.Date)
+		} else {
+			fmt.Fprintf(&sb, " - %s\n", c.Message)
+		}
+		if c.Body != "" {
+			fmt.Fprintf(&sb, "   %s\n", c.Body)
+		}
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// FormatPRHeader returns a short markdown header line for a pull request.
+func FormatPRHeader(meta *PRMeta) string {
+	return fmt.Sprintf("## PR #%d: %s\n\n", meta.Number, meta.Title)
+}
+
 // FormatBranchInfo formats a BranchInfo into a human-readable string.
 func FormatBranchInfo(branch *BranchInfo) string {
 	var sb strings.Builder
