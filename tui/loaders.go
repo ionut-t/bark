@@ -80,13 +80,14 @@ type reviewDiffLoadedMsg struct {
 }
 
 type reviewDiffCmdParams struct {
-	prNumber     string
-	branch       string
-	maxLines     uint32
-	selectCommit bool
-	commitHash   string
-	stagedOnly   bool
-	instruction  string
+	prNumber          string
+	branch            string
+	maxLines          uint32
+	selectCommit      bool
+	commitHash        string
+	stagedOnly        bool
+	instruction       string
+	withPRDescription bool
 }
 
 func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
@@ -98,6 +99,9 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 		switch {
 		case params.prNumber != "":
 			diffParams = git.PRDiff(params.prNumber).WithMaxLines(params.maxLines)
+			if params.withPRDescription {
+				diffParams = diffParams.WithPRDescription()
+			}
 		case params.branch != "":
 			diffParams = git.BranchDiff(params.branch).WithMaxLines(params.maxLines)
 		case params.selectCommit:

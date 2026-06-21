@@ -85,8 +85,9 @@ type Model struct {
 	branchErr   error
 	branchInput branchInputModel
 
-	prNumber      string
-	prNumberInput prNumberInputModel
+	prNumber          string
+	withPRDescription bool
+	prNumberInput     prNumberInputModel
 
 	prDescriptionOptions prDescriptionOptionsModel
 
@@ -108,18 +109,19 @@ type Model struct {
 }
 
 type Options struct {
-	Storage         string
-	ReviewerName    string
-	Instruction     string
-	Branch          string
-	PR              string
-	SelectCommit    bool
-	Config          config.Config
-	StagedOnly      bool
-	SkipInstruction bool
-	Task            Task
-	ReviewOption    ReviewOption
-	Hint            string
+	Storage           string
+	ReviewerName      string
+	Instruction       string
+	Branch            string
+	PR                string
+	SelectCommit      bool
+	Config            config.Config
+	StagedOnly        bool
+	SkipInstruction   bool
+	Task              Task
+	ReviewOption      ReviewOption
+	Hint              string
+	WithPRDescription bool
 }
 
 func New(options Options) *Model {
@@ -163,6 +165,7 @@ func New(options Options) *Model {
 		branch:               options.Branch,
 		branchInput:          newBranchInputModel(options.Branch),
 		prNumber:             options.PR,
+		withPRDescription:    options.WithPRDescription,
 		prNumberInput:        newPRNumberInputModel(options.PR),
 		stagedOnly:           options.StagedOnly,
 		skipInstruction:      options.SkipInstruction,
@@ -733,13 +736,14 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 
 	return m, loadReviewDiffCmd(
 		reviewDiffCmdParams{
-			prNumber:     m.prNumber,
-			branch:       m.branch,
-			maxLines:     m.config.GetMaxDiffLines(),
-			selectCommit: m.selectCommit,
-			commitHash:   commitHash,
-			stagedOnly:   m.stagedOnly,
-			instruction:  instruction,
+			prNumber:          m.prNumber,
+			branch:            m.branch,
+			maxLines:          m.config.GetMaxDiffLines(),
+			selectCommit:      m.selectCommit,
+			commitHash:        commitHash,
+			stagedOnly:        m.stagedOnly,
+			instruction:       instruction,
+			withPRDescription: m.withPRDescription,
 		},
 	)
 }

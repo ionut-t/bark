@@ -265,7 +265,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 
 			m.showPrompt = !m.showPrompt
 			if m.showPrompt {
-				m.editor.SetContent(promptPreview(m.system, m.prompt))
+				m.editor.SetContent(promptPreview(m.system, utils.NormaliseCodeFences(m.prompt)))
 			} else {
 				m.editor.SetContent(m.response)
 			}

@@ -551,12 +551,13 @@ func filterDiff(diff string, excludePatterns []string) string {
 type PRMeta struct {
 	Number  int
 	Title   string
+	Body    string
 	Commits []Commit
 }
 
 // GetPRMeta fetches the title and commit messages for a GitHub pull request via the gh CLI.
 func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "commits,title,number")
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "commits,title,number,body")
 	out, err := cmd.Output()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
@@ -573,6 +574,7 @@ func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
 	var raw struct {
 		Number  int    `json:"number"`
 		Title   string `json:"title"`
+		Body    string `json:"body"`
 		Commits []struct {
 			MessageHeadline string `json:"messageHeadline"`
 			MessageBody     string `json:"messageBody"`
@@ -587,7 +589,7 @@ func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
 		commits[i] = Commit{Message: c.MessageHeadline, Body: c.MessageBody}
 	}
 
-	return &PRMeta{Number: raw.Number, Title: raw.Title, Commits: commits}, nil
+	return &PRMeta{Number: raw.Number, Title: raw.Title, Body: raw.Body, Commits: commits}, nil
 }
 
 // ReviewDiffParams controls which diff GetReviewDiff fetches.
@@ -597,6 +599,7 @@ type ReviewDiffParams struct {
 	maxLines   uint32
 	commitHash string
 	stagedOnly bool
+	withBody   bool
 }
 
 func PRDiff(prNumber string) ReviewDiffParams {
@@ -612,6 +615,13 @@ func BranchDiff(branch string) ReviewDiffParams {
 // applied as a post-processing step inside GetReviewDiff.
 func (p ReviewDiffParams) WithMaxLines(n uint32) ReviewDiffParams {
 	p.maxLines = n
+	return p
+}
+
+// WithPRDescription includes the PR body in the review context.
+// Only has effect when used with PRDiff.
+func (p ReviewDiffParams) WithPRDescription() ReviewDiffParams {
+	p.withBody = true
 	return p
 }
 
@@ -656,6 +666,9 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		}
 		r.Diff = truncateDiff(r.Diff, params.maxLines)
 		if meta, metaErr := GetPRMeta(ctx, params.pr); metaErr == nil {
+			if !params.withBody {
+				meta.Body = ""
+			}
 			r.ContextHeader = FormatPRHeader(meta)
 			r.Commits = meta.Commits
 		}

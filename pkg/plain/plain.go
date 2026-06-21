@@ -20,13 +20,14 @@ const gitTimeout = 30 * time.Second
 
 // ReviewOptions configures the plain text review runner.
 type ReviewOptions struct {
-	Diff            *string
-	ReviewerName    string
-	Instruction     string
-	SkipInstruction bool
-	Storage         string
-	Config          config.Config
-	Stream          bool
+	Diff              *string
+	ReviewerName      string
+	Instruction       string
+	SkipInstruction   bool
+	Storage           string
+	Config            config.Config
+	Stream            bool
+	WithPRDescription bool
 
 	// Diff source flags (used when Diff is empty)
 	Staged bool
@@ -66,6 +67,9 @@ func RunReview(opts ReviewOptions) error {
 		switch {
 		case opts.PR != "":
 			diffParams = git.PRDiff(opts.PR).WithMaxLines(maxLines)
+			if opts.WithPRDescription {
+				diffParams = diffParams.WithPRDescription()
+			}
 		case opts.Branch != "":
 			diffParams = git.BranchDiff(opts.Branch).WithMaxLines(maxLines)
 		case opts.Hash != "":

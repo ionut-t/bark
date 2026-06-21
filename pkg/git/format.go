@@ -39,9 +39,13 @@ func FormatBranchHeader(branch string) string {
 	return fmt.Sprintf("## Branch: %s\n\n", branch)
 }
 
-// FormatPRHeader returns a short markdown header line for a pull request.
+// FormatPRHeader returns a markdown header for a pull request.
 func FormatPRHeader(meta *PRMeta) string {
-	return fmt.Sprintf("## PR #%d: %s\n\n", meta.Number, meta.Title)
+	header := fmt.Sprintf("## PR #%d: %s\n\n", meta.Number, meta.Title)
+	if meta.Body != "" {
+		header += fmt.Sprintf("### Description\n\n%s\n\n", meta.Body)
+	}
+	return header
 }
 
 // FormatBranchInfo formats a BranchInfo into a human-readable string.
