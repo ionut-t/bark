@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ionut-t/bark/v2/internal/config"
-	"github.com/ionut-t/bark/v2/pkg/instructions"
+	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/spf13/cobra"
 )
 

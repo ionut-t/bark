@@ -4,7 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 
-	"github.com/ionut-t/bark/v2/pkg/git"
+	"github.com/ionut-t/bark/v2/internal/git"
 )
 
 //go:embed format.md

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ionut-t/bark/v2/pkg/llm"
+	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 )

@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/templates"
-	"github.com/ionut-t/bark/v2/pkg/instructions"
-	"github.com/ionut-t/bark/v2/pkg/reviewers"
+	"github.com/ionut-t/bark/v2/internal/instructions"
+	"github.com/ionut-t/bark/v2/internal/reviewers"
 )
 
 const defaultReviewInstructions = `
