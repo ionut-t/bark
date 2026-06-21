@@ -65,6 +65,10 @@ func runReviewCmd(cmd *cobra.Command) error {
 	model, _ := cmd.Flags().GetString("model")
 	provider, _ := cmd.Flags().GetString("provider")
 
+	if withDescription && pr == "" {
+		return fmt.Errorf("--with-description requires --pr")
+	}
+
 	cfg := config.New()
 
 	stdinDiff, err := readStdinIfPiped()
