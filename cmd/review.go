@@ -38,6 +38,7 @@ func reviewCmd() *cobra.Command {
 	cmd.Flags().BoolP("stream", "S", false, "Stream the review output in real-time (only for plain mode)")
 	cmd.Flags().StringP("pr", "p", "", "Review a GitHub pull request by number (requires gh CLI)")
 	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
+	cmd.Flags().Bool("with-description", false, "Include the PR description in the review context (only applies with --pr)")
 
 	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged", "hash", "pr")
 
@@ -60,8 +61,13 @@ func runReviewCmd(cmd *cobra.Command) error {
 	hash, _ := cmd.Flags().GetString("hash")
 	stream, _ := cmd.Flags().GetBool("stream")
 	pr, _ := cmd.Flags().GetString("pr")
+	withDescription, _ := cmd.Flags().GetBool("with-description")
 	model, _ := cmd.Flags().GetString("model")
 	provider, _ := cmd.Flags().GetString("provider")
+
+	if withDescription && pr == "" {
+		return fmt.Errorf("--with-description requires --pr")
+	}
 
 	cfg := config.New()
 
@@ -83,18 +89,19 @@ func runReviewCmd(cmd *cobra.Command) error {
 
 	if stdinDiff != nil || isPlainMode(cmd) {
 		return plain.RunReview(plain.ReviewOptions{
-			Diff:            stdinDiff,
-			ReviewerName:    reviewerName,
-			Instruction:     instruction,
-			SkipInstruction: skipInstruction,
-			Storage:         storage,
-			Config:          cfg,
-			Staged:          staged,
-			All:             changes,
-			Branch:          branch,
-			Hash:            hash,
-			Stream:          stream,
-			PR:              pr,
+			Diff:              stdinDiff,
+			ReviewerName:      reviewerName,
+			Instruction:       instruction,
+			SkipInstruction:   skipInstruction,
+			Storage:           storage,
+			Config:            cfg,
+			Staged:            staged,
+			All:               changes,
+			Branch:            branch,
+			Hash:              hash,
+			Stream:            stream,
+			PR:                pr,
+			WithPRDescription: withDescription,
 		})
 	}
 
@@ -113,17 +120,18 @@ func runReviewCmd(cmd *cobra.Command) error {
 	}
 
 	m := tui.New(tui.Options{
-		Task:            tui.TaskReview,
-		Storage:         storage,
-		ReviewerName:    reviewerName,
-		Instruction:     instruction,
-		Branch:          branch,
-		SelectCommit:    commit,
-		Config:          cfg,
-		StagedOnly:      staged,
-		SkipInstruction: skipInstruction,
-		ReviewOption:    reviewOption,
-		PR:              pr,
+		Task:              tui.TaskReview,
+		Storage:           storage,
+		ReviewerName:      reviewerName,
+		Instruction:       instruction,
+		Branch:            branch,
+		SelectCommit:      commit,
+		Config:            cfg,
+		StagedOnly:        staged,
+		SkipInstruction:   skipInstruction,
+		ReviewOption:      reviewOption,
+		PR:                pr,
+		WithPRDescription: withDescription,
 	})
 
 	p := tea.NewProgram(m)

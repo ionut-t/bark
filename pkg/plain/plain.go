@@ -20,13 +20,14 @@ const gitTimeout = 30 * time.Second
 
 // ReviewOptions configures the plain text review runner.
 type ReviewOptions struct {
-	Diff            *string
-	ReviewerName    string
-	Instruction     string
-	SkipInstruction bool
-	Storage         string
-	Config          config.Config
-	Stream          bool
+	Diff              *string
+	ReviewerName      string
+	Instruction       string
+	SkipInstruction   bool
+	Storage           string
+	Config            config.Config
+	Stream            bool
+	WithPRDescription bool
 
 	// Diff source flags (used when Diff is empty)
 	Staged bool
@@ -55,33 +56,38 @@ type PROptions struct {
 
 // RunReview runs a code review and writes the output to stdout.
 func RunReview(opts ReviewOptions) error {
-	var diff string
+	var reviewDiff git.ReviewDiff
 
 	if opts.Diff == nil {
 		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer gitCancel()
 
-		var err error
+		maxLines := opts.Config.GetMaxDiffLines()
+		var diffParams git.ReviewDiffParams
 		switch {
 		case opts.PR != "":
-			diff, err = git.GetPRDiff(gitCtx, opts.PR)
-		case opts.Hash != "":
-			diff, err = git.GetDiff(gitCtx, opts.Hash)
+			diffParams = git.PRDiff(opts.PR).WithMaxLines(maxLines)
+			if opts.WithPRDescription {
+				diffParams = diffParams.WithPRDescription()
+			}
 		case opts.Branch != "":
-			diff, err = git.GetBranchDiff(gitCtx, opts.Branch, opts.Config.GetMaxDiffLines())
-		case opts.Staged:
-			diff, err = git.GetWorkingTreeDiff(gitCtx, false)
+			diffParams = git.BranchDiff(opts.Branch).WithMaxLines(maxLines)
+		case opts.Hash != "":
+			diffParams = git.CommitDiff(opts.Hash).WithMaxLines(maxLines)
 		default:
-			diff, err = git.GetWorkingTreeDiff(gitCtx, true)
+			diffParams = git.WorkingTreeDiff(opts.Staged).WithMaxLines(maxLines)
 		}
+
+		var err error
+		reviewDiff, err = git.GetReviewDiff(gitCtx, diffParams)
 		if err != nil {
 			return err
 		}
 	} else {
-		diff = *opts.Diff
+		reviewDiff.Diff = *opts.Diff
 	}
 
-	if diff == "" {
+	if reviewDiff.Diff == "" {
 		return fmt.Errorf("no diff content available")
 	}
 
@@ -90,19 +96,17 @@ func RunReview(opts ReviewOptions) error {
 		return err
 	}
 
-	promptText := reviewer.Prompt
-
+	var reviewInstructions string
 	if !opts.SkipInstruction {
-		instructions, err := resolveInstructions(opts.Instruction, opts.Storage)
+		var err error
+		reviewInstructions, err = resolveInstructions(opts.Instruction, opts.Storage)
 		if err != nil {
 			return err
 		}
-		if instructions != "" {
-			promptText = fmt.Sprintf("%s\nFollow the instructions below when analysing code:\n\n%s", promptText, instructions)
-		}
 	}
+	system := prompt.FormatReviewSystem(reviewer.Prompt, reviewInstructions)
 
-	promptText = fmt.Sprintf("%s%s---\n\n**Code to review:**\n%s", promptText, prompt.FormattingRequirements, diff)
+	promptText := prompt.FormatReviewContent(reviewDiff.ContextHeader, reviewDiff.Stat, reviewDiff.Commits, reviewDiff.Diff)
 
 	client, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
@@ -113,10 +117,10 @@ func RunReview(opts ReviewOptions) error {
 	defer llmCancel()
 
 	if opts.Stream {
-		return streamResponse(llmCtx, client, promptText)
+		return streamResponse(llmCtx, client, system, promptText)
 	}
 
-	return fullResponse(llmCtx, client, promptText)
+	return fullResponse(llmCtx, client, system, promptText)
 }
 
 // RunCommit generates a commit message and writes it to stdout.
@@ -140,15 +144,11 @@ func RunCommit(opts CommitOptions) error {
 		return fmt.Errorf("no changes to generate a commit message for")
 	}
 
-	promptText, err := utils.GetInstructions(".bark/commit.md", opts.Config.GetCommitInstructions())
+	commitInstructions, err := utils.GetInstructions(".bark/commit.md", opts.Config.GetCommitInstructions())
 	if err != nil {
 		return err
 	}
-	if opts.Hint != "" {
-		promptText += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
-		promptText += "Commit message hint: " + opts.Hint
-	}
-	promptText += "\n\n" + diff
+	commitSystem := prompt.FormatCommitSystem(commitInstructions, opts.Hint)
 
 	client, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
@@ -158,7 +158,7 @@ func RunCommit(opts CommitOptions) error {
 	llmCtx, llmCancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer llmCancel()
 
-	result, err := client.Generate(llmCtx, promptText)
+	result, err := client.Generate(llmCtx, commitSystem, diff)
 	if err != nil {
 		return fmt.Errorf("error generating commit message: %w", err)
 	}
@@ -200,11 +200,7 @@ func RunPR(opts PROptions) error {
 		}
 	}
 
-	promptText := fmt.Sprintf(
-		"%s**Analyze the following changes and generate an appropriate PR description:**\n\n%s",
-		prInstructions,
-		content,
-	)
+	prSystem := prompt.FormatPRSystem(prInstructions)
 
 	client, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
@@ -214,7 +210,7 @@ func RunPR(opts PROptions) error {
 	llmCtx, llmCancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer llmCancel()
 
-	result, err := client.Generate(llmCtx, promptText)
+	result, err := client.Generate(llmCtx, prSystem, content)
 	if err != nil {
 		return fmt.Errorf("error generating PR description: %w", err)
 	}
@@ -226,8 +222,8 @@ func RunPR(opts PROptions) error {
 }
 
 // streamResponse streams LLM response chunks to stdout.
-func streamResponse(ctx context.Context, client llm.LLM, promptText string) error {
-	responseChan, errChan := client.Stream(ctx, promptText)
+func streamResponse(ctx context.Context, client llm.LLM, system, promptText string) error {
+	responseChan, errChan := client.Stream(ctx, system, promptText)
 
 	for chunk := range responseChan {
 		fmt.Print(chunk.Content)
@@ -241,8 +237,8 @@ func streamResponse(ctx context.Context, client llm.LLM, promptText string) erro
 	return nil
 }
 
-func fullResponse(ctx context.Context, client llm.LLM, promptText string) error {
-	response, err := client.Generate(ctx, promptText)
+func fullResponse(ctx context.Context, client llm.LLM, system, promptText string) error {
+	response, err := client.Generate(ctx, system, promptText)
 	if err != nil {
 		return fmt.Errorf("error during review: %w", err)
 	}

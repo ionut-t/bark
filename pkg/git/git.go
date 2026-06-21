@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,6 +22,15 @@ var (
 )
 
 var shortStatRegex = regexp.MustCompile(`(?P<files>\d+) files? changed(?:, (?P<additions>\d+) insertions?\(\+\))?(?:, (?P<deletions>\d+) deletions?\(-\))?`)
+
+// defaultDiffExcludes are pathspecs applied to every diff to filter out generated and
+// dependency files that add token cost without useful review signal.
+var defaultDiffExcludes = []string{
+	":(exclude)*.sum",
+	":(exclude)*.lock",
+	":(exclude)*.pb.go",
+	":(exclude)*.pb.gw.go",
+}
 
 // Commit represents a single git commit.
 type Commit struct {
@@ -112,7 +122,8 @@ func GetDiff(ctx context.Context, hash string) (string, error) {
 		return "", ErrNotAGitRepository
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "show", hash)
+	args := append([]string{"show", hash, "--"}, defaultDiffExcludes...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get diff for commit %s: %w", hash, err)
@@ -127,12 +138,13 @@ func GetWorkingTreeDiff(ctx context.Context, all bool) (string, error) {
 		return "", ErrNotAGitRepository
 	}
 
-	var cmd *exec.Cmd
+	var baseArgs []string
 	if all {
-		cmd = exec.CommandContext(ctx, "git", "diff", "HEAD")
+		baseArgs = []string{"diff", "HEAD", "--"}
 	} else {
-		cmd = exec.CommandContext(ctx, "git", "diff", "--staged")
+		baseArgs = []string{"diff", "--staged", "--"}
 	}
+	cmd := exec.CommandContext(ctx, "git", append(baseArgs, defaultDiffExcludes...)...)
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -150,6 +162,42 @@ func GetWorkingTreeDiff(ctx context.Context, all bool) (string, error) {
 	return string(output), nil
 }
 
+// GetWorkingTreeStat returns the --stat summary for uncommitted working tree changes.
+// Errors are treated as best-effort: a non-nil error returns an empty string.
+func GetWorkingTreeStat(ctx context.Context, all bool) string {
+	var args []string
+	if all {
+		args = append([]string{"diff", "--stat", "HEAD", "--"}, defaultDiffExcludes...)
+	} else {
+		args = append([]string{"diff", "--stat", "--staged", "--"}, defaultDiffExcludes...)
+	}
+	out, err := exec.CommandContext(ctx, "git", args...).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// GetBranchDiffStat returns the --stat summary for the diff between the current branch and branch.
+func GetBranchDiffStat(ctx context.Context, branch string) string {
+	args := append([]string{"diff", "--stat", branch, "--"}, defaultDiffExcludes...)
+	out, err := exec.CommandContext(ctx, "git", args...).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// GetCommitStat returns the --stat summary for a single commit.
+func GetCommitStat(ctx context.Context, hash string) string {
+	args := append([]string{"show", "--stat", hash, "--"}, defaultDiffExcludes...)
+	out, err := exec.CommandContext(ctx, "git", args...).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func GetCurrentBranch(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	output, err := cmd.Output()
@@ -161,7 +209,8 @@ func GetCurrentBranch(ctx context.Context) (string, error) {
 }
 
 func GetBranchDiff(ctx context.Context, branch string, maxLines uint32) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "diff", branch)
+	args := append([]string{"diff", branch, "--"}, defaultDiffExcludes...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 
 	if maxLines == 0 {
 		output, err := cmd.Output()
@@ -461,38 +510,225 @@ func GetPRDiff(ctx context.Context, prNumber string) (string, error) {
 		return "", fmt.Errorf("failed to get PR diff: %w", err)
 	}
 
-	return string(output), nil
+	return filterDiff(string(output), defaultDiffExcludes), nil
 }
 
-// GetPRInfo returns a formatted string with commit messages and diff for a GitHub PR.
-func GetPRInfo(ctx context.Context, prNumber string) (string, error) {
-	commitsCmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "commits,title,number")
-	commitsOut, err := commitsCmd.Output()
-	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
-			return "", ErrGHNotInstalled
-		}
+var diffFileHeaderRe = regexp.MustCompile(`^diff --git a/.+ b/(.+)$`)
 
-		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
-			if stderr := strings.TrimSpace(string(exitErr.Stderr)); stderr != "" {
-				return "", fmt.Errorf("%s", stderr)
-			}
-		}
-
-		return "", fmt.Errorf("failed to get PR info: %w", err)
+// filterDiff removes file sections from a unified git diff whose filename matches
+// any of the given exclude patterns (:(exclude)<glob> format).
+func filterDiff(diff string, excludePatterns []string) string {
+	globs := make([]string, len(excludePatterns))
+	for i, p := range excludePatterns {
+		globs[i] = strings.TrimPrefix(p, ":(exclude)")
 	}
 
-	var prData struct {
+	lines := strings.Split(diff, "\n")
+	out := make([]string, 0, len(lines))
+	skip := false
+
+	for _, line := range lines {
+		if m := diffFileHeaderRe.FindStringSubmatch(line); m != nil {
+			filePath := m[1]
+			base := path.Base(filePath)
+			skip = false
+			for _, glob := range globs {
+				if matched, _ := path.Match(glob, base); matched {
+					skip = true
+					break
+				}
+			}
+		}
+		if !skip {
+			out = append(out, line)
+		}
+	}
+
+	return strings.Join(out, "\n")
+}
+
+// PRMeta holds lightweight metadata about a GitHub pull request.
+type PRMeta struct {
+	Number  int
+	Title   string
+	Body    string
+	Commits []Commit
+}
+
+// GetPRMeta fetches the title and commit messages for a GitHub pull request via the gh CLI.
+func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "commits,title,number,body")
+	out, err := cmd.Output()
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return nil, ErrGHNotInstalled
+		}
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+			if stderr := strings.TrimSpace(string(exitErr.Stderr)); stderr != "" {
+				return nil, fmt.Errorf("%s", stderr)
+			}
+		}
+		return nil, fmt.Errorf("failed to get PR metadata: %w", err)
+	}
+
+	var raw struct {
 		Number  int    `json:"number"`
 		Title   string `json:"title"`
+		Body    string `json:"body"`
 		Commits []struct {
 			MessageHeadline string `json:"messageHeadline"`
 			MessageBody     string `json:"messageBody"`
 		} `json:"commits"`
 	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse PR metadata: %w", err)
+	}
 
-	if err := json.Unmarshal(commitsOut, &prData); err != nil {
-		return "", fmt.Errorf("failed to parse PR info: %w", err)
+	commits := make([]Commit, len(raw.Commits))
+	for i, c := range raw.Commits {
+		commits[i] = Commit{Message: c.MessageHeadline, Body: c.MessageBody}
+	}
+
+	return &PRMeta{Number: raw.Number, Title: raw.Title, Body: raw.Body, Commits: commits}, nil
+}
+
+// ReviewDiffParams controls which diff GetReviewDiff fetches.
+type ReviewDiffParams struct {
+	pr         string
+	branch     string
+	maxLines   uint32
+	commitHash string
+	stagedOnly bool
+	withBody   bool
+}
+
+func PRDiff(prNumber string) ReviewDiffParams {
+	return ReviewDiffParams{pr: prNumber}
+}
+
+func BranchDiff(branch string) ReviewDiffParams {
+	return ReviewDiffParams{branch: branch}
+}
+
+// WithMaxLines returns a copy of the params with a line-count limit applied to the diff.
+// For branch diffs the limit is enforced during streaming; for all other sources it is
+// applied as a post-processing step inside GetReviewDiff.
+func (p ReviewDiffParams) WithMaxLines(n uint32) ReviewDiffParams {
+	p.maxLines = n
+	return p
+}
+
+// WithPRDescription includes the PR body in the review context.
+// Only has effect when used with PRDiff.
+func (p ReviewDiffParams) WithPRDescription() ReviewDiffParams {
+	p.withBody = true
+	return p
+}
+
+func CommitDiff(hash string) ReviewDiffParams {
+	return ReviewDiffParams{commitHash: hash}
+}
+
+func WorkingTreeDiff(stagedOnly bool) ReviewDiffParams {
+	return ReviewDiffParams{stagedOnly: stagedOnly}
+}
+
+// BranchDiffError is returned by GetReviewDiff when a branch diff fails.
+type BranchDiffError struct {
+	Branch string
+	Err    error
+}
+
+func (e *BranchDiffError) Error() string {
+	return fmt.Sprintf("could not get diff for branch %q: %v", e.Branch, e.Err)
+}
+
+func (e *BranchDiffError) Unwrap() error { return e.Err }
+
+// ReviewDiff holds the result of GetReviewDiff.
+type ReviewDiff struct {
+	Diff          string
+	Stat          string
+	Commits       []Commit
+	ContextHeader string
+}
+
+// GetReviewDiff fetches the diff, stat, commits and context header for a review.
+func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, error) {
+	var r ReviewDiff
+
+	switch {
+	case params.pr != "":
+		var err error
+		r.Diff, err = GetPRDiff(ctx, params.pr)
+		if err != nil {
+			return r, err
+		}
+		r.Diff = truncateDiff(r.Diff, params.maxLines)
+		if meta, metaErr := GetPRMeta(ctx, params.pr); metaErr == nil {
+			if !params.withBody {
+				meta.Body = ""
+			}
+			r.ContextHeader = FormatPRHeader(meta)
+			r.Commits = meta.Commits
+		}
+
+	case params.branch != "":
+		var err error
+		r.Diff, err = GetBranchDiff(ctx, params.branch, params.maxLines)
+		if err != nil {
+			return r, &BranchDiffError{Branch: params.branch, Err: err}
+		}
+		r.Stat = GetBranchDiffStat(ctx, params.branch)
+		r.Commits, _ = GetBranchCommits(ctx, params.branch)
+
+	case params.commitHash != "":
+		var err error
+		r.Diff, err = GetDiff(ctx, params.commitHash)
+		if err != nil {
+			return r, err
+		}
+		r.Diff = truncateDiff(r.Diff, params.maxLines)
+		r.Stat = GetCommitStat(ctx, params.commitHash)
+
+	default:
+		all := !params.stagedOnly
+		var err error
+		r.Diff, err = GetWorkingTreeDiff(ctx, all)
+		if err != nil {
+			return r, err
+		}
+		r.Diff = truncateDiff(r.Diff, params.maxLines)
+		r.Stat = GetWorkingTreeStat(ctx, all)
+		branch, _ := GetCurrentBranch(ctx)
+		r.ContextHeader = FormatBranchHeader(branch)
+	}
+
+	return r, nil
+}
+
+func truncateDiff(diff string, maxLines uint32) string {
+	if maxLines == 0 || diff == "" {
+		return diff
+	}
+
+	var count uint32
+	for i := 0; i < len(diff); i++ {
+		if diff[i] == '\n' {
+			count++
+			if count >= maxLines {
+				return diff[:i+1] + "... (truncated)\n"
+			}
+		}
+	}
+	return diff
+}
+
+// GetPRInfo returns a formatted string with commit messages and diff for a GitHub PR.
+func GetPRInfo(ctx context.Context, prNumber string) (string, error) {
+	meta, err := GetPRMeta(ctx, prNumber)
+	if err != nil {
+		return "", err
 	}
 
 	diff, err := GetPRDiff(ctx, prNumber)
@@ -501,17 +737,15 @@ func GetPRInfo(ctx context.Context, prNumber string) (string, error) {
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "PR #%d: %s\n", prData.Number, prData.Title)
-	fmt.Fprintf(&sb, "Total Commits: %d\n", len(prData.Commits))
+	fmt.Fprintf(&sb, "PR #%d: %s\n", meta.Number, meta.Title)
+	fmt.Fprintf(&sb, "Total Commits: %d\n", len(meta.Commits))
 	sb.WriteString("Commits:\n")
-
-	for _, c := range prData.Commits {
-		fmt.Fprintf(&sb, " - %s\n", c.MessageHeadline)
-		if c.MessageBody != "" {
-			fmt.Fprintf(&sb, "   %s\n", c.MessageBody)
+	for _, c := range meta.Commits {
+		fmt.Fprintf(&sb, " - %s\n", c.Message)
+		if c.Body != "" {
+			fmt.Fprintf(&sb, "   %s\n", c.Body)
 		}
 	}
-
 	sb.WriteString("\nDiffs:\n")
 	sb.WriteString(diff)
 

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/utils"
@@ -69,20 +70,24 @@ func loadReviewInstructionsCmd(storage string) tea.Cmd {
 }
 
 type reviewDiffLoadedMsg struct {
-	instruction string
-	diff        string
-	err         error
-	branchErr   error
+	instruction   string
+	diff          string
+	stat          string
+	commits       []git.Commit
+	contextHeader string
+	err           error
+	branchErr     error
 }
 
 type reviewDiffCmdParams struct {
-	prNumber     string
-	branch       string
-	maxLines     uint32
-	selectCommit bool
-	commitHash   string
-	stagedOnly   bool
-	instruction  string
+	prNumber          string
+	branch            string
+	maxLines          uint32
+	selectCommit      bool
+	commitHash        string
+	stagedOnly        bool
+	instruction       string
+	withPRDescription bool
 }
 
 func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
@@ -90,25 +95,34 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 
-		var diff string
-		var err, branchErr error
-
+		var diffParams git.ReviewDiffParams
 		switch {
 		case params.prNumber != "":
-			diff, err = git.GetPRDiff(ctx, params.prNumber)
+			diffParams = git.PRDiff(params.prNumber).WithMaxLines(params.maxLines)
+			if params.withPRDescription {
+				diffParams = diffParams.WithPRDescription()
+			}
 		case params.branch != "":
-			diff, branchErr = git.GetBranchDiff(ctx, params.branch, params.maxLines)
+			diffParams = git.BranchDiff(params.branch).WithMaxLines(params.maxLines)
 		case params.selectCommit:
-			diff, err = git.GetDiff(ctx, params.commitHash)
+			diffParams = git.CommitDiff(params.commitHash).WithMaxLines(params.maxLines)
 		default:
-			diff, err = git.GetWorkingTreeDiff(ctx, !params.stagedOnly)
+			diffParams = git.WorkingTreeDiff(params.stagedOnly).WithMaxLines(params.maxLines)
+		}
+
+		result, err := git.GetReviewDiff(ctx, diffParams)
+
+		if branchErr, ok := errors.AsType[*git.BranchDiffError](err); ok {
+			return reviewDiffLoadedMsg{instruction: params.instruction, branchErr: branchErr}
 		}
 
 		return reviewDiffLoadedMsg{
-			instruction: params.instruction,
-			diff:        diff,
-			err:         err,
-			branchErr:   branchErr,
+			instruction:   params.instruction,
+			diff:          result.Diff,
+			stat:          result.Stat,
+			commits:       result.Commits,
+			contextHeader: result.ContextHeader,
+			err:           err,
 		}
 	}
 }

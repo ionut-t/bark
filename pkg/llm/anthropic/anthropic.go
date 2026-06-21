@@ -10,9 +10,17 @@ import (
 	"github.com/ionut-t/bark/v2/pkg/llm"
 )
 
+const maxTokens = 16000
+
 type Anthropic struct {
 	model  string
 	client anthropic.Client
+}
+
+func applySystem(params *anthropic.MessageNewParams, system string) {
+	if system != "" {
+		params.System = []anthropic.TextBlockParam{{Text: system}}
+	}
 }
 
 func New(model string, apiKey string) *Anthropic {
@@ -23,7 +31,7 @@ func New(model string, apiKey string) *Anthropic {
 	}
 }
 
-func (a *Anthropic) Stream(ctx context.Context, prompt string) (<-chan llm.Response, <-chan error) {
+func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan llm.Response, <-chan error) {
 	out := make(chan llm.Response)
 	errChan := make(chan error, 1)
 
@@ -36,13 +44,16 @@ func (a *Anthropic) Stream(ctx context.Context, prompt string) (<-chan llm.Respo
 			return
 		}
 
-		stream := a.client.Messages.NewStreaming(ctx, anthropic.MessageNewParams{
+		params := anthropic.MessageNewParams{
 			Model:     anthropic.Model(a.model),
-			MaxTokens: 16000,
+			MaxTokens: maxTokens,
 			Messages: []anthropic.MessageParam{
 				anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
 			},
-		})
+		}
+		applySystem(&params, system)
+
+		stream := a.client.Messages.NewStreaming(ctx, params)
 
 		defer func() {
 			if err := stream.Close(); err != nil {
@@ -85,29 +96,32 @@ func (a *Anthropic) Stream(ctx context.Context, prompt string) (<-chan llm.Respo
 	return out, errChan
 }
 
-func (a *Anthropic) Generate(ctx context.Context, prompt string) (string, error) {
+func (a *Anthropic) Generate(ctx context.Context, system, prompt string) (string, error) {
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
 
-	resp, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
+	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(a.model),
-		MaxTokens: 16000,
+		MaxTokens: maxTokens,
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
 		},
-	})
+	}
+	applySystem(&params, system)
+
+	resp, err := a.client.Messages.New(ctx, params)
 	if err != nil {
-		return "", fmt.Errorf("Anthropic request failed: %w", err)
+		return "", fmt.Errorf("anthropic request failed: %w", err)
 	}
 
 	if len(resp.Content) == 0 {
-		return "", fmt.Errorf("no response from Anthropic")
+		return "", fmt.Errorf("no response from anthropic")
 	}
 
 	text, ok := resp.Content[0].AsAny().(anthropic.TextBlock)
 	if !ok || text.Text == "" {
-		return "", fmt.Errorf("empty response from Anthropic")
+		return "", fmt.Errorf("empty response from anthropic")
 	}
 
 	return text.Text, nil

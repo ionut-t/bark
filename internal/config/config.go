@@ -22,7 +22,7 @@ const (
 	commitInstructionsFileName = "commit.md"
 	prInstructionsFileName     = "pull_request_description.md"
 
-	DEFAULT_MAX_DIFF_LINES = 3000
+	DEFAULT_MAX_DIFF_LINES = 0
 )
 
 type Config interface {
@@ -47,7 +47,7 @@ type configData struct {
 	Editor         string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
 	LLMProvider    string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark will try to auto-detect the provider based on available credentials."`
 	LLMModel       string `toml:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
-	MaxDiffLines   uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt"`
+	MaxDiffLines   uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt (0 disables the limit)"`
 	RelativeNumber bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
 }
 
@@ -236,7 +236,7 @@ func InitialiseConfigFile() (string, error) {
 		if _, err := os.Stat(configPath); os.IsNotExist(err) {
 			viper.SetDefault(EditorKey, GetEditor())
 			viper.SetDefault(LLMProviderKey, "")
-			viper.SetDefault(LLMModelKey, "gemini-2.0-flash")
+			viper.SetDefault(LLMModelKey, "gemini-2.5-pro")
 			viper.SetDefault(MaxDiffLinesKey, DEFAULT_MAX_DIFF_LINES)
 			viper.SetDefault(RelativeNumberKey, false)
 

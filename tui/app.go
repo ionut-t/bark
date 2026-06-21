@@ -16,7 +16,7 @@ import (
 	"github.com/ionut-t/bark/v2/pkg/instructions"
 	"github.com/ionut-t/bark/v2/pkg/llm"
 	"github.com/ionut-t/bark/v2/pkg/llm/llm_factory"
-	prompt_pkg "github.com/ionut-t/bark/v2/pkg/prompt"
+	"github.com/ionut-t/bark/v2/pkg/prompt"
 	"github.com/ionut-t/bark/v2/pkg/reviewers"
 	"github.com/ionut-t/coffee/styles"
 	editor "github.com/ionut-t/goeditor"
@@ -85,8 +85,9 @@ type Model struct {
 	branchErr   error
 	branchInput branchInputModel
 
-	prNumber      string
-	prNumberInput prNumberInputModel
+	prNumber          string
+	withPRDescription bool
+	prNumberInput     prNumberInputModel
 
 	prDescriptionOptions prDescriptionOptionsModel
 
@@ -108,18 +109,19 @@ type Model struct {
 }
 
 type Options struct {
-	Storage         string
-	ReviewerName    string
-	Instruction     string
-	Branch          string
-	PR              string
-	SelectCommit    bool
-	Config          config.Config
-	StagedOnly      bool
-	SkipInstruction bool
-	Task            Task
-	ReviewOption    ReviewOption
-	Hint            string
+	Storage           string
+	ReviewerName      string
+	Instruction       string
+	Branch            string
+	PR                string
+	SelectCommit      bool
+	Config            config.Config
+	StagedOnly        bool
+	SkipInstruction   bool
+	Task              Task
+	ReviewOption      ReviewOption
+	Hint              string
+	WithPRDescription bool
 }
 
 func New(options Options) *Model {
@@ -163,6 +165,7 @@ func New(options Options) *Model {
 		branch:               options.Branch,
 		branchInput:          newBranchInputModel(options.Branch),
 		prNumber:             options.PR,
+		withPRDescription:    options.WithPRDescription,
 		prNumberInput:        newPRNumberInputModel(options.PR),
 		stagedOnly:           options.StagedOnly,
 		skipInstruction:      options.SkipInstruction,
@@ -733,13 +736,14 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 
 	return m, loadReviewDiffCmd(
 		reviewDiffCmdParams{
-			prNumber:     m.prNumber,
-			branch:       m.branch,
-			maxLines:     m.config.GetMaxDiffLines(),
-			selectCommit: m.selectCommit,
-			commitHash:   commitHash,
-			stagedOnly:   m.stagedOnly,
-			instruction:  instruction,
+			prNumber:          m.prNumber,
+			branch:            m.branch,
+			maxLines:          m.config.GetMaxDiffLines(),
+			selectCommit:      m.selectCommit,
+			commitHash:        commitHash,
+			stagedOnly:        m.stagedOnly,
+			instruction:       instruction,
+			withPRDescription: m.withPRDescription,
 		},
 	)
 }
@@ -762,14 +766,12 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 		return m, nil
 	}
 
-	prompt := m.selectedReviewer.Prompt
-
 	if msg.instruction != "" {
 		m.selectedInstruction = msg.instruction
-		prompt = fmt.Sprintf("%s\nFollow the instructions below when analysing code:\n\n%s", prompt, msg.instruction)
 	}
+	system := prompt.FormatReviewSystem(m.selectedReviewer.Prompt, msg.instruction)
 
-	prompt = fmt.Sprintf("%s%s---\n\n**Code to review:**\n%s", prompt, prompt_pkg.FormattingRequirements, msg.diff)
+	reviewPrompt := prompt.FormatReviewContent(msg.contextHeader, msg.stat, msg.commits, msg.diff)
 
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
@@ -778,7 +780,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	}
 	m.reviewCancelFunc = cancel
 
-	m.review = newReviewModel(*m.selectedReviewer, prompt, m.width, m.height, m.llm)
+	m.review = newReviewModel(*m.selectedReviewer, system, reviewPrompt, m.width, m.height, m.llm)
 	m.review.setStyles(m.styles, m.isDarkMode)
 	m.review.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.review.setUsedModel(m.getLlmModelName())
@@ -814,13 +816,7 @@ func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.
 		return m, nil
 	}
 
-	prompt := msg.instructions
-	if m.hint != "" {
-		prompt += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
-		prompt += "Commit message hint: " + m.hint
-	}
-
-	prompt += "\n\n" + msg.diff
+	commitSystem := prompt.FormatCommitSystem(msg.instructions, m.hint)
 
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
@@ -829,7 +825,7 @@ func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.
 	}
 	m.operationCancelFunc = cancel
 
-	m.commitChanges = newCommitChangesModel(m.llm, prompt, msg.commitAll, m.width, m.height)
+	m.commitChanges = newCommitChangesModel(m.llm, commitSystem, msg.diff, msg.commitAll, m.width, m.height)
 	m.commitChanges.setStyles(m.styles, m.isDarkMode)
 	m.commitChanges.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.commitChanges.displayUsedModel(m.getLlmModelName())
@@ -866,13 +862,10 @@ func (m *Model) handlePRDataLoaded(msg prDataLoadedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	prompt := fmt.Sprintf(
-		"%s**Analyze the following changes and generate an appropriate PR description:**\n\n%s",
-		msg.instructions,
+	m.pr.setContent(
+		prompt.FormatPRSystem(msg.instructions),
 		msg.content,
 	)
-
-	m.pr.setPrompt(prompt)
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
 	if m.operationCancelFunc != nil {
