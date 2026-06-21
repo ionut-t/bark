@@ -33,6 +33,10 @@ inputs:
     description: Maximum number of diff lines to include in the prompt (0 disables the limit).
     required: false
     default: ""
+  with-description:
+    description: Include the PR description in the review context.
+    required: false
+    default: "false"
   github-token:
     description: GitHub token for posting PR comments
     required: false
@@ -86,6 +90,7 @@ runs:
 
         ARGS+=(--model "${{ inputs.model }}")
         [ -n "${{ inputs.max-diff-lines }}" ] && ARGS+=(--max-diff-lines "${{ inputs.max-diff-lines }}")
+        [ "${{ inputs.with-description }}" = "true" ] && ARGS+=(--with-description)
 
         bark "${ARGS[@]}" > /tmp/bark-review.txt 2>/tmp/bark-review-error.txt
 
