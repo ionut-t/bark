@@ -17,6 +17,12 @@ type Anthropic struct {
 	client anthropic.Client
 }
 
+func applySystem(params *anthropic.MessageNewParams, system string) {
+	if system != "" {
+		params.System = []anthropic.TextBlockParam{{Text: system}}
+	}
+}
+
 func New(model string, apiKey string) *Anthropic {
 	client := anthropic.NewClient(option.WithAPIKey(apiKey))
 	return &Anthropic{
@@ -45,9 +51,7 @@ func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan l
 				anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
 			},
 		}
-		if system != "" {
-			params.System = []anthropic.TextBlockParam{{Text: system}}
-		}
+		applySystem(&params, system)
 
 		stream := a.client.Messages.NewStreaming(ctx, params)
 
@@ -104,9 +108,7 @@ func (a *Anthropic) Generate(ctx context.Context, system, prompt string) (string
 			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
 		},
 	}
-	if system != "" {
-		params.System = []anthropic.TextBlockParam{{Text: system}}
-	}
+	applySystem(&params, system)
 
 	resp, err := a.client.Messages.New(ctx, params)
 	if err != nil {

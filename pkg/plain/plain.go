@@ -61,16 +61,17 @@ func RunReview(opts ReviewOptions) error {
 		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer gitCancel()
 
+		maxLines := opts.Config.GetMaxDiffLines()
 		var diffParams git.ReviewDiffParams
 		switch {
 		case opts.PR != "":
-			diffParams = git.PRDiff(opts.PR)
+			diffParams = git.PRDiff(opts.PR).WithMaxLines(maxLines)
 		case opts.Branch != "":
-			diffParams = git.BranchDiff(opts.Branch, opts.Config.GetMaxDiffLines())
+			diffParams = git.BranchDiff(opts.Branch).WithMaxLines(maxLines)
 		case opts.Hash != "":
-			diffParams = git.CommitDiff(opts.Hash)
+			diffParams = git.CommitDiff(opts.Hash).WithMaxLines(maxLines)
 		default:
-			diffParams = git.WorkingTreeDiff(opts.Staged)
+			diffParams = git.WorkingTreeDiff(opts.Staged).WithMaxLines(maxLines)
 		}
 
 		var err error

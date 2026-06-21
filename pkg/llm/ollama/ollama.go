@@ -17,6 +17,14 @@ type Ollama struct {
 	client openai.Client
 }
 
+func buildMessages(system, prompt string) []openai.ChatCompletionMessageParamUnion {
+	msgs := []openai.ChatCompletionMessageParamUnion{}
+	if system != "" {
+		msgs = append(msgs, openai.SystemMessage(system))
+	}
+	return append(msgs, openai.UserMessage(prompt))
+}
+
 func New(model string) *Ollama {
 	host := os.Getenv("OLLAMA_HOST")
 	if host == "" {
@@ -45,15 +53,9 @@ func (o *Ollama) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 			return
 		}
 
-		messages := []openai.ChatCompletionMessageParamUnion{}
-		if system != "" {
-			messages = append(messages, openai.SystemMessage(system))
-		}
-		messages = append(messages, openai.UserMessage(prompt))
-
 		stream := o.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
 			Model:    openai.ChatModel(o.model),
-			Messages: messages,
+			Messages: buildMessages(system, prompt),
 		})
 		defer func() {
 			if err := stream.Close(); err != nil {
@@ -100,18 +102,12 @@ func (o *Ollama) Generate(ctx context.Context, system, prompt string) (string, e
 		return "", ctx.Err()
 	}
 
-	messages := []openai.ChatCompletionMessageParamUnion{}
-	if system != "" {
-		messages = append(messages, openai.SystemMessage(system))
-	}
-	messages = append(messages, openai.UserMessage(prompt))
-
 	resp, err := o.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model:    openai.ChatModel(o.model),
-		Messages: messages,
+		Messages: buildMessages(system, prompt),
 	})
 	if err != nil {
-		return "", fmt.Errorf("Ollama request failed: %w", err)
+		return "", fmt.Errorf("ollama request failed: %w", err)
 	}
 
 	if len(resp.Choices) == 0 {

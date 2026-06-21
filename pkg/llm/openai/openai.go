@@ -16,6 +16,12 @@ type OpenAI struct {
 	client openai.Client
 }
 
+func applySystem(params *responses.ResponseNewParams, system string) {
+	if system != "" {
+		params.Instructions = openai.String(system)
+	}
+}
+
 func New(model string, apiKey string) *OpenAI {
 	client := openai.NewClient(option.WithAPIKey(apiKey))
 	return &OpenAI{
@@ -41,9 +47,7 @@ func (o *OpenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 			Input: responses.ResponseNewParamsInputUnion{OfString: openai.String(prompt)},
 			Model: openai.ChatModel(o.model),
 		}
-		if system != "" {
-			params.Instructions = openai.String(system)
-		}
+		applySystem(&params, system)
 
 		stream := o.client.Responses.NewStreaming(ctx, params)
 		defer func() {
@@ -98,9 +102,7 @@ func (o *OpenAI) Generate(ctx context.Context, system, prompt string) (string, e
 		Input: responses.ResponseNewParamsInputUnion{OfString: openai.String(prompt)},
 		Model: openai.ChatModel(o.model),
 	}
-	if system != "" {
-		params.Instructions = openai.String(system)
-	}
+	applySystem(&params, system)
 
 	resp, err := o.client.Responses.New(ctx, params)
 	if err != nil {

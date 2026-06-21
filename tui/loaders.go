@@ -97,13 +97,13 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 		var diffParams git.ReviewDiffParams
 		switch {
 		case params.prNumber != "":
-			diffParams = git.PRDiff(params.prNumber)
+			diffParams = git.PRDiff(params.prNumber).WithMaxLines(params.maxLines)
 		case params.branch != "":
-			diffParams = git.BranchDiff(params.branch, params.maxLines)
+			diffParams = git.BranchDiff(params.branch).WithMaxLines(params.maxLines)
 		case params.selectCommit:
-			diffParams = git.CommitDiff(params.commitHash)
+			diffParams = git.CommitDiff(params.commitHash).WithMaxLines(params.maxLines)
 		default:
-			diffParams = git.WorkingTreeDiff(params.stagedOnly)
+			diffParams = git.WorkingTreeDiff(params.stagedOnly).WithMaxLines(params.maxLines)
 		}
 
 		result, err := git.GetReviewDiff(ctx, diffParams)

@@ -603,8 +603,16 @@ func PRDiff(prNumber string) ReviewDiffParams {
 	return ReviewDiffParams{pr: prNumber}
 }
 
-func BranchDiff(branch string, maxLines uint32) ReviewDiffParams {
-	return ReviewDiffParams{branch: branch, maxLines: maxLines}
+func BranchDiff(branch string) ReviewDiffParams {
+	return ReviewDiffParams{branch: branch}
+}
+
+// WithMaxLines returns a copy of the params with a line-count limit applied to the diff.
+// For branch diffs the limit is enforced during streaming; for all other sources it is
+// applied as a post-processing step inside GetReviewDiff.
+func (p ReviewDiffParams) WithMaxLines(n uint32) ReviewDiffParams {
+	p.maxLines = n
+	return p
 }
 
 func CommitDiff(hash string) ReviewDiffParams {
@@ -646,6 +654,7 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		if err != nil {
 			return r, err
 		}
+		r.Diff = truncateDiff(r.Diff, params.maxLines)
 		if meta, metaErr := GetPRMeta(ctx, params.pr); metaErr == nil {
 			r.ContextHeader = FormatPRHeader(meta)
 			r.Commits = meta.Commits
@@ -666,6 +675,7 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		if err != nil {
 			return r, err
 		}
+		r.Diff = truncateDiff(r.Diff, params.maxLines)
 		r.Stat = GetCommitStat(ctx, params.commitHash)
 
 	default:
@@ -675,12 +685,24 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		if err != nil {
 			return r, err
 		}
+		r.Diff = truncateDiff(r.Diff, params.maxLines)
 		r.Stat = GetWorkingTreeStat(ctx, all)
 		branch, _ := GetCurrentBranch(ctx)
 		r.ContextHeader = FormatBranchHeader(branch)
 	}
 
 	return r, nil
+}
+
+func truncateDiff(diff string, maxLines uint32) string {
+	if maxLines == 0 || diff == "" {
+		return diff
+	}
+	lines := strings.SplitAfter(diff, "\n")
+	if uint32(len(lines)) <= maxLines {
+		return diff
+	}
+	return strings.Join(lines[:maxLines], "") + "... (truncated)\n"
 }
 
 // GetPRInfo returns a formatted string with commit messages and diff for a GitHub PR.
