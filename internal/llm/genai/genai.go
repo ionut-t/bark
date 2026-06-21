@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ionut-t/bark/v2/pkg/llm"
+	"github.com/ionut-t/bark/v2/internal/llm"
 	"google.golang.org/genai"
 )
 
