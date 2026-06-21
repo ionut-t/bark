@@ -26,7 +26,7 @@ func New(ctx context.Context, model string, config genai.ClientConfig) (*GenAI, 
 	}, nil
 }
 
-func (g *GenAI) Stream(ctx context.Context, prompt string) (<-chan llm.Response, <-chan error) {
+func (g *GenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.Response, <-chan error) {
 	out := make(chan llm.Response)
 	errChan := make(chan error, 1)
 
@@ -41,7 +41,13 @@ func (g *GenAI) Stream(ctx context.Context, prompt string) (<-chan llm.Response,
 		}
 
 		contents := genai.Text(prompt)
-		stream := g.client.Models.GenerateContentStream(ctx, g.model, contents, &genai.GenerateContentConfig{})
+		var cfg *genai.GenerateContentConfig
+		if system != "" {
+			cfg = &genai.GenerateContentConfig{
+				SystemInstruction: &genai.Content{Parts: []*genai.Part{{Text: system}}},
+			}
+		}
+		stream := g.client.Models.GenerateContentStream(ctx, g.model, contents, cfg)
 
 		for resp, err := range stream {
 			select {
@@ -78,19 +84,26 @@ func (g *GenAI) Stream(ctx context.Context, prompt string) (<-chan llm.Response,
 	return out, errChan
 }
 
-func (g *GenAI) Generate(ctx context.Context, prompt string) (string, error) {
+func (g *GenAI) Generate(ctx context.Context, system, prompt string) (string, error) {
 	if ctx.Err() != nil {
 		return "", ctx.Err()
+	}
+
+	var cfg *genai.GenerateContentConfig
+	if system != "" {
+		cfg = &genai.GenerateContentConfig{
+			SystemInstruction: &genai.Content{Parts: []*genai.Part{{Text: system}}},
+		}
 	}
 
 	result, err := g.client.Models.GenerateContent(
 		ctx,
 		g.model,
 		genai.Text(prompt),
-		nil,
+		cfg,
 	)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("genai request failed: %w", err)
 	}
 
 	if result == nil {

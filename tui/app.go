@@ -762,11 +762,11 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 		return m, nil
 	}
 
-	prompt := m.selectedReviewer.Prompt
+	system := m.selectedReviewer.Prompt + "\n" + prompt_pkg.FormattingRequirements
 
 	if msg.instruction != "" {
 		m.selectedInstruction = msg.instruction
-		prompt = fmt.Sprintf("%s\nFollow the instructions below when analysing code:\n\n%s", prompt, msg.instruction)
+		system += fmt.Sprintf("\nFollow the instructions below when analysing code:\n\n%s", msg.instruction)
 	}
 
 	commitsSection := git.FormatCommitsSection(msg.commits)
@@ -774,15 +774,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	if msg.stat != "" {
 		statSection = fmt.Sprintf("## Files Changed\n%s\n\n", msg.stat)
 	}
-	prompt = fmt.Sprintf(
-		"%s\n%s---\n\n%s%s%s**Code to review:**\n%s",
-		prompt,
-		prompt_pkg.FormattingRequirements,
-		msg.contextHeader,
-		commitsSection,
-		statSection,
-		msg.diff,
-	)
+	prompt := fmt.Sprintf("%s%s%s**Code to review:**\n%s", msg.contextHeader, commitsSection, statSection, msg.diff)
 
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
@@ -791,7 +783,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	}
 	m.reviewCancelFunc = cancel
 
-	m.review = newReviewModel(*m.selectedReviewer, prompt, m.width, m.height, m.llm)
+	m.review = newReviewModel(*m.selectedReviewer, system, prompt, m.width, m.height, m.llm)
 	m.review.setStyles(m.styles, m.isDarkMode)
 	m.review.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.review.setUsedModel(m.getLlmModelName())
@@ -827,13 +819,11 @@ func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.
 		return m, nil
 	}
 
-	prompt := msg.instructions
+	commitSystem := msg.instructions
 	if m.hint != "" {
-		prompt += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
-		prompt += "Commit message hint: " + m.hint
+		commitSystem += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
+		commitSystem += "Commit message hint: " + m.hint
 	}
-
-	prompt += "\n\n" + msg.diff
 
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
@@ -842,7 +832,7 @@ func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.
 	}
 	m.operationCancelFunc = cancel
 
-	m.commitChanges = newCommitChangesModel(m.llm, prompt, msg.commitAll, m.width, m.height)
+	m.commitChanges = newCommitChangesModel(m.llm, commitSystem, msg.diff, msg.commitAll, m.width, m.height)
 	m.commitChanges.setStyles(m.styles, m.isDarkMode)
 	m.commitChanges.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.commitChanges.displayUsedModel(m.getLlmModelName())
@@ -879,13 +869,10 @@ func (m *Model) handlePRDataLoaded(msg prDataLoadedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	prompt := fmt.Sprintf(
-		"%s**Analyze the following changes and generate an appropriate PR description:**\n\n%s",
-		msg.instructions,
+	m.pr.setContent(
+		msg.instructions+"**Analyze the following changes and generate an appropriate PR description:**",
 		msg.content,
 	)
-
-	m.pr.setPrompt(prompt)
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
 	if m.operationCancelFunc != nil {

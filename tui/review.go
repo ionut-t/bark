@@ -114,6 +114,7 @@ type reviewModel struct {
 	errChan          <-chan error
 	contentBuilder   *strings.Builder
 	reviewer         reviewers.Reviewer
+	system           string
 	prompt           string
 	showPrompt       bool
 	response         string
@@ -127,7 +128,7 @@ type reviewModel struct {
 	llmModel         string
 }
 
-func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height int, llm llm.LLM) reviewModel {
+func newReviewModel(reviewer reviewers.Reviewer, system, prompt string, width, height int, llm llm.LLM) reviewModel {
 	textEditor := editor.New(width, height)
 	textEditor.DisableInsertMode(true)
 	textEditor.SetExtraHighlightedContextLines(500)
@@ -141,6 +142,7 @@ func newReviewModel(reviewer reviewers.Reviewer, prompt string, width, height in
 		height:           height,
 		editor:           textEditor,
 		llm:              llm,
+		system:           system,
 		prompt:           prompt,
 		loading:          true,
 		loadingChunks:    true,
@@ -263,7 +265,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 
 			m.showPrompt = !m.showPrompt
 			if m.showPrompt {
-				m.editor.SetContent(m.prompt + "\n")
+				m.editor.SetContent(promptPreview(m.system, m.prompt))
 			} else {
 				m.editor.SetContent(m.response)
 			}
@@ -276,9 +278,9 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 	return m, cmd
 }
 
-func startStreamCmd(llm llm.LLM, ctx context.Context, prompt string) tea.Cmd {
+func startStreamCmd(llm llm.LLM, ctx context.Context, system, prompt string) tea.Cmd {
 	return func() tea.Msg {
-		respChan, errChan := llm.Stream(ctx, prompt)
+		respChan, errChan := llm.Stream(ctx, system, prompt)
 		return streamReadyMsg{
 			respChan: respChan,
 			errChan:  errChan,
@@ -341,7 +343,7 @@ func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
 		m.dispatchLoadingMsg(),
-		startStreamCmd(m.llm, ctx, m.prompt),
+		startStreamCmd(m.llm, ctx, m.system, m.prompt),
 	)
 }
 

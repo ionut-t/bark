@@ -131,6 +131,7 @@ type prModel struct {
 	spinner          spinner.Model
 	llm              llm.LLM
 	error            error
+	system           string
 	prompt           string
 	response         string
 	showPrompt       bool
@@ -166,7 +167,8 @@ func (m *prModel) setStyles(s styles.Styles, isDarkMode bool) {
 	m.spinner.Style = s.Primary
 }
 
-func (m *prModel) setPrompt(prompt string) {
+func (m *prModel) setContent(system, prompt string) {
+	m.system = system
 	m.prompt = prompt
 }
 
@@ -189,7 +191,7 @@ func (m *prModel) startPRDescriptionGeneration(ctx context.Context) tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
 		m.dispatchLoadingMsg(),
-		getPRMessage(ctx, m.llm, m.prompt),
+		getPRMessage(ctx, m.llm, m.system, m.prompt),
 	)
 }
 
@@ -241,7 +243,7 @@ func (m prModel) Update(msg tea.Msg) (prModel, tea.Cmd) {
 			m.showPrompt = !m.showPrompt
 
 			if m.showPrompt {
-				m.editor.SetContent(m.prompt + "\n\n")
+				m.editor.SetContent(promptPreview(m.system, m.prompt))
 			} else {
 				m.editor.SetContent(m.response + "\n\n")
 			}
@@ -279,9 +281,9 @@ func (m prModel) View() string {
 	return m.editor.View()
 }
 
-func getPRMessage(ctx context.Context, llm llm.LLM, prompt string) tea.Cmd {
+func getPRMessage(ctx context.Context, llm llm.LLM, system, prompt string) tea.Cmd {
 	return func() tea.Msg {
-		message, err := llm.Generate(ctx, prompt)
+		message, err := llm.Generate(ctx, system, prompt)
 		return prResponseMsg{
 			message: message,
 			error:   err,

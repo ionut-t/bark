@@ -11,6 +11,6 @@ type Response struct {
 }
 
 type LLM interface {
-	Stream(ctx context.Context, prompt string) (<-chan Response, <-chan error)
-	Generate(ctx context.Context, prompt string) (string, error)
+	Stream(ctx context.Context, system, prompt string) (<-chan Response, <-chan error)
+	Generate(ctx context.Context, system, prompt string) (string, error)
 }

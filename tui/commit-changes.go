@@ -133,6 +133,7 @@ type commitChangesModel struct {
 	loadingMsg      string
 	spinner         spinner.Model
 	llm             llm.LLM
+	system          string
 	prompt          string
 	error           error
 	response        string
@@ -168,7 +169,7 @@ type commitStreamStartMsg struct {
 	errChan <-chan error
 }
 
-func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool, width, height int) commitChangesModel {
+func newCommitChangesModel(llm llm.LLM, system, prompt string, commitAll bool, width, height int) commitChangesModel {
 	textEditor := editor.New(width, height)
 	textEditor.Focus()
 
@@ -182,6 +183,7 @@ func newCommitChangesModel(llm llm.LLM, prompt string, commitAll bool, width, he
 		spinner:   sp,
 		loading:   true,
 		llm:       llm,
+		system:    system,
 		prompt:    prompt,
 		commitAll: commitAll,
 		viewport:  viewport.New(),
@@ -231,7 +233,7 @@ func (m *commitChangesModel) startCommitGeneration(ctx context.Context) tea.Cmd 
 	return tea.Batch(
 		m.spinner.Tick,
 		m.dispatchCommitGenerationLoadingMsg(),
-		getCommitMessage(ctx, m.llm, m.prompt),
+		getCommitMessage(ctx, m.llm, m.system, m.prompt),
 	)
 }
 
@@ -305,7 +307,7 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 
 			m.isShowingPrompt = !m.isShowingPrompt
 			if m.isShowingPrompt {
-				m.editor.SetContent(m.prompt + "\n")
+				m.editor.SetContent(promptPreview(m.system, m.prompt))
 				m.editor.SetLanguage("markdown", styles.EditorLanguageTheme(m.isDarkMode))
 				m.editor.SetExtraHighlightedContextLines(300)
 			} else {
@@ -456,9 +458,9 @@ func (m *commitChangesModel) commitChangesHelp() string {
 	return help.RenderCmdHelp(m.styles, m.width, commands)
 }
 
-func getCommitMessage(ctx context.Context, llm llm.LLM, prompt string) tea.Cmd {
+func getCommitMessage(ctx context.Context, llm llm.LLM, system, prompt string) tea.Cmd {
 	return func() tea.Msg {
-		message, err := llm.Generate(ctx, prompt)
+		message, err := llm.Generate(ctx, system, prompt)
 		return commitResponseMsg{
 			message: message,
 			error:   err,

@@ -24,7 +24,7 @@ func New(model string, apiKey string) *OpenAI {
 	}
 }
 
-func (o *OpenAI) Stream(ctx context.Context, prompt string) (<-chan llm.Response, <-chan error) {
+func (o *OpenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.Response, <-chan error) {
 	out := make(chan llm.Response)
 	errChan := make(chan error, 1)
 
@@ -37,10 +37,15 @@ func (o *OpenAI) Stream(ctx context.Context, prompt string) (<-chan llm.Response
 			return
 		}
 
-		stream := o.client.Responses.NewStreaming(ctx, responses.ResponseNewParams{
+		params := responses.ResponseNewParams{
 			Input: responses.ResponseNewParamsInputUnion{OfString: openai.String(prompt)},
 			Model: openai.ChatModel(o.model),
-		})
+		}
+		if system != "" {
+			params.Instructions = openai.String(system)
+		}
+
+		stream := o.client.Responses.NewStreaming(ctx, params)
 		defer func() {
 			if err := stream.Close(); err != nil {
 				errChan <- err
@@ -84,17 +89,22 @@ func (o *OpenAI) Stream(ctx context.Context, prompt string) (<-chan llm.Response
 	return out, errChan
 }
 
-func (o *OpenAI) Generate(ctx context.Context, prompt string) (string, error) {
+func (o *OpenAI) Generate(ctx context.Context, system, prompt string) (string, error) {
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
 
-	resp, err := o.client.Responses.New(ctx, responses.ResponseNewParams{
+	params := responses.ResponseNewParams{
 		Input: responses.ResponseNewParamsInputUnion{OfString: openai.String(prompt)},
 		Model: openai.ChatModel(o.model),
-	})
+	}
+	if system != "" {
+		params.Instructions = openai.String(system)
+	}
+
+	resp, err := o.client.Responses.New(ctx, params)
 	if err != nil {
-		return "", fmt.Errorf("OpenAI request failed: %w", err)
+		return "", fmt.Errorf("openai request failed: %w", err)
 	}
 
 	text := resp.OutputText()

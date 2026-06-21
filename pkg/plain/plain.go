@@ -108,7 +108,7 @@ func RunReview(opts ReviewOptions) error {
 		return err
 	}
 
-	promptText := reviewer.Prompt
+	system := reviewer.Prompt + "\n" + prompt.FormattingRequirements
 
 	if !opts.SkipInstruction {
 		instructions, err := resolveInstructions(opts.Instruction, opts.Storage)
@@ -116,7 +116,7 @@ func RunReview(opts ReviewOptions) error {
 			return err
 		}
 		if instructions != "" {
-			promptText = fmt.Sprintf("%s\nFollow the instructions below when analysing code:\n\n%s", promptText, instructions)
+			system += fmt.Sprintf("\nFollow the instructions below when analysing code:\n\n%s", instructions)
 		}
 	}
 
@@ -125,15 +125,7 @@ func RunReview(opts ReviewOptions) error {
 	if stat != "" {
 		statSection = fmt.Sprintf("## Files Changed\n%s\n\n", stat)
 	}
-	promptText = fmt.Sprintf(
-		"%s\n%s---\n\n%s%s%s**Code to review:**\n%s",
-		promptText,
-		prompt.FormattingRequirements,
-		contextHeader,
-		commitsSection,
-		statSection,
-		diff,
-	)
+	promptText := fmt.Sprintf("%s%s%s**Code to review:**\n%s", contextHeader, commitsSection, statSection, diff)
 
 	client, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
@@ -144,10 +136,10 @@ func RunReview(opts ReviewOptions) error {
 	defer llmCancel()
 
 	if opts.Stream {
-		return streamResponse(llmCtx, client, promptText)
+		return streamResponse(llmCtx, client, system, promptText)
 	}
 
-	return fullResponse(llmCtx, client, promptText)
+	return fullResponse(llmCtx, client, system, promptText)
 }
 
 // RunCommit generates a commit message and writes it to stdout.
@@ -171,15 +163,14 @@ func RunCommit(opts CommitOptions) error {
 		return fmt.Errorf("no changes to generate a commit message for")
 	}
 
-	promptText, err := utils.GetInstructions(".bark/commit.md", opts.Config.GetCommitInstructions())
+	commitSystem, err := utils.GetInstructions(".bark/commit.md", opts.Config.GetCommitInstructions())
 	if err != nil {
 		return err
 	}
 	if opts.Hint != "" {
-		promptText += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
-		promptText += "Commit message hint: " + opts.Hint
+		commitSystem += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
+		commitSystem += "Commit message hint: " + opts.Hint
 	}
-	promptText += "\n\n" + diff
 
 	client, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
@@ -189,7 +180,7 @@ func RunCommit(opts CommitOptions) error {
 	llmCtx, llmCancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer llmCancel()
 
-	result, err := client.Generate(llmCtx, promptText)
+	result, err := client.Generate(llmCtx, commitSystem, diff)
 	if err != nil {
 		return fmt.Errorf("error generating commit message: %w", err)
 	}
@@ -231,11 +222,7 @@ func RunPR(opts PROptions) error {
 		}
 	}
 
-	promptText := fmt.Sprintf(
-		"%s**Analyze the following changes and generate an appropriate PR description:**\n\n%s",
-		prInstructions,
-		content,
-	)
+	prSystem := prInstructions + "**Analyze the following changes and generate an appropriate PR description:**"
 
 	client, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
@@ -245,7 +232,7 @@ func RunPR(opts PROptions) error {
 	llmCtx, llmCancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer llmCancel()
 
-	result, err := client.Generate(llmCtx, promptText)
+	result, err := client.Generate(llmCtx, prSystem, content)
 	if err != nil {
 		return fmt.Errorf("error generating PR description: %w", err)
 	}
@@ -257,8 +244,8 @@ func RunPR(opts PROptions) error {
 }
 
 // streamResponse streams LLM response chunks to stdout.
-func streamResponse(ctx context.Context, client llm.LLM, promptText string) error {
-	responseChan, errChan := client.Stream(ctx, promptText)
+func streamResponse(ctx context.Context, client llm.LLM, system, promptText string) error {
+	responseChan, errChan := client.Stream(ctx, system, promptText)
 
 	for chunk := range responseChan {
 		fmt.Print(chunk.Content)
@@ -272,8 +259,8 @@ func streamResponse(ctx context.Context, client llm.LLM, promptText string) erro
 	return nil
 }
 
-func fullResponse(ctx context.Context, client llm.LLM, promptText string) error {
-	response, err := client.Generate(ctx, promptText)
+func fullResponse(ctx context.Context, client llm.LLM, system, promptText string) error {
+	response, err := client.Generate(ctx, system, promptText)
 	if err != nil {
 		return fmt.Errorf("error during review: %w", err)
 	}

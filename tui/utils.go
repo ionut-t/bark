@@ -17,6 +17,10 @@ import (
 
 var viewMargin = lipgloss.NewStyle().Margin(2)
 
+func promptPreview(system, prompt string) string {
+	return system + "\n\n---\n\n" + prompt + "\n\n"
+}
+
 func writeToDisk(editor *editor.Model, filePath *string, content string) tea.Cmd {
 	const duration = 3 * time.Second
 
