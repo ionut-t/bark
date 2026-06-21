@@ -5,10 +5,10 @@ import (
 	"errors"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/ionut-t/bark/v2/internal/git"
+	"github.com/ionut-t/bark/v2/internal/instructions"
+	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
-	"github.com/ionut-t/bark/v2/pkg/git"
-	"github.com/ionut-t/bark/v2/pkg/instructions"
-	"github.com/ionut-t/bark/v2/pkg/reviewers"
 )
 
 // The commands in this file offload all blocking I/O onto goroutines via tea.Cmd, so Update() never
