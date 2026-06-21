@@ -8,12 +8,12 @@ import (
 	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/config"
-	"github.com/ionut-t/bark/v2/internal/llm"
-	"github.com/ionut-t/bark/v2/internal/llm/anthropic"
-	"github.com/ionut-t/bark/v2/internal/llm/gemini"
-	"github.com/ionut-t/bark/v2/internal/llm/ollama"
-	"github.com/ionut-t/bark/v2/internal/llm/openai"
-	"github.com/ionut-t/bark/v2/internal/llm/vertexai"
+	"github.com/ionut-t/bark/v2/pkg/llm"
+	"github.com/ionut-t/bark/v2/pkg/llm/anthropic"
+	"github.com/ionut-t/bark/v2/pkg/llm/gemini"
+	"github.com/ionut-t/bark/v2/pkg/llm/ollama"
+	"github.com/ionut-t/bark/v2/pkg/llm/openai"
+	"github.com/ionut-t/bark/v2/pkg/llm/vertexai"
 )
 
 var (
