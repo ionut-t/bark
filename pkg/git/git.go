@@ -711,11 +711,17 @@ func truncateDiff(diff string, maxLines uint32) string {
 	if maxLines == 0 || diff == "" {
 		return diff
 	}
-	lines := strings.SplitAfter(diff, "\n")
-	if uint32(len(lines)) <= maxLines {
-		return diff
+
+	var count uint32
+	for i := 0; i < len(diff); i++ {
+		if diff[i] == '\n' {
+			count++
+			if count >= maxLines {
+				return diff[:i+1] + "... (truncated)\n"
+			}
+		}
 	}
-	return strings.Join(lines[:maxLines], "") + "... (truncated)\n"
+	return diff
 }
 
 // GetPRInfo returns a formatted string with commit messages and diff for a GitHub PR.
