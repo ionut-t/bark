@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.22.0](https://github.com/ionut-t/bark/compare/v2.21.0...v2.22.0) (2026-06-21)
+
+
+### Features
+
+* **review:** enrich review context ([#64](https://github.com/ionut-t/bark/issues/64)) ([6dc22bc](https://github.com/ionut-t/bark/commit/6dc22bc601ab6e1920695af0ffa531f2a2e1de3d))
+
 ## [2.21.0](https://github.com/ionut-t/bark/compare/v2.20.0...v2.21.0) (2026-06-19)
 
 
