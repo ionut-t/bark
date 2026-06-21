@@ -8,12 +8,12 @@ import (
 
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/utils"
-	"github.com/ionut-t/bark/v2/internal/git"
-	"github.com/ionut-t/bark/v2/internal/instructions"
-	"github.com/ionut-t/bark/v2/internal/llm"
-	"github.com/ionut-t/bark/v2/internal/llm/llm_factory"
-	"github.com/ionut-t/bark/v2/internal/prompt"
-	"github.com/ionut-t/bark/v2/internal/reviewers"
+	"github.com/ionut-t/bark/v2/pkg/git"
+	"github.com/ionut-t/bark/v2/pkg/instructions"
+	"github.com/ionut-t/bark/v2/pkg/llm"
+	"github.com/ionut-t/bark/v2/pkg/llm/llm_factory"
+	"github.com/ionut-t/bark/v2/pkg/prompt"
+	"github.com/ionut-t/bark/v2/pkg/reviewers"
 )
 
 const gitTimeout = 30 * time.Second
