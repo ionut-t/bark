@@ -16,7 +16,7 @@ import (
 	"github.com/ionut-t/bark/v2/pkg/instructions"
 	"github.com/ionut-t/bark/v2/pkg/llm"
 	"github.com/ionut-t/bark/v2/pkg/llm/llm_factory"
-	prompt_pkg "github.com/ionut-t/bark/v2/pkg/prompt"
+	"github.com/ionut-t/bark/v2/pkg/prompt"
 	"github.com/ionut-t/bark/v2/pkg/reviewers"
 	"github.com/ionut-t/coffee/styles"
 	editor "github.com/ionut-t/goeditor"
@@ -762,19 +762,12 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 		return m, nil
 	}
 
-	system := m.selectedReviewer.Prompt + "\n" + prompt_pkg.FormattingRequirements
-
 	if msg.instruction != "" {
 		m.selectedInstruction = msg.instruction
-		system += fmt.Sprintf("\nFollow the instructions below when analysing code:\n\n%s", msg.instruction)
 	}
+	system := prompt.FormatReviewSystem(m.selectedReviewer.Prompt, msg.instruction)
 
-	commitsSection := git.FormatCommitsSection(msg.commits)
-	statSection := ""
-	if msg.stat != "" {
-		statSection = fmt.Sprintf("## Files Changed\n%s\n\n", msg.stat)
-	}
-	prompt := fmt.Sprintf("%s%s%s**Code to review:**\n%s", msg.contextHeader, commitsSection, statSection, msg.diff)
+	reviewPrompt := prompt.FormatReviewContent(msg.contextHeader, msg.stat, msg.commits, msg.diff)
 
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
@@ -783,7 +776,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	}
 	m.reviewCancelFunc = cancel
 
-	m.review = newReviewModel(*m.selectedReviewer, system, prompt, m.width, m.height, m.llm)
+	m.review = newReviewModel(*m.selectedReviewer, system, reviewPrompt, m.width, m.height, m.llm)
 	m.review.setStyles(m.styles, m.isDarkMode)
 	m.review.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.review.setUsedModel(m.getLlmModelName())
@@ -819,11 +812,7 @@ func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.
 		return m, nil
 	}
 
-	commitSystem := msg.instructions
-	if m.hint != "" {
-		commitSystem += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
-		commitSystem += "Commit message hint: " + m.hint
-	}
+	commitSystem := prompt.FormatCommitSystem(msg.instructions, m.hint)
 
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
@@ -870,7 +859,7 @@ func (m *Model) handlePRDataLoaded(msg prDataLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.pr.setContent(
-		msg.instructions+"**Analyze the following changes and generate an appropriate PR description:**",
+		prompt.FormatPRSystem(msg.instructions),
 		msg.content,
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)

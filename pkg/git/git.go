@@ -590,6 +590,99 @@ func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
 	return &PRMeta{Number: raw.Number, Title: raw.Title, Commits: commits}, nil
 }
 
+// ReviewDiffParams controls which diff GetReviewDiff fetches.
+type ReviewDiffParams struct {
+	pr         string
+	branch     string
+	maxLines   uint32
+	commitHash string
+	stagedOnly bool
+}
+
+func PRDiff(prNumber string) ReviewDiffParams {
+	return ReviewDiffParams{pr: prNumber}
+}
+
+func BranchDiff(branch string, maxLines uint32) ReviewDiffParams {
+	return ReviewDiffParams{branch: branch, maxLines: maxLines}
+}
+
+func CommitDiff(hash string) ReviewDiffParams {
+	return ReviewDiffParams{commitHash: hash}
+}
+
+func WorkingTreeDiff(stagedOnly bool) ReviewDiffParams {
+	return ReviewDiffParams{stagedOnly: stagedOnly}
+}
+
+// BranchDiffError is returned by GetReviewDiff when a branch diff fails.
+type BranchDiffError struct {
+	Branch string
+	Err    error
+}
+
+func (e *BranchDiffError) Error() string {
+	return fmt.Sprintf("could not get diff for branch %q: %v", e.Branch, e.Err)
+}
+
+func (e *BranchDiffError) Unwrap() error { return e.Err }
+
+// ReviewDiff holds the result of GetReviewDiff.
+type ReviewDiff struct {
+	Diff          string
+	Stat          string
+	Commits       []Commit
+	ContextHeader string
+}
+
+// GetReviewDiff fetches the diff, stat, commits and context header for a review.
+func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, error) {
+	var r ReviewDiff
+
+	switch {
+	case params.pr != "":
+		var err error
+		r.Diff, err = GetPRDiff(ctx, params.pr)
+		if err != nil {
+			return r, err
+		}
+		if meta, metaErr := GetPRMeta(ctx, params.pr); metaErr == nil {
+			r.ContextHeader = FormatPRHeader(meta)
+			r.Commits = meta.Commits
+		}
+
+	case params.branch != "":
+		var err error
+		r.Diff, err = GetBranchDiff(ctx, params.branch, params.maxLines)
+		if err != nil {
+			return r, &BranchDiffError{Branch: params.branch, Err: err}
+		}
+		r.Stat = GetBranchDiffStat(ctx, params.branch)
+		r.Commits, _ = GetBranchCommits(ctx, params.branch)
+
+	case params.commitHash != "":
+		var err error
+		r.Diff, err = GetDiff(ctx, params.commitHash)
+		if err != nil {
+			return r, err
+		}
+		r.Stat = GetCommitStat(ctx, params.commitHash)
+
+	default:
+		all := !params.stagedOnly
+		var err error
+		r.Diff, err = GetWorkingTreeDiff(ctx, all)
+		if err != nil {
+			return r, err
+		}
+		r.Stat = GetWorkingTreeStat(ctx, all)
+		branch, _ := GetCurrentBranch(ctx)
+		r.ContextHeader = FormatBranchHeader(branch)
+	}
+
+	return r, nil
+}
+
 // GetPRInfo returns a formatted string with commit messages and diff for a GitHub PR.
 func GetPRInfo(ctx context.Context, prNumber string) (string, error) {
 	meta, err := GetPRMeta(ctx, prNumber)

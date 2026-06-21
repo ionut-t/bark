@@ -55,51 +55,34 @@ type PROptions struct {
 
 // RunReview runs a code review and writes the output to stdout.
 func RunReview(opts ReviewOptions) error {
-	var diff, stat, contextHeader string
-	var commits []git.Commit
+	var reviewDiff git.ReviewDiff
 
 	if opts.Diff == nil {
 		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer gitCancel()
 
-		var err error
+		var diffParams git.ReviewDiffParams
 		switch {
 		case opts.PR != "":
-			diff, err = git.GetPRDiff(gitCtx, opts.PR)
-			if err == nil {
-				if meta, metaErr := git.GetPRMeta(gitCtx, opts.PR); metaErr == nil {
-					contextHeader = git.FormatPRHeader(meta)
-					commits = meta.Commits
-				}
-			}
-		case opts.Hash != "":
-			diff, err = git.GetDiff(gitCtx, opts.Hash)
-			stat = git.GetCommitStat(gitCtx, opts.Hash)
+			diffParams = git.PRDiff(opts.PR)
 		case opts.Branch != "":
-			diff, err = git.GetBranchDiff(gitCtx, opts.Branch, opts.Config.GetMaxDiffLines())
-			stat = git.GetBranchDiffStat(gitCtx, opts.Branch)
-			if err == nil {
-				commits, _ = git.GetBranchCommits(gitCtx, opts.Branch)
-			}
-		case opts.Staged:
-			diff, err = git.GetWorkingTreeDiff(gitCtx, false)
-			stat = git.GetWorkingTreeStat(gitCtx, false)
-			branch, _ := git.GetCurrentBranch(gitCtx)
-			contextHeader = git.FormatBranchHeader(branch)
+			diffParams = git.BranchDiff(opts.Branch, opts.Config.GetMaxDiffLines())
+		case opts.Hash != "":
+			diffParams = git.CommitDiff(opts.Hash)
 		default:
-			diff, err = git.GetWorkingTreeDiff(gitCtx, true)
-			stat = git.GetWorkingTreeStat(gitCtx, true)
-			branch, _ := git.GetCurrentBranch(gitCtx)
-			contextHeader = git.FormatBranchHeader(branch)
+			diffParams = git.WorkingTreeDiff(opts.Staged)
 		}
+
+		var err error
+		reviewDiff, err = git.GetReviewDiff(gitCtx, diffParams)
 		if err != nil {
 			return err
 		}
 	} else {
-		diff = *opts.Diff
+		reviewDiff.Diff = *opts.Diff
 	}
 
-	if diff == "" {
+	if reviewDiff.Diff == "" {
 		return fmt.Errorf("no diff content available")
 	}
 
@@ -108,24 +91,17 @@ func RunReview(opts ReviewOptions) error {
 		return err
 	}
 
-	system := reviewer.Prompt + "\n" + prompt.FormattingRequirements
-
+	var reviewInstructions string
 	if !opts.SkipInstruction {
-		instructions, err := resolveInstructions(opts.Instruction, opts.Storage)
+		var err error
+		reviewInstructions, err = resolveInstructions(opts.Instruction, opts.Storage)
 		if err != nil {
 			return err
 		}
-		if instructions != "" {
-			system += fmt.Sprintf("\nFollow the instructions below when analysing code:\n\n%s", instructions)
-		}
 	}
+	system := prompt.FormatReviewSystem(reviewer.Prompt, reviewInstructions)
 
-	commitsSection := git.FormatCommitsSection(commits)
-	statSection := ""
-	if stat != "" {
-		statSection = fmt.Sprintf("## Files Changed\n%s\n\n", stat)
-	}
-	promptText := fmt.Sprintf("%s%s%s**Code to review:**\n%s", contextHeader, commitsSection, statSection, diff)
+	promptText := prompt.FormatReviewContent(reviewDiff.ContextHeader, reviewDiff.Stat, reviewDiff.Commits, reviewDiff.Diff)
 
 	client, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
@@ -163,14 +139,11 @@ func RunCommit(opts CommitOptions) error {
 		return fmt.Errorf("no changes to generate a commit message for")
 	}
 
-	commitSystem, err := utils.GetInstructions(".bark/commit.md", opts.Config.GetCommitInstructions())
+	commitInstructions, err := utils.GetInstructions(".bark/commit.md", opts.Config.GetCommitInstructions())
 	if err != nil {
 		return err
 	}
-	if opts.Hint != "" {
-		commitSystem += "\nBased on the following hint, determine the type of changes (e.g., feature, fix, refactor, docs) for the commit message.\n"
-		commitSystem += "Commit message hint: " + opts.Hint
-	}
+	commitSystem := prompt.FormatCommitSystem(commitInstructions, opts.Hint)
 
 	client, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
@@ -222,7 +195,7 @@ func RunPR(opts PROptions) error {
 		}
 	}
 
-	prSystem := prInstructions + "**Analyze the following changes and generate an appropriate PR description:**"
+	prSystem := prompt.FormatPRSystem(prInstructions)
 
 	client, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {

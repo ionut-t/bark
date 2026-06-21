@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/utils"
@@ -93,43 +94,31 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 
-		var diff, stat, contextHeader string
-		var commits []git.Commit
-		var err, branchErr error
-
+		var diffParams git.ReviewDiffParams
 		switch {
 		case params.prNumber != "":
-			diff, err = git.GetPRDiff(ctx, params.prNumber)
-			if err == nil {
-				if meta, metaErr := git.GetPRMeta(ctx, params.prNumber); metaErr == nil {
-					contextHeader = git.FormatPRHeader(meta)
-					commits = meta.Commits
-				}
-			}
+			diffParams = git.PRDiff(params.prNumber)
 		case params.branch != "":
-			diff, branchErr = git.GetBranchDiff(ctx, params.branch, params.maxLines)
-			stat = git.GetBranchDiffStat(ctx, params.branch)
-			if branchErr == nil {
-				commits, _ = git.GetBranchCommits(ctx, params.branch)
-			}
+			diffParams = git.BranchDiff(params.branch, params.maxLines)
 		case params.selectCommit:
-			diff, err = git.GetDiff(ctx, params.commitHash)
-			stat = git.GetCommitStat(ctx, params.commitHash)
+			diffParams = git.CommitDiff(params.commitHash)
 		default:
-			diff, err = git.GetWorkingTreeDiff(ctx, !params.stagedOnly)
-			stat = git.GetWorkingTreeStat(ctx, !params.stagedOnly)
-			branch, _ := git.GetCurrentBranch(ctx)
-			contextHeader = git.FormatBranchHeader(branch)
+			diffParams = git.WorkingTreeDiff(params.stagedOnly)
+		}
+
+		result, err := git.GetReviewDiff(ctx, diffParams)
+
+		if branchErr, ok := errors.AsType[*git.BranchDiffError](err); ok {
+			return reviewDiffLoadedMsg{instruction: params.instruction, branchErr: branchErr}
 		}
 
 		return reviewDiffLoadedMsg{
 			instruction:   params.instruction,
-			diff:          diff,
-			stat:          stat,
-			commits:       commits,
-			contextHeader: contextHeader,
+			diff:          result.Diff,
+			stat:          result.Stat,
+			commits:       result.Commits,
+			contextHeader: result.ContextHeader,
 			err:           err,
-			branchErr:     branchErr,
 		}
 	}
 }
