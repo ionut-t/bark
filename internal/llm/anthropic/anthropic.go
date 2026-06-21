@@ -7,7 +7,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/ionut-t/bark/v2/pkg/llm"
+	"github.com/ionut-t/bark/v2/internal/llm"
 )
 
 const maxTokens = 16000

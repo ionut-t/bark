@@ -3,7 +3,7 @@ package gemini
 import (
 	"context"
 
-	"github.com/ionut-t/bark/v2/pkg/llm/genai"
+	"github.com/ionut-t/bark/v2/internal/llm/genai"
 	g "google.golang.org/genai"
 )
 
