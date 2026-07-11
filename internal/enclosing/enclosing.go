@@ -51,6 +51,16 @@ func isStructuralNode(langName string, nodeType string) bool {
 			nodeType == "export_statement"
 	case "html":
 		return nodeType == "element"
+	case "angular":
+		// Angular templates: elements plus @if/@for/@switch/@defer
+		// control-flow blocks. Elements match first for changes inside them;
+		// the block statements catch changes on the block syntax itself
+		// (e.g. the @if condition line).
+		return nodeType == "element" ||
+			nodeType == "if_statement" ||
+			nodeType == "for_statement" ||
+			nodeType == "switch_statement" ||
+			nodeType == "defer_statement"
 	case "css":
 		return nodeType == "rule_set"
 	default:
@@ -65,13 +75,30 @@ func isStructuralNode(langName string, nodeType string) bool {
 	}
 }
 
+// detectLanguage resolves the grammar entry for a file. Files that detect as
+// html are parsed with the angular grammar instead: it is a superset of html
+// that additionally understands Angular template syntax (@if/@for blocks,
+// event bindings, interpolation). Angular templates are plain .html files
+// with no reliable naming convention, and the html grammar truncates its
+// parse tree at the first control-flow block; on plain HTML both grammars
+// produce the same element structure, so this is safe for non-Angular files.
+func detectLanguage(filePath string) *grammars.LangEntry {
+	entry := grammars.DetectLanguage(filePath)
+	if entry != nil && entry.Name == "html" {
+		if angular := grammars.DetectLanguageByName("angular"); angular != nil {
+			return angular
+		}
+	}
+	return entry
+}
+
 // Declarations parses the file source and returns the enclosing definitions for the modified lines.
 func Declarations(filePath string, source []byte, modifiedLines []int) ([]string, error) {
 	if len(modifiedLines) == 0 {
 		return nil, nil
 	}
 
-	entry := grammars.DetectLanguage(filePath)
+	entry := detectLanguage(filePath)
 	if entry == nil {
 		return nil, nil // Unsupported language, return nil (graceful skip)
 	}

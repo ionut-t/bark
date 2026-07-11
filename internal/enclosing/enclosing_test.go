@@ -305,8 +305,10 @@ func TestDeclarations_AngularTemplate(t *testing.T) {
 `)
 
 	// Line 4: the {{ count() }} interpolation -> belongs to the enclosing
-	// <button> element, event binding syntax included.
-	snippets, err := Declarations("counter.component.html", source, []int{4})
+	// <button> element, event binding syntax included. The plain filename
+	// matters: Angular templates have no reliable naming convention, so all
+	// html files are parsed with the angular grammar.
+	snippets, err := Declarations("example.html", source, []int{4})
 	require.NoError(t, err)
 
 	expected := []string{
@@ -315,14 +317,37 @@ func TestDeclarations_AngularTemplate(t *testing.T) {
 
 	assert.Equal(t, expected, snippets)
 
-	// Line 7: element inside an @if control-flow block. The Angular block
-	// syntax is not HTML, but the parser still resolves the smallest
-	// enclosing element rather than failing.
-	snippets, err = Declarations("counter.component.html", source, []int{7})
+	// Line 7: element inside an @if control-flow block. The angular grammar
+	// parses the block properly (the plain html grammar truncates the tree at
+	// the first control-flow block), so the smallest enclosing element still
+	// resolves.
+	snippets, err = Declarations("example.html", source, []int{7})
 	require.NoError(t, err)
 
 	expected = []string{
 		"<p>Positive</p>",
+	}
+
+	assert.Equal(t, expected, snippets)
+}
+
+func TestDeclarations_PlainHtml(t *testing.T) {
+	source := []byte(`<body>
+  <ul class="list">
+    <li>one</li>
+    <li>two &amp; {{ not angular }}</li>
+  </ul>
+</body>
+`)
+
+	// Non-Angular HTML goes through the angular grammar too; element
+	// resolution must be unaffected, even next to text the grammar cannot
+	// read as an Angular expression (the handlebars-style interpolation).
+	snippets, err := Declarations("page.html", source, []int{3})
+	require.NoError(t, err)
+
+	expected := []string{
+		"<li>one</li>",
 	}
 
 	assert.Equal(t, expected, snippets)
