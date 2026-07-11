@@ -20,4 +20,5 @@ jobs:
           model: ${{ vars.BARK_MODEL }}
           reviewer: ${{ vars.BARK_REVIEWER }}
           max-diff-lines: ${{ vars.BARK_MAX_DIFF_LINES }}
+          with-context: ${{ vars.BARK_WITH_CONTEXT }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

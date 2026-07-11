@@ -13,6 +13,7 @@ require (
 	github.com/ionut-t/coffee/styles v0.0.0-20260404232152-91b6181d4e02
 	github.com/ionut-t/goeditor v0.4.16
 	github.com/mattn/go-isatty v0.0.22
+	github.com/odvcencio/gotreesitter v0.24.0
 	github.com/openai/openai-go/v3 v3.39.0
 	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/spf13/cobra v1.10.2

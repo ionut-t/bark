@@ -96,6 +96,7 @@ jobs:
           BARK_MODEL: ${{ vars.BARK_MODEL }}
           BARK_REVIEWER: ${{ vars.BARK_REVIEWER }}
           BARK_MAX_DIFF_LINES: ${{ vars.BARK_MAX_DIFF_LINES }}
+          BARK_WITH_CONTEXT: ${{ vars.BARK_WITH_CONTEXT }}
           WITH_DESCRIPTION: ${{ needs.pr-description.result == 'success' }}
         run: |
           PROVIDER=$(echo "$BARK_PROVIDER" | tr '[:upper:]' '[:lower:]')
@@ -110,6 +111,7 @@ jobs:
           [ -n "$BARK_REVIEWER" ] && ARGS+=(--as "$BARK_REVIEWER")
           [ -n "$BARK_MODEL" ] && ARGS+=(--model "$BARK_MODEL")
           [ -n "$BARK_MAX_DIFF_LINES" ] && ARGS+=(--max-diff-lines "$BARK_MAX_DIFF_LINES")
+          [ "$BARK_WITH_CONTEXT" = "true" ] && ARGS+=(--with-context)
           [ "$WITH_DESCRIPTION" = "true" ] && ARGS+=(--with-description)
           /tmp/bark "${ARGS[@]}" > /tmp/bark-review.txt 2>/tmp/bark-review-error.txt
 

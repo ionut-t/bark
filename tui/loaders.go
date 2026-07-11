@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/ionut-t/bark/v2/internal/enclosing"
 	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
@@ -70,13 +71,14 @@ func loadReviewInstructionsCmd(storage string) tea.Cmd {
 }
 
 type reviewDiffLoadedMsg struct {
-	instruction   string
-	diff          string
-	stat          string
-	commits       []git.Commit
-	contextHeader string
-	err           error
-	branchErr     error
+	instruction      string
+	diff             string
+	stat             string
+	commits          []git.Commit
+	contextHeader    string
+	enclosingContext string
+	err              error
+	branchErr        error
 }
 
 type reviewDiffCmdParams struct {
@@ -88,6 +90,7 @@ type reviewDiffCmdParams struct {
 	stagedOnly        bool
 	instruction       string
 	withPRDescription bool
+	contextEnrichment bool
 }
 
 func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
@@ -116,13 +119,23 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 			return reviewDiffLoadedMsg{instruction: params.instruction, branchErr: branchErr}
 		}
 
+		var enclosingContext string
+		if params.contextEnrichment && err == nil && !result.SkipEnrichment {
+			var ctxErr error
+			enclosingContext, ctxErr = enclosing.DeclarationsForDiff(ctx, result.Diff, result.Ref)
+			if ctxErr != nil {
+				enclosingContext = ""
+			}
+		}
+
 		return reviewDiffLoadedMsg{
-			instruction:   params.instruction,
-			diff:          result.Diff,
-			stat:          result.Stat,
-			commits:       result.Commits,
-			contextHeader: result.ContextHeader,
-			err:           err,
+			instruction:      params.instruction,
+			diff:             result.Diff,
+			stat:             result.Stat,
+			commits:          result.Commits,
+			contextHeader:    result.ContextHeader,
+			enclosingContext: enclosingContext,
+			err:              err,
 		}
 	}
 }

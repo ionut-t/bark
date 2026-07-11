@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/internal/enclosing"
 	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/ionut-t/bark/v2/internal/llm"
@@ -106,7 +107,19 @@ func RunReview(opts ReviewOptions) error {
 	}
 	system := prompt.FormatReviewSystem(reviewer.Prompt, reviewInstructions)
 
-	promptText := prompt.FormatReviewContent(reviewDiff.ContextHeader, reviewDiff.Stat, reviewDiff.Commits, reviewDiff.Diff)
+	var enclosingContext string
+	if opts.Config.GetContextEnrichment() && !reviewDiff.SkipEnrichment {
+		enclosingCtx, enclosingCancel := context.WithTimeout(context.Background(), gitTimeout)
+		var err error
+		enclosingContext, err = enclosing.DeclarationsForDiff(enclosingCtx, reviewDiff.Diff, reviewDiff.Ref)
+		enclosingCancel()
+		if err != nil {
+			// Gracefully continue without enclosing context if extraction fails
+			enclosingContext = ""
+		}
+	}
+
+	promptText := prompt.FormatReviewContent(reviewDiff.ContextHeader, reviewDiff.Stat, reviewDiff.Commits, reviewDiff.Diff, enclosingContext)
 
 	client, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {

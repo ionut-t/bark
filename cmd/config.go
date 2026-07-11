@@ -57,6 +57,15 @@ func configCmd() *cobra.Command {
 				flagsSet = true
 			}
 
+			if cmd.Flags().Changed(config.ContextEnrichmentKey) {
+				contextEnrichmentFlag, _ := cmd.Flags().GetBool(config.ContextEnrichmentKey)
+				if err := cfg.SetContextEnrichment(contextEnrichmentFlag); err != nil {
+					PrintError(err)
+					return
+				}
+				flagsSet = true
+			}
+
 			if !flagsSet {
 				if err := utils.OpenEditor(configPath); err != nil {
 					PrintError(err)
@@ -69,6 +78,7 @@ func configCmd() *cobra.Command {
 	cmd.Flags().StringP(config.LLMProviderKey, "p", "", "Set the LLM provider (e.g., gemini, vertexai)")
 	cmd.Flags().StringP(config.LLMModelKey, "m", "", "Set the LLM model")
 	cmd.Flags().Uint32P(config.MaxDiffLinesKey, "d", 0, fmt.Sprintf("Set the maximum number of diff lines to include in the prompt (default: %d)", config.DEFAULT_MAX_DIFF_LINES))
+	cmd.Flags().Bool(config.ContextEnrichmentKey, false, "Enable or disable enclosing-declaration context for reviews (default: false)")
 
 	return cmd
 }

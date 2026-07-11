@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var (
@@ -651,6 +653,12 @@ type ReviewDiff struct {
 	Stat          string
 	Commits       []Commit
 	ContextHeader string
+	// Ref is the git revision whose file content matches the diff's new-side
+	// line numbers: a commit hash, ":" for the index, or "" for the working tree.
+	Ref string
+	// SkipEnrichment is true when no local ref matches the diff (e.g. a PR head
+	// that is not checked out), so enclosing-context extraction must be skipped.
+	SkipEnrichment bool
 }
 
 // GetReviewDiff fetches the diff, stat, commits and context header for a review.
@@ -659,6 +667,9 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 
 	switch {
 	case params.pr != "":
+		// The PR head is generally not checked out locally, so no local ref
+		// matches the diff's line numbers.
+		r.SkipEnrichment = true
 		var err error
 		r.Diff, err = GetPRDiff(ctx, params.pr)
 		if err != nil {
@@ -683,6 +694,7 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		r.Commits, _ = GetBranchCommits(ctx, params.branch)
 
 	case params.commitHash != "":
+		r.Ref = params.commitHash
 		var err error
 		r.Diff, err = GetDiff(ctx, params.commitHash)
 		if err != nil {
@@ -693,6 +705,9 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 
 	default:
 		all := !params.stagedOnly
+		if params.stagedOnly {
+			r.Ref = ":"
+		}
 		var err error
 		r.Diff, err = GetWorkingTreeDiff(ctx, all)
 		if err != nil {
@@ -750,4 +765,55 @@ func GetPRInfo(ctx context.Context, prNumber string) (string, error) {
 	sb.WriteString(diff)
 
 	return sb.String(), nil
+}
+
+var (
+	repoRootMu   sync.Mutex
+	repoRootPath string
+)
+
+// RepoRoot returns the absolute path of the repository's top-level directory.
+// Only a successful result is memoized, so a transient failure (e.g. a
+// cancelled ctx on the first call) doesn't poison later calls.
+func RepoRoot(ctx context.Context) (string, error) {
+	repoRootMu.Lock()
+	defer repoRootMu.Unlock()
+	if repoRootPath != "" {
+		return repoRootPath, nil
+	}
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("could not resolve repository root: %w", err)
+	}
+	repoRootPath = strings.TrimSpace(string(output))
+	return repoRootPath, nil
+}
+
+// GetFileContent returns the content of a file at a specific git ref or index.
+func GetFileContent(ctx context.Context, ref string, filePath string) ([]byte, error) {
+	if !IsGitRepo() {
+		return nil, ErrNotAGitRepository
+	}
+
+	// If ref is empty, we read the working-tree file. Diff paths are always
+	// repo-root-relative, so anchor them there rather than at the process cwd.
+	if ref == "" {
+		root, err := RepoRoot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return os.ReadFile(filepath.Join(root, filePath))
+	}
+
+	// Build the git revision spec. A bare ":" means the staged/index version (":path"),
+	// otherwise it's "ref:path".
+	var arg string
+	if ref == ":" {
+		arg = ":" + filePath
+	} else {
+		arg = fmt.Sprintf("%s:%s", ref, filePath)
+	}
+	cmd := exec.CommandContext(ctx, "git", "show", arg)
+	return cmd.Output()
 }

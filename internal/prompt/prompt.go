@@ -20,13 +20,13 @@ func FormatReviewSystem(reviewerPrompt, instructions string) string {
 }
 
 // FormatReviewContent assembles the user-facing review prompt from fetched git context.
-func FormatReviewContent(contextHeader, stat string, commits []git.Commit, diff string) string {
+func FormatReviewContent(contextHeader, stat string, commits []git.Commit, diff string, enclosingContext string) string {
 	commitsSection := git.FormatCommitsSection(commits)
 	statSection := ""
 	if stat != "" {
 		statSection = fmt.Sprintf("## Files Changed\n%s\n\n", stat)
 	}
-	return fmt.Sprintf("%s%s%s**Code to review:**\n%s", contextHeader, commitsSection, statSection, diff)
+	return fmt.Sprintf("%s%s%s%s**Code to review:**\n%s", contextHeader, commitsSection, statSection, enclosingContext, diff)
 }
 
 // FormatCommitSystem builds the system prompt for commit message generation.

@@ -11,11 +11,12 @@ import (
 )
 
 const (
-	EditorKey         = "editor"
-	LLMProviderKey    = "llm_provider"
-	LLMModelKey       = "llm_model"
-	MaxDiffLinesKey   = "max_diff_lines"
-	RelativeNumberKey = "relative_number"
+	EditorKey            = "editor"
+	LLMProviderKey       = "llm_provider"
+	LLMModelKey          = "llm_model"
+	MaxDiffLinesKey      = "max_diff_lines"
+	RelativeNumberKey    = "relative_number"
+	ContextEnrichmentKey = "context_enrichment"
 
 	rootDir                    = ".bark"
 	configFileName             = ".config.toml"
@@ -41,14 +42,18 @@ type Config interface {
 	GetMaxDiffLines() uint32
 	SetRelativeNumber(relative bool) error
 	GetRelativeNumber() bool
+	SetContextEnrichment(enrich bool) error
+	GetContextEnrichment() bool
+	OverrideContextEnrichment(enrich bool)
 }
 
 type configData struct {
-	Editor         string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
-	LLMProvider    string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark will try to auto-detect the provider based on available credentials."`
-	LLMModel       string `toml:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
-	MaxDiffLines   uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt (0 disables the limit)"`
-	RelativeNumber bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
+	Editor            string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
+	LLMProvider       string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark will try to auto-detect the provider based on available credentials."`
+	LLMModel          string `toml:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
+	MaxDiffLines      uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt (0 disables the limit)"`
+	RelativeNumber    bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
+	ContextEnrichment bool   `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) as context for review (default: false)"`
 }
 
 type config struct {
@@ -57,11 +62,12 @@ type config struct {
 
 func getConfigData() configData {
 	return configData{
-		Editor:         GetEditor(),
-		LLMProvider:    viper.GetString(LLMProviderKey),
-		LLMModel:       viper.GetString(LLMModelKey),
-		MaxDiffLines:   viper.GetUint32(MaxDiffLinesKey),
-		RelativeNumber: viper.GetBool(RelativeNumberKey),
+		Editor:            GetEditor(),
+		LLMProvider:       viper.GetString(LLMProviderKey),
+		LLMModel:          viper.GetString(LLMModelKey),
+		MaxDiffLines:      viper.GetUint32(MaxDiffLinesKey),
+		RelativeNumber:    viper.GetBool(RelativeNumberKey),
+		ContextEnrichment: viper.GetBool(ContextEnrichmentKey),
 	}
 }
 
@@ -185,6 +191,24 @@ func (c *config) GetRelativeNumber() bool {
 	return c.data.RelativeNumber
 }
 
+func (c *config) SetContextEnrichment(enrich bool) error {
+	if enrich == c.data.ContextEnrichment {
+		return nil
+	}
+
+	c.data.ContextEnrichment = enrich
+
+	return writeConfig(c.data)
+}
+
+func (c *config) GetContextEnrichment() bool {
+	return c.data.ContextEnrichment
+}
+
+func (c *config) OverrideContextEnrichment(enrich bool) {
+	c.data.ContextEnrichment = enrich
+}
+
 func writeConfig(config configData) error {
 	out, err := toml.Marshal(config)
 	if err != nil {
@@ -239,6 +263,7 @@ func InitialiseConfigFile() (string, error) {
 			viper.SetDefault(LLMModelKey, "gemini-2.5-pro")
 			viper.SetDefault(MaxDiffLinesKey, DEFAULT_MAX_DIFF_LINES)
 			viper.SetDefault(RelativeNumberKey, false)
+			viper.SetDefault(ContextEnrichmentKey, false)
 
 			if err := writeConfig(getConfigData()); err != nil {
 				return "", err
