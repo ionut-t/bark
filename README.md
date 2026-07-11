@@ -123,3 +123,4 @@ Bark is built with the help of these amazing open-source libraries:
 - [Glamour](https://github.com/charmbracelet/glamour)
 - [Google Gen AI Go SDK](https://github.com/googleapis/go-genai)
 - [goeditor](https://github.com/ionut-t/goeditor)
+- [gotreesitter](https://github.com/odvcencio/gotreesitter) - Pure-Go tree-sitter runtime

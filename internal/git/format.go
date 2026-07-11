@@ -14,6 +14,7 @@ func FormatCommitsSection(commits []Commit) string {
 	}
 	var sb strings.Builder
 	sb.WriteString("## Commits\n")
+	sb.WriteString("_The diff below is the cumulative net result of these commits. Treat commit messages as intent, not final state — a commit may add code that a later commit refactors or removes, so do not flag changes the final diff does not contain._\n\n")
 	for _, c := range commits {
 		if c.Date != "" {
 			fmt.Fprintf(&sb, " - %s (%s)\n", c.Message, c.Date)

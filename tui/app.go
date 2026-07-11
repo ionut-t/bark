@@ -744,6 +744,7 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 			stagedOnly:        m.stagedOnly,
 			instruction:       instruction,
 			withPRDescription: m.withPRDescription,
+			contextEnrichment: m.config.GetContextEnrichment(),
 		},
 	)
 }
@@ -771,7 +772,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	}
 	system := prompt.FormatReviewSystem(m.selectedReviewer.Prompt, msg.instruction)
 
-	reviewPrompt := prompt.FormatReviewContent(msg.contextHeader, msg.stat, msg.commits, msg.diff)
+	reviewPrompt := prompt.FormatReviewContent(msg.contextHeader, msg.stat, msg.commits, msg.diff, msg.enclosingContext)
 
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 

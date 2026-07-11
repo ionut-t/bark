@@ -39,6 +39,7 @@ func reviewCmd() *cobra.Command {
 	cmd.Flags().StringP("pr", "p", "", "Review a GitHub pull request by number (requires gh CLI)")
 	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
 	cmd.Flags().Bool("with-description", false, "Include the PR description in the review context (only applies with --pr)")
+	cmd.Flags().Bool("with-context", false, "Include enclosing declarations (functions, structs, classes) as context for review")
 
 	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged", "hash", "pr")
 
@@ -85,6 +86,11 @@ func runReviewCmd(cmd *cobra.Command) error {
 	if cmd.Flags().Changed("max-diff-lines") {
 		maxDiffLines, _ := cmd.Flags().GetUint32("max-diff-lines")
 		cfg.OverrideMaxDiffLines(maxDiffLines)
+	}
+
+	if cmd.Flags().Changed("with-context") {
+		contextEnrich, _ := cmd.Flags().GetBool("with-context")
+		cfg.OverrideContextEnrichment(contextEnrich)
 	}
 
 	if stdinDiff != nil || isPlainMode(cmd) {
