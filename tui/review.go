@@ -87,6 +87,18 @@ var loadingMessages = [...]string{
 	"Peer reviewing in zero gravity...",
 }
 
+const (
+	// streamCoalesceWindow batches stream deltas into a single editor update;
+	// per-delta updates re-lex the viewport and saturate the event loop.
+	streamCoalesceWindow = 50 * time.Millisecond
+
+	// Extra highlighted context lines are expensive to tokenise; keep them low
+	// while streaming (cursor pinned to the bottom) and restore once the user
+	// can scroll back through the finished review.
+	streamingHighlightContextLines = 50
+	finalHighlightContextLines     = 500
+)
+
 type streamReadyMsg struct {
 	respChan <-chan llm.Response
 	errChan  <-chan error
@@ -131,7 +143,7 @@ type reviewModel struct {
 func newReviewModel(reviewer reviewers.Reviewer, system, prompt string, width, height int, llm llm.LLM) reviewModel {
 	textEditor := editor.New(width, height)
 	textEditor.DisableInsertMode(true)
-	textEditor.SetExtraHighlightedContextLines(500)
+	textEditor.SetExtraHighlightedContextLines(streamingHighlightContextLines)
 	textEditor.Focus()
 
 	sp := spinner.New()
@@ -188,6 +200,9 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
+		if m.loadingChunks && !m.loading {
+			m.setStreamingStatusLine()
+		}
 		return m, cmd
 
 	case reviewLoadingMsg:
@@ -200,7 +215,8 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 
 	case streamReadyMsg:
 		m.respChan = msg.respChan
-		return m, watchStreamCmd(m.respChan, msg.errChan)
+		m.errChan = msg.errChan
+		return m, watchStreamCmd(m.respChan, m.errChan)
 
 	case streamChunkMsg:
 		if m.loading {
@@ -215,10 +231,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		m.editor.SetContent(content)
 		_ = m.editor.SetCursorPositionEnd()
 
-		reviewerAction := m.styles.Accent.Background(m.styles.Surface1.GetBackground()).Render(m.reviewer.Name + " is reviewing... ")
-		spacer := m.styles.Surface1.Render(" ")
-		reviewerInfo := m.styles.Surface1.Render(m.spinner.View()) + spacer + reviewerAction
-		m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
+		m.setStreamingStatusLine()
 
 		var cmd tea.Cmd
 		m.editor, cmd = m.editor.Update(msg)
@@ -236,6 +249,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 
 	case streamCompleteMsg:
 		m.loadingChunks = false
+		m.editor.SetExtraHighlightedContextLines(finalHighlightContextLines)
 		m.response = m.editor.GetCurrentContent() + "\n\n"
 		m.editor.SetContent(m.response)
 		reviewerInfo := m.styles.Accent.Render("Reviewed by " + m.reviewer.Name + " ")
@@ -290,24 +304,57 @@ func startStreamCmd(llm llm.LLM, ctx context.Context, system, prompt string) tea
 
 func watchStreamCmd(respChan <-chan llm.Response, errChan <-chan error) tea.Cmd {
 	return func() tea.Msg {
-		select {
-		case resp, ok := <-respChan:
-			if !ok {
-				return streamCompleteMsg{}
-			}
+		var buf strings.Builder
+		var deadline <-chan time.Time
 
-			return streamChunkMsg{content: resp.Content}
-
-		case err, ok := <-errChan:
-			if ok && err != nil {
-				// Check if it's a context cancellation - don't show as error
-				if errors.Is(err, context.Canceled) {
+		for {
+			select {
+			case resp, ok := <-respChan:
+				if !ok {
+					// Flush any buffered content first; the streamChunkMsg
+					// handler re-arms the watch, which then sees the closed
+					// channel and completes.
+					if buf.Len() > 0 {
+						return streamChunkMsg{content: buf.String()}
+					}
+					// Providers buffer a late error before closing both
+					// channels, and select picks randomly between ready
+					// cases, so check for a pending error before reporting
+					// the stream as complete.
+					select {
+					case err, ok := <-errChan:
+						if ok && err != nil && !errors.Is(err, context.Canceled) {
+							return streamErrorMsg{error: err}
+						}
+					default:
+					}
 					return streamCompleteMsg{}
 				}
-				return streamErrorMsg{error: err}
+
+				buf.WriteString(resp.Content)
+				if deadline == nil {
+					deadline = time.After(streamCoalesceWindow)
+				}
+
+			case <-deadline:
+				return streamChunkMsg{content: buf.String()}
+
+			case err, ok := <-errChan:
+				if !ok {
+					// Closed without error. The stream may still have
+					// content pending, so disable this case (a nil channel
+					// never fires) and keep draining respChan.
+					errChan = nil
+					continue
+				}
+				if err != nil {
+					// Context cancellation is not an error to surface
+					if errors.Is(err, context.Canceled) {
+						return streamCompleteMsg{}
+					}
+					return streamErrorMsg{error: err}
+				}
 			}
-			// Error channel closed without error
-			return nil
 		}
 	}
 }
@@ -338,6 +385,7 @@ func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	m.loading = true
 	m.error = nil
 	m.spinner.Spinner = spinner.Dot
+	m.editor.SetExtraHighlightedContextLines(streamingHighlightContextLines)
 	m.editor.SetContent("")
 
 	return tea.Batch(
@@ -345,6 +393,16 @@ func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 		m.dispatchLoadingMsg(),
 		startStreamCmd(m.llm, ctx, m.system, m.prompt),
 	)
+}
+
+// setStreamingStatusLine bakes the current spinner frame into the editor's
+// status line; call it on every spinner tick while streaming so the spinner
+// animates between coalesced chunk flushes.
+func (m *reviewModel) setStreamingStatusLine() {
+	reviewerAction := m.styles.Accent.Background(m.styles.Surface1.GetBackground()).Render(m.reviewer.Name + " is reviewing... ")
+	spacer := m.styles.Surface1.Render(" ")
+	reviewerInfo := m.styles.Surface1.Render(m.spinner.View()) + spacer + reviewerAction
+	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
 }
 
 func (m *reviewModel) dispatchLoadingMsg() tea.Cmd {
