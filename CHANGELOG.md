@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.23.0](https://github.com/ionut-t/bark/compare/v2.22.0...v2.23.0) (2026-07-12)
+
+
+### Features
+
+* **llm:** track and display token usage statistics ([#72](https://github.com/ionut-t/bark/issues/72)) ([31f472c](https://github.com/ionut-t/bark/commit/31f472c2f2353f0181d3b3da9f755ca86632a341))
+* **review:** enrich prompts with enclosing code context ([#69](https://github.com/ionut-t/bark/issues/69)) ([69b0c17](https://github.com/ionut-t/bark/commit/69b0c177cd1bf3b2f14b0f774e13714dd8634236))
+
+
+### Bug Fixes
+
+* **tui:** coalesce stream deltas to prevent UI lag and flicker ([#71](https://github.com/ionut-t/bark/issues/71)) ([f0fcc3f](https://github.com/ionut-t/bark/commit/f0fcc3fb1bd94508b9cfedc5bb1b0cd74410c17a))
+
 ## [2.22.0](https://github.com/ionut-t/bark/compare/v2.21.0...v2.22.0) (2026-06-21)
 
 
