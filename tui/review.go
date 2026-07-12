@@ -100,8 +100,9 @@ const (
 )
 
 type streamReadyMsg struct {
-	respChan <-chan llm.Response
-	errChan  <-chan error
+	respChan  <-chan llm.Response
+	errChan   <-chan error
+	startedAt time.Time
 }
 
 type streamErrorMsg struct {
@@ -109,10 +110,15 @@ type streamErrorMsg struct {
 }
 
 type streamChunkMsg struct {
-	content string
+	content  string
+	usage    llm.Usage
+	hasUsage bool
 }
 
-type streamCompleteMsg struct{}
+type streamCompleteMsg struct {
+	usage    llm.Usage
+	hasUsage bool
+}
 
 type reviewLoadingMsg struct {
 	message string
@@ -294,10 +300,12 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 
 func startStreamCmd(llm llm.LLM, ctx context.Context, system, prompt string) tea.Cmd {
 	return func() tea.Msg {
+		startedAt := time.Now()
 		respChan, errChan := llm.Stream(ctx, system, prompt)
 		return streamReadyMsg{
-			respChan: respChan,
-			errChan:  errChan,
+			respChan:  respChan,
+			errChan:   errChan,
+			startedAt: startedAt,
 		}
 	}
 }
@@ -306,6 +314,8 @@ func watchStreamCmd(respChan <-chan llm.Response, errChan <-chan error) tea.Cmd 
 	return func() tea.Msg {
 		var buf strings.Builder
 		var deadline <-chan time.Time
+		var usage llm.Usage
+		var hasUsage bool
 
 		for {
 			select {
@@ -315,7 +325,7 @@ func watchStreamCmd(respChan <-chan llm.Response, errChan <-chan error) tea.Cmd 
 					// handler re-arms the watch, which then sees the closed
 					// channel and completes.
 					if buf.Len() > 0 {
-						return streamChunkMsg{content: buf.String()}
+						return streamChunkMsg{content: buf.String(), usage: usage, hasUsage: hasUsage}
 					}
 					// Providers buffer a late error before closing both
 					// channels, and select picks randomly between ready
@@ -328,16 +338,22 @@ func watchStreamCmd(respChan <-chan llm.Response, errChan <-chan error) tea.Cmd 
 						}
 					default:
 					}
-					return streamCompleteMsg{}
+					return streamCompleteMsg{usage: usage, hasUsage: hasUsage}
 				}
 
+				if resp.Usage != nil {
+					// Copy to a value so no pointer into provider-owned
+					// memory crosses into the message layer.
+					usage = *resp.Usage
+					hasUsage = true
+				}
 				buf.WriteString(resp.Content)
 				if deadline == nil {
 					deadline = time.After(streamCoalesceWindow)
 				}
 
 			case <-deadline:
-				return streamChunkMsg{content: buf.String()}
+				return streamChunkMsg{content: buf.String(), usage: usage, hasUsage: hasUsage}
 
 			case err, ok := <-errChan:
 				if !ok {
@@ -350,7 +366,7 @@ func watchStreamCmd(respChan <-chan llm.Response, errChan <-chan error) tea.Cmd 
 				if err != nil {
 					// Context cancellation is not an error to surface
 					if errors.Is(err, context.Canceled) {
-						return streamCompleteMsg{}
+						return streamCompleteMsg{usage: usage, hasUsage: hasUsage}
 					}
 					return streamErrorMsg{error: err}
 				}
@@ -420,6 +436,7 @@ func reviewHelp(width int, forCommits bool, s styles.Styles) string {
 		{"tab", "toggle between review and prompt"},
 		{"c", "generate commit message (for staged changes)"},
 		{"C", "generate commit message for all changes (staged and unstaged)"},
+		{"ctrl+t", "show LLM usage stats"},
 		{"esc", "close help"},
 		{"ctrl+c", "quit"},
 	}

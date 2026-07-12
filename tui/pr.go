@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -119,8 +120,11 @@ type prLoadingMsg struct {
 }
 
 type prResponseMsg struct {
-	message string
-	error   error
+	message  string
+	error    error
+	usage    llm.Usage
+	hasUsage bool
+	duration time.Duration
 }
 
 type prModel struct {
@@ -283,11 +287,18 @@ func (m prModel) View() string {
 
 func getPRMessage(ctx context.Context, llm llm.LLM, system, prompt string) tea.Cmd {
 	return func() tea.Msg {
-		message, err := llm.Generate(ctx, system, prompt)
-		return prResponseMsg{
-			message: message,
-			error:   err,
+		start := time.Now()
+		resp, err := llm.Generate(ctx, system, prompt)
+		msg := prResponseMsg{
+			message:  resp.Content,
+			error:    err,
+			duration: time.Since(start),
 		}
+		if resp.Usage != nil {
+			msg.usage = *resp.Usage
+			msg.hasUsage = true
+		}
+		return msg
 	}
 }
 

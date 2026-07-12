@@ -112,7 +112,7 @@ func (c *providerCredentials) validateProvider(provider string) error {
 	return nil
 }
 
-func New(ctx context.Context, cfg config.Config) (llm.LLM, error) {
+func New(ctx context.Context, cfg config.Config) (llm.LLM, string, error) {
 	creds := loadCredentials()
 
 	provider, err := cfg.GetLLMProvider()
@@ -120,33 +120,39 @@ func New(ctx context.Context, cfg config.Config) (llm.LLM, error) {
 		// Config doesn't specify provider, try to auto-detect
 		provider, err = creds.detectProvider()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
 
 	provider = strings.ToLower(strings.TrimSpace(provider))
 
 	if err := creds.validateProvider(provider); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	model, err := cfg.GetLLMModel()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
+	var l llm.LLM
 	switch provider {
 	case "gemini":
-		return gemini.New(ctx, model, creds.geminiAPIKey)
+		l, err = gemini.New(ctx, model, creds.geminiAPIKey)
 	case "vertexai":
-		return vertexai.New(ctx, model, creds.vertexAIProjectID, creds.vertexAILocation)
+		l, err = vertexai.New(ctx, model, creds.vertexAIProjectID, creds.vertexAILocation)
 	case "openai":
-		return openai.New(model, creds.openAIAPIKey), nil
+		l = openai.New(model, creds.openAIAPIKey)
 	case "anthropic":
-		return anthropic.New(model, creds.anthropicAPIKey), nil
+		l = anthropic.New(model, creds.anthropicAPIKey)
 	case "ollama":
-		return ollama.New(model), nil
+		l = ollama.New(model)
 	default:
-		return nil, fmt.Errorf("%w: %s", ErrInvalidProvider, provider)
+		return nil, "", fmt.Errorf("%w: %s", ErrInvalidProvider, provider)
 	}
+
+	if err != nil {
+		return nil, "", err
+	}
+	return l, provider, nil
 }

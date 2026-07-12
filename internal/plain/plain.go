@@ -121,7 +121,7 @@ func RunReview(opts ReviewOptions) error {
 
 	promptText := prompt.FormatReviewContent(reviewDiff.ContextHeader, reviewDiff.Stat, reviewDiff.Commits, reviewDiff.Diff, enclosingContext)
 
-	client, err := llm_factory.New(context.Background(), opts.Config)
+	client, _, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
 		return fmt.Errorf("error creating LLM client: %w", err)
 	}
@@ -163,7 +163,7 @@ func RunCommit(opts CommitOptions) error {
 	}
 	commitSystem := prompt.FormatCommitSystem(commitInstructions, opts.Hint)
 
-	client, err := llm_factory.New(context.Background(), opts.Config)
+	client, _, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
 		return fmt.Errorf("error creating LLM client: %w", err)
 	}
@@ -176,7 +176,7 @@ func RunCommit(opts CommitOptions) error {
 		return fmt.Errorf("error generating commit message: %w", err)
 	}
 
-	fmt.Print(utils.RemoveCodeFences(result))
+	fmt.Print(utils.RemoveCodeFences(result.Content))
 	fmt.Println()
 
 	return nil
@@ -215,7 +215,7 @@ func RunPR(opts PROptions) error {
 
 	prSystem := prompt.FormatPRSystem(prInstructions)
 
-	client, err := llm_factory.New(context.Background(), opts.Config)
+	client, _, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
 		return fmt.Errorf("error creating LLM client: %w", err)
 	}
@@ -228,7 +228,7 @@ func RunPR(opts PROptions) error {
 		return fmt.Errorf("error generating PR description: %w", err)
 	}
 
-	fmt.Print(result)
+	fmt.Print(result.Content)
 	fmt.Println()
 
 	return nil
@@ -256,7 +256,7 @@ func fullResponse(ctx context.Context, client llm.LLM, system, promptText string
 		return fmt.Errorf("error during review: %w", err)
 	}
 
-	fmt.Print(response)
+	fmt.Print(response.Content)
 	fmt.Println()
 
 	return nil

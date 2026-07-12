@@ -56,6 +56,7 @@ func (o *OpenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 			}
 		}()
 
+		var usage *llm.Usage
 		for stream.Next() {
 			select {
 			case <-ctx.Done():
@@ -65,6 +66,16 @@ func (o *OpenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 			}
 
 			event := stream.Current()
+			if event.Type == "response.completed" {
+				respUsage := event.AsResponseCompleted().Response.Usage
+				usage = &llm.Usage{
+					InputTokens:  respUsage.InputTokens,
+					OutputTokens: respUsage.OutputTokens,
+					TotalTokens:  respUsage.TotalTokens,
+				}
+				continue
+			}
+
 			if event.Type != "response.output_text.delta" {
 				continue
 			}
@@ -87,15 +98,22 @@ func (o *OpenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 
 		if err := stream.Err(); err != nil {
 			errChan <- err
+		} else if usage != nil {
+			select {
+			case out <- llm.Response{Usage: usage, Time: time.Now()}:
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			}
 		}
 	}()
 
 	return out, errChan
 }
 
-func (o *OpenAI) Generate(ctx context.Context, system, prompt string) (string, error) {
+func (o *OpenAI) Generate(ctx context.Context, system, prompt string) (llm.Response, error) {
 	if ctx.Err() != nil {
-		return "", ctx.Err()
+		return llm.Response{}, ctx.Err()
 	}
 
 	params := responses.ResponseNewParams{
@@ -106,13 +124,23 @@ func (o *OpenAI) Generate(ctx context.Context, system, prompt string) (string, e
 
 	resp, err := o.client.Responses.New(ctx, params)
 	if err != nil {
-		return "", fmt.Errorf("openai request failed: %w", err)
+		return llm.Response{}, fmt.Errorf("openai request failed: %w", err)
 	}
 
 	text := resp.OutputText()
 	if text == "" {
-		return "", fmt.Errorf("no response from LLM")
+		return llm.Response{}, fmt.Errorf("no response from LLM")
 	}
 
-	return text, nil
+	usage := &llm.Usage{
+		InputTokens:  resp.Usage.InputTokens,
+		OutputTokens: resp.Usage.OutputTokens,
+		TotalTokens:  resp.Usage.TotalTokens,
+	}
+
+	return llm.Response{
+		Content: text,
+		Time:    time.Now(),
+		Usage:   usage,
+	}, nil
 }

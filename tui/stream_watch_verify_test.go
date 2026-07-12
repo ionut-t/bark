@@ -91,6 +91,39 @@ func TestWatchStreamTreatsCancellationAsCompletion(t *testing.T) {
 	require.Equal(t, streamCompleteMsg{}, watchStreamCmd(respChan, errChan)())
 }
 
+// A final response bearing usage metadata must propagate to the completion message.
+func TestWatchStreamPropagatesUsage(t *testing.T) {
+	respChan := make(chan llm.Response, 1)
+	errChan := make(chan error)
+
+	usage := llm.Usage{InputTokens: 10, OutputTokens: 20, TotalTokens: 30}
+	respChan <- llm.Response{Usage: &usage, Time: time.Now()}
+	close(respChan)
+	close(errChan)
+
+	msg := watchStreamCmd(respChan, errChan)()
+	require.IsType(t, streamCompleteMsg{}, msg)
+	require.True(t, msg.(streamCompleteMsg).hasUsage)
+	require.Equal(t, usage, msg.(streamCompleteMsg).usage)
+}
+
+// Usage arriving alongside content mid-stream must ride out on the coalesced
+// chunk message, not be lost when the deadline flushes the buffer.
+func TestWatchStreamPropagatesUsageOnChunk(t *testing.T) {
+	respChan := make(chan llm.Response, 1)
+	errChan := make(chan error, 1)
+
+	usage := llm.Usage{InputTokens: 10, OutputTokens: 20, TotalTokens: 30}
+	respChan <- llm.Response{Content: "tail", Usage: &usage, Time: time.Now()}
+
+	msg := watchStreamCmd(respChan, errChan)()
+	require.IsType(t, streamChunkMsg{}, msg)
+	chunk := msg.(streamChunkMsg)
+	require.Equal(t, "tail", chunk.content)
+	require.True(t, chunk.hasUsage)
+	require.Equal(t, usage, chunk.usage)
+}
+
 // A mid-stream error must surface as streamErrorMsg.
 func TestWatchStreamReportsError(t *testing.T) {
 	respChan := make(chan llm.Response)
