@@ -105,6 +105,11 @@ type Model struct {
 	isDarkMode bool
 	pendingCmd tea.Cmd
 
+	llmProvider  string
+	lastUsage    *usageStats
+	genStartedAt time.Time
+	showStats    bool
+
 	viewport viewport.Model
 }
 
@@ -127,7 +132,7 @@ type Options struct {
 func New(options Options) *Model {
 	isDarkMode := styles.IsDark()
 
-	llm, err := llm_factory.New(context.Background(), options.Config)
+	llm, provider, err := llm_factory.New(context.Background(), options.Config)
 	if err != nil {
 		return &Model{
 			error: err,
@@ -157,6 +162,7 @@ func New(options Options) *Model {
 		height:               24,
 		currentView:          currentView,
 		llm:                  llm,
+		llmProvider:          provider,
 		config:               options.Config,
 		storage:              options.Storage,
 		selectCommit:         options.SelectCommit,
@@ -190,11 +196,41 @@ func New(options Options) *Model {
 	return m
 }
 
+func (m *Model) recordUsage(usage llm.Usage, duration time.Duration) {
+	m.lastUsage = &usageStats{
+		usage:    usage,
+		provider: m.llmProvider,
+		model:    m.getLlmModelName(),
+		duration: duration,
+	}
+}
+
 func (m Model) Init() tea.Cmd {
 	return m.pendingCmd
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case streamReadyMsg:
+		m.genStartedAt = msg.startedAt
+	case streamChunkMsg:
+		if msg.hasUsage {
+			m.recordUsage(msg.usage, time.Since(m.genStartedAt))
+		}
+	case streamCompleteMsg:
+		if msg.hasUsage {
+			m.recordUsage(msg.usage, time.Since(m.genStartedAt))
+		}
+	case commitResponseMsg:
+		if msg.hasUsage {
+			m.recordUsage(msg.usage, msg.duration)
+		}
+	case prResponseMsg:
+		if msg.hasUsage {
+			m.recordUsage(msg.usage, msg.duration)
+		}
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -421,6 +457,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectedInstruction = ""
 
 	case tea.KeyMsg:
+		if m.showStats {
+			switch msg.String() {
+			case "esc", "ctrl+t":
+				m.showStats = false
+				return m, nil
+			case "ctrl+c":
+				// allow ctrl+c to fall through and quit
+			default:
+				return m, nil
+			}
+		}
+
 		switch msg.String() {
 		case "ctrl+c":
 			if m.reviewCancelFunc != nil {
@@ -435,6 +483,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "f1":
 			m.showHelp = !m.showHelp
+
+		case "ctrl+t":
+			m.showStats = !m.showStats
+			return m, nil
 
 		case "esc":
 			m.showHelp = false
@@ -554,7 +606,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() tea.View {
-	view := tea.NewView(m.createView())
+	content := m.createView()
+	if m.showStats {
+		content = overlayCenter(content, renderUsageStats(m.lastUsage, m.styles), m.width, m.height)
+	}
+
+	view := tea.NewView(content)
 	view.AltScreen = true
 	view.WindowTitle = m.getTitle()
 

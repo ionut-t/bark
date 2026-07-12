@@ -52,6 +52,7 @@ func (g *GenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.R
 		contents := genai.Text(prompt)
 		stream := g.client.Models.GenerateContentStream(ctx, g.model, contents, systemConfig(system))
 
+		var usage *llm.Usage
 		for resp, err := range stream {
 			select {
 			case <-ctx.Done():
@@ -63,6 +64,14 @@ func (g *GenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.R
 			if err != nil {
 				errChan <- err
 				return
+			}
+
+			if resp.UsageMetadata != nil {
+				usage = &llm.Usage{
+					InputTokens:  int64(resp.UsageMetadata.PromptTokenCount),
+					OutputTokens: int64(resp.UsageMetadata.CandidatesTokenCount),
+					TotalTokens:  int64(resp.UsageMetadata.TotalTokenCount),
+				}
 			}
 
 			if len(resp.Candidates) > 0 {
@@ -82,24 +91,46 @@ func (g *GenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.R
 				}
 			}
 		}
+
+		if usage != nil {
+			select {
+			case out <- llm.Response{Usage: usage, Time: time.Now()}:
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			}
+		}
 	}()
 
 	return out, errChan
 }
 
-func (g *GenAI) Generate(ctx context.Context, system, prompt string) (string, error) {
+func (g *GenAI) Generate(ctx context.Context, system, prompt string) (llm.Response, error) {
 	if ctx.Err() != nil {
-		return "", ctx.Err()
+		return llm.Response{}, ctx.Err()
 	}
 
 	result, err := g.client.Models.GenerateContent(ctx, g.model, genai.Text(prompt), systemConfig(system))
 	if err != nil {
-		return "", fmt.Errorf("genai request failed: %w", err)
+		return llm.Response{}, fmt.Errorf("genai request failed: %w", err)
 	}
 
 	if result == nil {
-		return "", fmt.Errorf("no response from LLM")
+		return llm.Response{}, fmt.Errorf("no response from LLM")
 	}
 
-	return result.Text(), nil
+	var usage *llm.Usage
+	if result.UsageMetadata != nil {
+		usage = &llm.Usage{
+			InputTokens:  int64(result.UsageMetadata.PromptTokenCount),
+			OutputTokens: int64(result.UsageMetadata.CandidatesTokenCount),
+			TotalTokens:  int64(result.UsageMetadata.TotalTokenCount),
+		}
+	}
+
+	return llm.Response{
+		Content: result.Text(),
+		Time:    time.Now(),
+		Usage:   usage,
+	}, nil
 }

@@ -54,8 +54,9 @@ func (o *Ollama) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 		}
 
 		stream := o.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
-			Model:    openai.ChatModel(o.model),
-			Messages: buildMessages(system, prompt),
+			Model:         openai.ChatModel(o.model),
+			Messages:      buildMessages(system, prompt),
+			StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: openai.Bool(true)},
 		})
 		defer func() {
 			if err := stream.Close(); err != nil {
@@ -63,6 +64,7 @@ func (o *Ollama) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 			}
 		}()
 
+		var usage *llm.Usage
 		for stream.Next() {
 			select {
 			case <-ctx.Done():
@@ -72,6 +74,14 @@ func (o *Ollama) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 			}
 
 			chunk := stream.Current()
+			if chunk.Usage.TotalTokens > 0 {
+				usage = &llm.Usage{
+					InputTokens:  chunk.Usage.PromptTokens,
+					OutputTokens: chunk.Usage.CompletionTokens,
+					TotalTokens:  chunk.Usage.TotalTokens,
+				}
+			}
+
 			if len(chunk.Choices) == 0 {
 				continue
 			}
@@ -91,15 +101,22 @@ func (o *Ollama) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 
 		if err := stream.Err(); err != nil {
 			errChan <- err
+		} else if usage != nil {
+			select {
+			case out <- llm.Response{Usage: usage, Time: time.Now()}:
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			}
 		}
 	}()
 
 	return out, errChan
 }
 
-func (o *Ollama) Generate(ctx context.Context, system, prompt string) (string, error) {
+func (o *Ollama) Generate(ctx context.Context, system, prompt string) (llm.Response, error) {
 	if ctx.Err() != nil {
-		return "", ctx.Err()
+		return llm.Response{}, ctx.Err()
 	}
 
 	resp, err := o.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
@@ -107,17 +124,30 @@ func (o *Ollama) Generate(ctx context.Context, system, prompt string) (string, e
 		Messages: buildMessages(system, prompt),
 	})
 	if err != nil {
-		return "", fmt.Errorf("ollama request failed: %w", err)
+		return llm.Response{}, fmt.Errorf("ollama request failed: %w", err)
 	}
 
 	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("no response from Ollama")
+		return llm.Response{}, fmt.Errorf("no response from Ollama")
 	}
 
 	content := resp.Choices[0].Message.Content
 	if content == "" {
-		return "", fmt.Errorf("empty response from Ollama")
+		return llm.Response{}, fmt.Errorf("empty response from Ollama")
 	}
 
-	return content, nil
+	var usage *llm.Usage
+	if resp.Usage.TotalTokens > 0 {
+		usage = &llm.Usage{
+			InputTokens:  resp.Usage.PromptTokens,
+			OutputTokens: resp.Usage.CompletionTokens,
+			TotalTokens:  resp.Usage.TotalTokens,
+		}
+	}
+
+	return llm.Response{
+		Content: content,
+		Time:    time.Now(),
+		Usage:   usage,
+	}, nil
 }

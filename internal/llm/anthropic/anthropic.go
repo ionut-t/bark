@@ -61,6 +61,7 @@ func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan l
 			}
 		}()
 
+		var usage *llm.Usage
 		for stream.Next() {
 			select {
 			case <-ctx.Done():
@@ -70,35 +71,57 @@ func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan l
 			}
 
 			event := stream.Current()
-			delta, ok := event.AsAny().(anthropic.ContentBlockDeltaEvent)
-			if !ok {
-				continue
-			}
+			switch ev := event.AsAny().(type) {
+			case anthropic.MessageStartEvent:
+				if usage == nil {
+					usage = &llm.Usage{}
+				}
+				usage.InputTokens = ev.Message.Usage.InputTokens
+				usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+			case anthropic.MessageDeltaEvent:
+				if usage == nil {
+					usage = &llm.Usage{}
+				}
+				usage.OutputTokens = ev.Usage.OutputTokens
+				// The delta carries the up-to-date cumulative input count when
+				// the API sends it; otherwise keep the message_start value.
+				if ev.Usage.InputTokens > 0 {
+					usage.InputTokens = ev.Usage.InputTokens
+				}
+				usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+			case anthropic.ContentBlockDeltaEvent:
+				textDelta, ok := ev.Delta.AsAny().(anthropic.TextDelta)
+				if !ok || textDelta.Text == "" {
+					continue
+				}
 
-			textDelta, ok := delta.Delta.AsAny().(anthropic.TextDelta)
-			if !ok || textDelta.Text == "" {
-				continue
-			}
-
-			select {
-			case out <- llm.Response{Content: textDelta.Text, Time: time.Now()}:
-			case <-ctx.Done():
-				errChan <- ctx.Err()
-				return
+				select {
+				case out <- llm.Response{Content: textDelta.Text, Time: time.Now()}:
+				case <-ctx.Done():
+					errChan <- ctx.Err()
+					return
+				}
 			}
 		}
 
 		if err := stream.Err(); err != nil {
 			errChan <- err
+		} else if usage != nil {
+			select {
+			case out <- llm.Response{Usage: usage, Time: time.Now()}:
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			}
 		}
 	}()
 
 	return out, errChan
 }
 
-func (a *Anthropic) Generate(ctx context.Context, system, prompt string) (string, error) {
+func (a *Anthropic) Generate(ctx context.Context, system, prompt string) (llm.Response, error) {
 	if ctx.Err() != nil {
-		return "", ctx.Err()
+		return llm.Response{}, ctx.Err()
 	}
 
 	params := anthropic.MessageNewParams{
@@ -112,17 +135,25 @@ func (a *Anthropic) Generate(ctx context.Context, system, prompt string) (string
 
 	resp, err := a.client.Messages.New(ctx, params)
 	if err != nil {
-		return "", fmt.Errorf("anthropic request failed: %w", err)
+		return llm.Response{}, fmt.Errorf("anthropic request failed: %w", err)
 	}
 
 	if len(resp.Content) == 0 {
-		return "", fmt.Errorf("no response from anthropic")
+		return llm.Response{}, fmt.Errorf("no response from anthropic")
 	}
 
 	text, ok := resp.Content[0].AsAny().(anthropic.TextBlock)
 	if !ok || text.Text == "" {
-		return "", fmt.Errorf("empty response from anthropic")
+		return llm.Response{}, fmt.Errorf("empty response from anthropic")
 	}
 
-	return text.Text, nil
+	return llm.Response{
+		Content: text.Text,
+		Time:    time.Now(),
+		Usage: &llm.Usage{
+			InputTokens:  resp.Usage.InputTokens,
+			OutputTokens: resp.Usage.OutputTokens,
+			TotalTokens:  resp.Usage.InputTokens + resp.Usage.OutputTokens,
+		},
+	}, nil
 }
