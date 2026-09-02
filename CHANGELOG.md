@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.24.0](https://github.com/ionut-t/bark/compare/v2.23.0...v2.24.0) (2026-09-02)
+
+
+### Miscellaneous Chores
+
+* release 2.24.0 ([fc8a987](https://github.com/ionut-t/bark/commit/fc8a987eb95f886f98290061eca2e5c38fd6a090))
+
 ## [2.23.0](https://github.com/ionut-t/bark/compare/v2.22.0...v2.23.0) (2026-07-12)
 
 
