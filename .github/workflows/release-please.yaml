@@ -23,13 +23,13 @@ jobs:
       # The following steps will only run if a release was created
       - name: Checkout code
         if: ${{ steps.release.outputs.release_created }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
         if: ${{ steps.release.outputs.release_created }}
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
-          go-version: "1.26"
+          go-version: "1.27"
           check-latest: true
 
       - name: Build binaries
