@@ -5,7 +5,7 @@ on:
     types: [opened, synchronize, reopened, labeled]
 
 env:
-  GO_VERSION: "1.27.0"
+  GO_VERSION: stable
 
 jobs:
   pr-description:

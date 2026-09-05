@@ -40,7 +40,7 @@ jobs:
           COMMIT=$(git rev-parse --short HEAD)
           BUILD_DATE=$(date -u +%d/%m/%Y)
           VERSION=${{ steps.release.outputs.tag_name }}
-          LDFLAGS="-X 'github.com/ionut-t/bark/internal/version.version=$VERSION' -X 'github.com/ionut-t/bark/internal/version.commit=$COMMIT' -X 'github.com/ionut-t/bark/internal/version.date=$BUILD_DATE'"
+          LDFLAGS="-X 'github.com/ionut-t/bark/v2/internal/version.version=$VERSION' -X 'github.com/ionut-t/bark/v2/internal/version.commit=$COMMIT' -X 'github.com/ionut-t/bark/v2/internal/version.date=$BUILD_DATE'"
 
           # Build for macOS (Apple Silicon)
           GOOS=darwin GOARCH=arm64 go build -ldflags="$LDFLAGS" -o dist/bark-darwin-arm64
@@ -50,6 +50,9 @@ jobs:
                     
           # Build for Linux (64-bit)
           GOOS=linux GOARCH=amd64 go build -ldflags="$LDFLAGS" -o dist/bark-linux-amd64
+
+          # Build for Linux (ARM64)
+          GOOS=linux GOARCH=arm64 go build -ldflags="$LDFLAGS" -o dist/bark-linux-arm64
 
           # Build for Windows (64-bit)
           GOOS=windows GOARCH=amd64 go build -ldflags="$LDFLAGS" -o dist/bark-windows-amd64.exe
