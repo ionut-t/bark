@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.24.1](https://github.com/ionut-t/bark/compare/v2.24.0...v2.24.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* **tui:** change regenerate keybinding from ctrl+r to ctrl+g ([#76](https://github.com/ionut-t/bark/issues/76)) ([bcd3610](https://github.com/ionut-t/bark/commit/bcd36108ea828ba664d5110894b67808c874de44))
+
 ## [2.24.0](https://github.com/ionut-t/bark/compare/v2.23.0...v2.24.0) (2026-09-02)
 
 
