@@ -424,7 +424,7 @@ func (m *commitChangesModel) commitChangesHelp() string {
 		{"alt+enter/ctrl+s", "submit commit message"},
 		{"tab", "view prompt"},
 		{"ctrl+t", "show LLM usage stats"},
-		{"ctrl+r", "generate a new commit message"},
+		{"ctrl+g", "generate a new commit message"},
 		{"ctrl+c", "quit"},
 	}
 
@@ -435,7 +435,7 @@ func (m *commitChangesModel) commitChangesHelp() string {
 		}{
 			{"i", "edit prompt"},
 			{"tab", "view commit message"},
-			{"ctrl+r", "generate a new commit message"},
+			{"ctrl+g", "generate a new commit message"},
 			{"ctrl+c", "quit"},
 		}
 	}
@@ -447,7 +447,7 @@ func (m *commitChangesModel) commitChangesHelp() string {
 				Description string
 			},
 			) bool {
-				return c.Command == "i" || c.Command == "ctrl+r" || c.Command == "tab"
+				return c.Command == "i" || c.Command == "ctrl+g" || c.Command == "tab"
 			},
 		)
 
