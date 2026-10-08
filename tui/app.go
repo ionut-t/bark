@@ -505,7 +505,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.commitErr = nil
 			}
 
-		case "ctrl+r":
+		case "ctrl+g":
 			switch m.currentView {
 			case viewCommitChanges:
 				if m.commitChanges.canRetry() {
