@@ -113,6 +113,10 @@ func (c *providerCredentials) validateProvider(provider string) error {
 }
 
 func New(ctx context.Context, cfg config.Config) (llm.LLM, string, error) {
+	if l, provider, ok := demoOverride(); ok {
+		return l, provider, nil
+	}
+
 	creds := loadCredentials()
 
 	provider, err := cfg.GetLLMProvider()

@@ -2,6 +2,8 @@
 
 Bark is a command-line tool that uses AI to review code, generate commit messages, and create pull request descriptions.
 
+![bark reviewing a staged change as Linus Torvalds](assets/demo.gif)
+
 ## Features
 
 - **AI-powered code review:** Get feedback on your code from an AI assistant.
