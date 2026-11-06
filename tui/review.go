@@ -151,6 +151,7 @@ func newReviewModel(reviewer reviewers.Reviewer, system, prompt string, width, h
 	textEditor.DisableInsertMode(true)
 	textEditor.SetExtraHighlightedContextLines(streamingHighlightContextLines)
 	textEditor.Focus()
+	textEditor.SetMoveAcrossLines(true)
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
