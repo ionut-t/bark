@@ -418,6 +418,7 @@ func newActionsWorkflowSummaryModel(cfg config.Config) actionsWorkflowSummaryMod
 	textEditor := editor.New(80, 24)
 	textEditor.SetExtraHighlightedContextLines(500)
 	textEditor.ShowRelativeLineNumbers(cfg.GetRelativeNumber())
+	textEditor.SetMoveAcrossLines(true)
 
 	return actionsWorkflowSummaryModel{
 		config:    cfg,

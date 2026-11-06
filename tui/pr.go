@@ -146,6 +146,7 @@ func newPRModel(llm llm.LLM, width, height int) prModel {
 	textEditor := editor.New(width, height)
 	textEditor.SetExtraHighlightedContextLines(300)
 	textEditor.Focus()
+	textEditor.SetMoveAcrossLines(true)
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot

@@ -175,6 +175,7 @@ type commitStreamStartMsg struct {
 func newCommitChangesModel(llm llm.LLM, system, prompt string, commitAll bool, width, height int) commitChangesModel {
 	textEditor := editor.New(width, height)
 	textEditor.Focus()
+	textEditor.SetMoveAcrossLines(true)
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
