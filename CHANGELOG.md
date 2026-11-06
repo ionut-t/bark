@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.25.0](https://github.com/ionut-t/bark/compare/v2.24.1...v2.25.0) (2026-11-06)
+
+
+### Features
+
+* **tui:** enable cursor movement across lines in editor ([#81](https://github.com/ionut-t/bark/issues/81)) ([27fd563](https://github.com/ionut-t/bark/commit/27fd563235d0b928b21f2d8e9c120323e1b64172))
+
 ## [2.24.1](https://github.com/ionut-t/bark/compare/v2.24.0...v2.24.1) (2026-10-08)
 
 
