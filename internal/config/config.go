@@ -118,7 +118,11 @@ func (c *config) OverrideModel(model string) {
 }
 
 func (c *config) OverrideProvider(provider string) error {
-	if provider != "" && !isValidProvider(provider) {
+	if provider == "" {
+		return nil
+	}
+
+	if !isValidProvider(provider) {
 		return fmt.Errorf("invalid provider: %s. Supported providers are 'gemini', 'vertexai', 'openai', 'anthropic', and 'ollama'", provider)
 	}
 
