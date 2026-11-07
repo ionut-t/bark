@@ -95,3 +95,100 @@ func TestGetBranchDiff_MatchesGetBranchStats(t *testing.T) {
 	assert.Equal(t, 1, files)
 	assert.Contains(t, stat, "1 file changed", "diff stat and branch stats should agree")
 }
+
+// newRepoWithUntrackedFile builds a repo with one commit, a modified tracked file,
+// a new untracked file, an ignored file and an untracked excluded (*.sum) file.
+func newRepoWithUntrackedFile(t *testing.T) string {
+	t.Helper()
+	dir := newDivergedRepo(t)
+
+	commitFile(t, dir, ".gitignore", "ignored.txt\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature changed\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("brand new\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ignored.txt"), []byte("ignored\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.sum"), []byte("checksums\n"), 0o644))
+	return dir
+}
+
+func TestGetWorkingTreeDiff_UntrackedFiles(t *testing.T) {
+	tests := []struct {
+		name          string
+		all           bool
+		wantUntracked bool
+	}{
+		{name: "all includes new files", all: true, wantUntracked: true},
+		{name: "staged only skips new files", all: false, wantUntracked: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			newRepoWithUntrackedFile(t)
+			runGit(t, ".", "add", "feature.txt")
+
+			diff, err := GetWorkingTreeDiff(t.Context(), tt.all)
+			require.NoError(t, err)
+
+			assert.Contains(t, diff, "feature.txt", "tracked change should be in the diff")
+			if tt.wantUntracked {
+				assert.Contains(t, diff, "diff --git a/new.txt b/new.txt")
+				assert.Contains(t, diff, "+brand new")
+			} else {
+				assert.NotContains(t, diff, "new.txt")
+			}
+			assert.NotContains(t, diff, "ignored.txt", "gitignored files should not be reviewed")
+			assert.NotContains(t, diff, "go.sum", "default excludes should apply to new files")
+		})
+	}
+}
+
+func TestGetWorkingTreeStat_UntrackedFiles(t *testing.T) {
+	newRepoWithUntrackedFile(t)
+
+	stat := GetWorkingTreeStat(t.Context(), true)
+
+	assert.Contains(t, stat, "feature.txt")
+	assert.Contains(t, stat, "new.txt")
+	assert.NotContains(t, stat, "ignored.txt")
+	assert.NotContains(t, stat, "go.sum")
+	assert.Contains(t, stat, "2 files changed")
+}
+
+func TestGetWorkingTreeDiff_LeavesIndexUntouched(t *testing.T) {
+	dir := newRepoWithUntrackedFile(t)
+
+	_, err := GetWorkingTreeDiff(t.Context(), true)
+	require.NoError(t, err)
+	_ = GetWorkingTreeStat(t.Context(), true)
+
+	cmd := exec.Command("git", "status", "--porcelain", "--", "new.txt")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	assert.Equal(t, "?? new.txt\n", string(out), "new file should still be untracked in the user's index")
+}
+
+func TestGetWorkingTreeDiff_UntrackedFromSubdirectory(t *testing.T) {
+	dir := newRepoWithUntrackedFile(t)
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "sub"), 0o755))
+	t.Chdir(filepath.Join(dir, "sub"))
+
+	diff, err := GetWorkingTreeDiff(t.Context(), true)
+	require.NoError(t, err)
+
+	assert.Contains(t, diff, "diff --git a/new.txt b/new.txt", "new files outside the current directory should be included")
+}
+
+func TestWithUntrackedIndex_NoIndexYet(t *testing.T) {
+	newDivergedRepo(t)
+	require.NoError(t, os.Remove(filepath.Join(".git", "index")))
+	require.NoError(t, os.WriteFile("new.txt", []byte("brand new\n"), 0o644))
+
+	cmd := exec.Command("git", "ls-files")
+	cleanup, err := withUntrackedIndex(t.Context(), cmd)
+	require.NoError(t, err)
+	defer cleanup()
+
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	assert.Contains(t, string(out), "new.txt")
+}

@@ -34,7 +34,7 @@ To review the changes, run `bark review`:
 bark review
 ```
 
-By default, `bark review` will analyse all tracked changes. To review only the staged changes, use the `--staged` or `-s` flag:
+By default, `bark review` will analyse all uncommitted changes, including new files (gitignored files are skipped). To review only the staged changes, use the `--staged` or `-s` flag:
 
 ```bash
 bark review --staged
