@@ -7,7 +7,7 @@ inputs:
     required: false
     default: "latest"
   provider:
-    description: "LLM provider to use: gemini or openai."
+    description: "LLM provider to use: gemini, openai or anthropic."
     required: true
   api-key:
     description: API key for the configured provider.
@@ -87,8 +87,15 @@ runs:
           "openai")
             export OPENAI_API_KEY="${{ inputs.api-key }}"
             ;;
+          "anthropic")
+            export ANTHROPIC_API_KEY="${{ inputs.api-key }}"
+            ;;
+          "vertexai"|"ollama")
+            echo "Error: provider '$PROVIDER' needs more than an API key (Vertex AI: service-account credentials; Ollama: a reachable server) and is not supported by this action. Use gemini, openai or anthropic." >&2
+            exit 1
+            ;;
           *)
-            echo "Error: Unknown provider $PROVIDER"
+            echo "Error: unknown provider '$PROVIDER'. Use gemini, openai or anthropic." >&2
             exit 1
             ;;
         esac

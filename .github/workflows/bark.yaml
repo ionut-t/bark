@@ -43,7 +43,10 @@ jobs:
             "gemini") export GEMINI_API_KEY="$BARK_API_KEY" ;;
             "openai") export OPENAI_API_KEY="$BARK_API_KEY" ;;
             "anthropic") export ANTHROPIC_API_KEY="$BARK_API_KEY" ;;
-            *) echo "Error: unknown provider '$PROVIDER'" >&2; exit 1 ;;
+            "vertexai"|"ollama")
+              echo "Error: provider '$PROVIDER' needs more than an API key (Vertex AI: service-account credentials; Ollama: a reachable server) and is not supported in this workflow. Use gemini, openai or anthropic." >&2
+              exit 1 ;;
+            *) echo "Error: unknown provider '$PROVIDER'. Use gemini, openai or anthropic." >&2; exit 1 ;;
           esac
 
           ARGS=(pr --pr "$PR_NUMBER" --provider "$PROVIDER")
@@ -103,7 +106,10 @@ jobs:
             "gemini") export GEMINI_API_KEY="$BARK_API_KEY" ;;
             "openai") export OPENAI_API_KEY="$BARK_API_KEY" ;;
             "anthropic") export ANTHROPIC_API_KEY="$BARK_API_KEY" ;;
-            *) echo "Error: unknown provider '$PROVIDER'" >&2; exit 1 ;;
+            "vertexai"|"ollama")
+              echo "Error: provider '$PROVIDER' needs more than an API key (Vertex AI: service-account credentials; Ollama: a reachable server) and is not supported in this workflow. Use gemini, openai or anthropic." >&2
+              exit 1 ;;
+            *) echo "Error: unknown provider '$PROVIDER'. Use gemini, openai or anthropic." >&2; exit 1 ;;
           esac
 
           ARGS=(review --pr "${{ github.event.pull_request.number }}" --provider "$PROVIDER")

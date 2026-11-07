@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/templates"
 	"github.com/pelletier/go-toml/v2"
@@ -123,7 +125,7 @@ func (c *config) OverrideProvider(provider string) error {
 	}
 
 	if !isValidProvider(provider) {
-		return fmt.Errorf("invalid provider: %s. Supported providers are 'gemini', 'vertexai', 'openai', 'anthropic', and 'ollama'", provider)
+		return fmt.Errorf("invalid provider: %s (supported: %s)", provider, strings.Join(supportedProviders, ", "))
 	}
 
 	c.data.LLMProvider = provider
@@ -373,5 +375,14 @@ func getInstructionsFromCurrentDir(fileName string) (string, error) {
 }
 
 func isValidProvider(provider string) bool {
-	return provider == "gemini" || provider == "vertexai" || provider == "openai" || provider == "anthropic" || provider == "ollama"
+	return slices.Contains(supportedProviders, provider)
+}
+
+// supportedProviders lists every LLM provider Bark accepts, in the order
+// shown to users.
+var supportedProviders = []string{"gemini", "vertexai", "openai", "anthropic", "ollama"}
+
+// SupportedProviders returns the LLM providers Bark accepts.
+func SupportedProviders() []string {
+	return slices.Clone(supportedProviders)
 }

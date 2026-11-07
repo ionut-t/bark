@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/instructions"
@@ -70,7 +71,7 @@ func configCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringP(config.EditorKey, "e", "", "Set the editor to use for editing config")
-	cmd.Flags().StringP(config.LLMProviderKey, "p", "", "Set the LLM provider (e.g., gemini, vertexai)")
+	cmd.Flags().StringP(config.LLMProviderKey, "p", "", "Set the LLM provider: "+strings.Join(config.SupportedProviders(), ", "))
 	cmd.Flags().StringP(config.LLMModelKey, "m", "", "Set the LLM model")
 	cmd.Flags().Uint32P(config.MaxDiffLinesKey, "d", 0, fmt.Sprintf("Set the maximum number of diff lines to include in the prompt (default: %d)", config.DEFAULT_MAX_DIFF_LINES))
 	cmd.Flags().Bool(config.ContextEnrichmentKey, false, "Enable or disable enclosing-declaration context for reviews (default: false)")
