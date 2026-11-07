@@ -432,7 +432,22 @@ func GetBaseBranch(ctx context.Context) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("could not determine base branch")
+	// origin/HEAD is only set by git clone; repos created with git init +
+	// remote add don't have it, so fall back to the common base branch names.
+	// Names are tried in order; for each name the local branch wins over the
+	// remote-tracking one, so a local develop doesn't beat origin/main.
+	for _, name := range []string{"main", "master", "develop"} {
+		for _, candidate := range []struct{ ref, base string }{
+			{"refs/heads/" + name, name},
+			{"refs/remotes/origin/" + name, "origin/" + name},
+		} {
+			if exec.CommandContext(ctx, "git", "rev-parse", "--verify", "--quiet", candidate.ref).Run() == nil {
+				return candidate.base, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("could not determine base branch: origin/HEAD is not set and no main, master or develop branch exists; pass it with --branch")
 }
 
 // GetBranchCommits gets all commits on current branch that aren't in base branch
