@@ -180,9 +180,16 @@ func GetWorkingTreeStat(ctx context.Context, all bool) string {
 	return strings.TrimSpace(string(out))
 }
 
-// GetBranchDiffStat returns the --stat summary for the diff between the current branch and branch.
+// branchRange returns the "<branch>...HEAD" range, which diffs HEAD against its merge base
+// with branch so commits added to branch after the fork are not shown as reversed changes.
+func branchRange(branch string) string {
+	return branch + "...HEAD"
+}
+
+// GetBranchDiffStat returns the --stat summary for the changes on the current branch since it
+// forked from branch.
 func GetBranchDiffStat(ctx context.Context, branch string) string {
-	args := append([]string{"diff", "--stat", branch, "--"}, defaultDiffExcludes...)
+	args := append([]string{"diff", "--stat", branchRange(branch), "--"}, defaultDiffExcludes...)
 	out, err := exec.CommandContext(ctx, "git", args...).Output()
 	if err != nil {
 		return ""
@@ -210,8 +217,9 @@ func GetCurrentBranch(ctx context.Context) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// GetBranchDiff returns the changes on the current branch since it forked from branch.
 func GetBranchDiff(ctx context.Context, branch string, maxLines uint32) (string, error) {
-	args := append([]string{"diff", branch, "--"}, defaultDiffExcludes...)
+	args := append([]string{"diff", branchRange(branch), "--"}, defaultDiffExcludes...)
 	cmd := exec.CommandContext(ctx, "git", args...)
 
 	if maxLines == 0 {
