@@ -50,9 +50,14 @@ func (o *OpenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 		applySystem(&params, system)
 
 		stream := o.client.Responses.NewStreaming(ctx, params)
+		// Runs before close(errChan). The send must not block: errChan may
+		// already hold an earlier error that nobody reads, so the first wins.
 		defer func() {
 			if err := stream.Close(); err != nil {
-				errChan <- err
+				select {
+				case errChan <- err:
+				default:
+				}
 			}
 		}()
 

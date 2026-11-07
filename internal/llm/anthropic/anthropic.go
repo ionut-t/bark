@@ -55,9 +55,14 @@ func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan l
 
 		stream := a.client.Messages.NewStreaming(ctx, params)
 
+		// Runs before close(errChan). The send must not block: errChan may
+		// already hold an earlier error that nobody reads, so the first wins.
 		defer func() {
 			if err := stream.Close(); err != nil {
-				errChan <- err
+				select {
+				case errChan <- err:
+				default:
+				}
 			}
 		}()
 
