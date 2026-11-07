@@ -192,3 +192,104 @@ func TestWithUntrackedIndex_NoIndexYet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "new.txt")
 }
+
+func TestGetBaseBranch(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, dir string)
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "origin/HEAD set wins over local branches",
+			setup: func(t *testing.T, dir string) {
+				runGit(t, dir, "update-ref", "refs/remotes/origin/develop", "main")
+				runGit(t, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop")
+			},
+			want: "develop",
+		},
+		{
+			name:  "no origin/HEAD falls back to main",
+			setup: func(t *testing.T, dir string) {},
+			want:  "main",
+		},
+		{
+			name: "no origin/HEAD falls back to master",
+			setup: func(t *testing.T, dir string) {
+				runGit(t, dir, "branch", "-m", "main", "master")
+			},
+			want: "master",
+		},
+		{
+			name: "no origin/HEAD falls back to develop",
+			setup: func(t *testing.T, dir string) {
+				runGit(t, dir, "branch", "-m", "main", "develop")
+			},
+			want: "develop",
+		},
+		{
+			name: "main preferred over master and develop",
+			setup: func(t *testing.T, dir string) {
+				runGit(t, dir, "branch", "master", "main")
+				runGit(t, dir, "branch", "develop", "main")
+			},
+			want: "main",
+		},
+		{
+			name: "no origin/HEAD and only a remote-tracking main",
+			setup: func(t *testing.T, dir string) {
+				runGit(t, dir, "update-ref", "refs/remotes/origin/main", "main")
+				runGit(t, dir, "branch", "-D", "main")
+			},
+			want: "origin/main",
+		},
+		{
+			name: "remote-tracking main preferred over local develop",
+			setup: func(t *testing.T, dir string) {
+				runGit(t, dir, "update-ref", "refs/remotes/origin/main", "main")
+				runGit(t, dir, "branch", "-m", "main", "develop")
+			},
+			want: "origin/main",
+		},
+		{
+			name: "local main preferred over remote-tracking main",
+			setup: func(t *testing.T, dir string) {
+				runGit(t, dir, "update-ref", "refs/remotes/origin/main", "main")
+			},
+			want: "main",
+		},
+		{
+			name: "no candidate branch",
+			setup: func(t *testing.T, dir string) {
+				runGit(t, dir, "branch", "-m", "main", "trunk")
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := newDivergedRepo(t)
+			tt.setup(t, dir)
+
+			got, err := GetBaseBranch(t.Context())
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGetBranchInfo_WithoutOriginHead(t *testing.T) {
+	newDivergedRepo(t)
+
+	info, err := GetBranchInfo(t.Context(), "", 1000)
+	require.NoError(t, err)
+
+	assert.Equal(t, "main", info.BaseBranch)
+	require.Len(t, info.Commits, 1)
+	assert.Equal(t, "add feature.txt", info.Commits[0].Message)
+}
