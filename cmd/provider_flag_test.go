@@ -20,7 +20,7 @@ func TestProviderFlagHelpListsSupportedProviders(t *testing.T) {
 		{name: "review", cmd: reviewCmd(), flag: "provider"},
 		{name: "commit", cmd: commitCmd(), flag: "provider"},
 		{name: "pr", cmd: prCmd(), flag: "provider"},
-		{name: "config", cmd: configCmd(), flag: config.LLMProviderKey},
+		{name: "config", cmd: configCmd(), flag: "provider"},
 	}
 
 	for _, tt := range tests {

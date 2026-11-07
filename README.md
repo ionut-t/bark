@@ -82,13 +82,13 @@ bark pr
 
 ## Configuration
 
-Bark uses a configuration file located at `$HOME/.bark/config.toml`. You can edit this file directly or use the `config` command to manage your settings.
+Bark uses a configuration file located at `$HOME/.bark/.config.toml`. Run `bark config` with no flags to open it in your editor.
 
 To set your preferred editor, LLM provider, or model, use the `config` command with the appropriate flags:
 
 ```bash
 bark config --editor nvim
-bark config --provider gemini
+bark config --provider gemini         # `bark config --help` lists the providers
 bark config --model gemini-2.5-pro
 ```
 
