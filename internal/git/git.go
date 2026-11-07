@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -62,9 +63,42 @@ func IsGitRepo() bool {
 	return err == nil && strings.TrimSpace(string(output)) == "true"
 }
 
+// commitFormat prints a commit's hash, author, relative date, subject and body
+// separated by NUL bytes. Use it with -z so commits are separated by NUL too:
+// every commit is then exactly commitFieldCount fields. Unlike "|", a NUL can't
+// appear in an author name or commit message.
+const (
+	commitFormat     = "--pretty=format:%H%x00%an%x00%ar%x00%s%x00%b"
+	commitFieldCount = 5
+)
+
+// parseCommits parses git output produced with -z and commitFormat.
+func parseCommits(output []byte) []Commit {
+	if len(output) == 0 {
+		return nil
+	}
+
+	fields := strings.Split(string(output), "\x00")
+	commits := make([]Commit, 0, len(fields)/commitFieldCount)
+	for f := range slices.Chunk(fields, commitFieldCount) {
+		if len(f) < commitFieldCount {
+			break
+		}
+		commits = append(commits, Commit{
+			Hash:    f[0],
+			Author:  f[1],
+			Date:    f[2],
+			Message: f[3],
+			Body:    strings.TrimSpace(f[4]),
+		})
+	}
+
+	return commits
+}
+
 // GetCommits returns a list of the most recent commits.
 func GetCommits(ctx context.Context, limit int) ([]Commit, error) {
-	cmd := exec.CommandContext(ctx, "git", "log", "--pretty=format:%H|%an|%ar|%s", "-n", strconv.Itoa(limit))
+	cmd := exec.CommandContext(ctx, "git", "log", "-z", commitFormat, "-n", strconv.Itoa(limit))
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -78,45 +112,23 @@ func GetCommits(ctx context.Context, limit int) ([]Commit, error) {
 		return nil, fmt.Errorf("failed to get commits: %w", err)
 	}
 
-	var commits []Commit
-	for line := range strings.SplitSeq(string(output), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "|", 4)
-		if len(parts) == 4 {
-			commits = append(commits, Commit{
-				Hash:    parts[0],
-				Author:  parts[1],
-				Date:    parts[2],
-				Message: parts[3],
-			})
-		}
-	}
-
-	return commits, nil
+	return parseCommits(output), nil
 }
 
 // GetCommit returns a single commit.
 func GetCommit(ctx context.Context, hash string) (*Commit, error) {
-	cmd := exec.CommandContext(ctx, "git", "show", "--pretty=format:%H|%an|%ar|%s", "-s", hash)
+	cmd := exec.CommandContext(ctx, "git", "show", "-s", "-z", commitFormat, hash)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit %s: %w", hash, err)
 	}
 
-	line := strings.TrimSpace(string(output))
-	parts := strings.SplitN(line, "|", 4)
-	if len(parts) == 4 {
-		return &Commit{
-			Hash:    parts[0],
-			Author:  parts[1],
-			Date:    parts[2],
-			Message: parts[3],
-		}, nil
+	commits := parseCommits(output)
+	if len(commits) == 0 {
+		return nil, nil
 	}
 
-	return nil, nil
+	return &commits[0], nil
 }
 
 // GetDiff returns the diff for a given commit hash.
@@ -458,43 +470,17 @@ func GetBranchCommits(ctx context.Context, baseBranch string) ([]Commit, error) 
 	}
 
 	// Get commits that are in current branch but not in base
-	// Format: %H = hash, %an = author, %ar = date relative, %s = subject, %b = body
-	cmd := exec.CommandContext(ctx, "git", "log",
-		fmt.Sprintf("%s..%s", baseBranch, currentBranch),
-		"--pretty=format:%H|%an|%ar|%s|%b||END||")
+	cmd := exec.CommandContext(ctx, "git", "log", "-z", commitFormat,
+		fmt.Sprintf("%s..%s", baseBranch, currentBranch))
 
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get branch commits: %w", err)
 	}
 
-	if strings.TrimSpace(string(output)) == "" {
+	commits := parseCommits(output)
+	if len(commits) == 0 {
 		return nil, fmt.Errorf("no commits found on branch %s", currentBranch)
-	}
-
-	var commits []Commit
-	// Split by our custom delimiter
-	entries := strings.SplitSeq(string(output), "||END||")
-	for entry := range entries {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-
-		parts := strings.SplitN(entry, "|", 5)
-		if len(parts) >= 4 {
-			commit := Commit{
-				Hash:    parts[0],
-				Author:  parts[1],
-				Date:    parts[2],
-				Message: parts[3],
-			}
-			// Add body if it exists (5th part)
-			if len(parts) == 5 {
-				commit.Body = strings.TrimSpace(parts[4])
-			}
-			commits = append(commits, commit)
-		}
 	}
 
 	return commits, nil
