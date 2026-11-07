@@ -148,6 +148,14 @@ func GetWorkingTreeDiff(ctx context.Context, all bool) (string, error) {
 	}
 	cmd := exec.CommandContext(ctx, "git", append(baseArgs, defaultDiffExcludes...)...)
 
+	if all {
+		cleanup, err := withUntrackedIndex(ctx, cmd)
+		if err != nil {
+			return "", fmt.Errorf("failed to get working tree diff: %w", err)
+		}
+		defer cleanup()
+	}
+
 	output, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -173,11 +181,74 @@ func GetWorkingTreeStat(ctx context.Context, all bool) string {
 	} else {
 		args = append([]string{"diff", "--stat", "--staged", "--"}, defaultDiffExcludes...)
 	}
-	out, err := exec.CommandContext(ctx, "git", args...).Output()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	if all {
+		cleanup, err := withUntrackedIndex(ctx, cmd)
+		if err != nil {
+			return ""
+		}
+		defer cleanup()
+	}
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// withUntrackedIndex points cmd at a temporary copy of the index in which every untracked,
+// non-ignored file is marked intent-to-add, so "git diff HEAD" includes new files as
+// additions. The user's real index is never modified. The returned cleanup removes the
+// temporary index and must be called after cmd has run.
+func withUntrackedIndex(ctx context.Context, cmd *exec.Cmd) (cleanup func(), err error) {
+	out, err := exec.CommandContext(ctx, "git", "rev-parse", "--git-path", "index").Output()
+	if err != nil {
+		return nil, fmt.Errorf("could not locate git index: %w", err)
+	}
+	indexPath := strings.TrimSpace(string(out))
+
+	tmpDir, err := os.MkdirTemp("", "bark-index-*")
+	if err != nil {
+		return nil, fmt.Errorf("could not create temporary index: %w", err)
+	}
+
+	cleanup = func() { _ = os.RemoveAll(tmpDir) }
+
+	tmpIndex := filepath.Join(tmpDir, "index")
+
+	if err := copyIndex(indexPath, tmpIndex); err != nil {
+		cleanup()
+		return nil, err
+	}
+
+	env := append(os.Environ(), "GIT_INDEX_FILE="+tmpIndex)
+	// ":/" is the repository root, so new files outside the current directory are included.
+	add := exec.CommandContext(ctx, "git", "add", "--intent-to-add", "--", ":/")
+	add.Env = env
+	if out, err := add.CombinedOutput(); err != nil {
+		cleanup()
+		return nil, fmt.Errorf("could not mark untracked files: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	cmd.Env = env
+	return cleanup, nil
+}
+
+// copyIndex copies the index at src to dst. When there is no index yet (nothing has been
+// staged), dst is not created and git starts from an empty index; a zero-byte file would
+// be rejected as corrupt.
+func copyIndex(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("could not read git index: %w", err)
+	}
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
+		return fmt.Errorf("could not write temporary index: %w", err)
+	}
+	return nil
 }
 
 // branchRange returns the "<branch>...HEAD" range, which diffs HEAD against its merge base
