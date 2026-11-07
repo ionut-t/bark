@@ -13,10 +13,8 @@ func actionsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "actions",
 		Short: "Scaffold GitHub Actions workflows",
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := runActionsCmd(); err != nil {
-				PrintError(err)
-			}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runActionsCmd()
 		},
 	}
 

@@ -323,8 +323,3 @@ func resolvePRInstructions(instruction string, cfg config.Config) (string, error
 
 	return utils.GetInstructions(".bark/pr.md", cfg.GetPRInstructions())
 }
-
-// Errf writes a formatted error message to stderr.
-func Errf(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "Error: "+format+"\n", args...)
-}

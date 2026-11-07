@@ -12,8 +12,14 @@ import (
 
 var errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000")).Bold(true)
 
-func PrintError(err error) {
-	fmt.Println(errorStyle.Render("Error: " + err.Error()))
+// printError writes err to w as "Error: <message>", in red when stderr is
+// a terminal and as plain text otherwise, so scripts can parse it.
+func printError(w io.Writer, err error) {
+	msg := "Error: " + err.Error()
+	if isatty.IsTerminal(os.Stderr.Fd()) {
+		msg = errorStyle.Render(msg)
+	}
+	_, _ = fmt.Fprintln(w, msg)
 }
 
 // isPlainMode returns true if --plain is set or stdout is not a TTY.

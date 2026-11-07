@@ -14,14 +14,8 @@ func prCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pr",
 		Short: "Generate a pull request description",
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := runPRCmd(cmd); err != nil {
-				if hasStdinData() || isPlainMode(cmd) {
-					plain.Errf("%s", err)
-				} else {
-					PrintError(err)
-				}
-			}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPRCmd(cmd)
 		},
 	}
 

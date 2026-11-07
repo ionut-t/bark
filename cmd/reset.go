@@ -16,14 +16,14 @@ func resetCmd() *cobra.Command {
 		Long: `Reset reviewers and/or instructions to their default state by overwriting any existing custom files.
 This does not affect any files that you may have created or modified outside of the default set, unless you use the --hard flag.
 		`,
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			msg, err := handleReset(cmd)
 			if err != nil {
-				PrintError(err)
-				return
+				return err
 			}
 
 			fmt.Println(msg)
+			return nil
 		},
 	}
 

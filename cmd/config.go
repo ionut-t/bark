@@ -14,7 +14,7 @@ func configCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Manage configuration",
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := config.New()
 			configPath := config.GetConfigFilePath()
 
@@ -27,32 +27,28 @@ func configCmd() *cobra.Command {
 
 			if editorFlag != "" {
 				if err := cfg.SetEditor(editorFlag); err != nil {
-					PrintError(err)
-					return
+					return err
 				}
 				flagsSet = true
 			}
 
 			if llmProviderFlag != "" {
 				if err := cfg.SetLLMProvider(llmProviderFlag); err != nil {
-					PrintError(err)
-					return
+					return err
 				}
 				flagsSet = true
 			}
 
 			if llmModelFlag != "" {
 				if err := cfg.SetLLMModel(llmModelFlag); err != nil {
-					PrintError(err)
-					return
+					return err
 				}
 				flagsSet = true
 			}
 
 			if maxDiffLinesFlag != 0 {
 				if err := cfg.SetMaxDiffLines(maxDiffLinesFlag); err != nil {
-					PrintError(err)
-					return
+					return err
 				}
 				flagsSet = true
 			}
@@ -60,17 +56,16 @@ func configCmd() *cobra.Command {
 			if cmd.Flags().Changed(config.ContextEnrichmentKey) {
 				contextEnrichmentFlag, _ := cmd.Flags().GetBool(config.ContextEnrichmentKey)
 				if err := cfg.SetContextEnrichment(contextEnrichmentFlag); err != nil {
-					PrintError(err)
-					return
+					return err
 				}
 				flagsSet = true
 			}
 
 			if !flagsSet {
-				if err := utils.OpenEditor(configPath); err != nil {
-					PrintError(err)
-				}
+				return utils.OpenEditor(configPath)
 			}
+
+			return nil
 		},
 	}
 
