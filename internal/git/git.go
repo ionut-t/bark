@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -221,7 +222,8 @@ func withUntrackedIndex(ctx context.Context, cmd *exec.Cmd) (cleanup func(), err
 		return nil, err
 	}
 
-	env := append(os.Environ(), "GIT_INDEX_FILE="+tmpIndex)
+	// Build on cmd's own environment so anything the caller set on it is kept.
+	env := append(cmd.Environ(), "GIT_INDEX_FILE="+tmpIndex)
 	// ":/" is the repository root, so new files outside the current directory are included.
 	add := exec.CommandContext(ctx, "git", "add", "--intent-to-add", "--", ":/")
 	add.Env = env
@@ -238,14 +240,25 @@ func withUntrackedIndex(ctx context.Context, cmd *exec.Cmd) (cleanup func(), err
 // staged), dst is not created and git starts from an empty index; a zero-byte file would
 // be rejected as corrupt.
 func copyIndex(src, dst string) error {
-	data, err := os.ReadFile(src)
+	in, err := os.Open(src)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("could not read git index: %w", err)
 	}
-	if err := os.WriteFile(dst, data, 0o600); err != nil {
+	defer func() { _ = in.Close() }()
+
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("could not write temporary index: %w", err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return fmt.Errorf("could not write temporary index: %w", err)
+	}
+	// Close can report a failed write, so its error must not be dropped.
+	if err := out.Close(); err != nil {
 		return fmt.Errorf("could not write temporary index: %w", err)
 	}
 	return nil
