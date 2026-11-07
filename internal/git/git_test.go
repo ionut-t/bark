@@ -293,3 +293,65 @@ func TestGetBranchInfo_WithoutOriginHead(t *testing.T) {
 	require.Len(t, info.Commits, 1)
 	assert.Equal(t, "add feature.txt", info.Commits[0].Message)
 }
+
+// newRepoWithPipeCommit builds a diverged repo (see newDivergedRepo) and adds a
+// commit on feature whose author, subject and body all contain "|".
+func newRepoWithPipeCommit(t *testing.T) string {
+	t.Helper()
+	dir := newDivergedRepo(t)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "pipe.txt"), []byte("pipe\n"), 0o644))
+	runGit(t, dir, "add", "pipe.txt")
+	runGit(t, dir, "commit",
+		"--author", "Ann | Bob <ann@example.com>",
+		"-m", "fix: a | b",
+		"-m", "body | with pipe")
+	return dir
+}
+
+func TestCommitParsing_PipeInFields(t *testing.T) {
+	const (
+		wantAuthor  = "Ann | Bob"
+		wantMessage = "fix: a | b"
+		wantBody    = "body | with pipe"
+	)
+
+	t.Run("GetCommits", func(t *testing.T) {
+		newRepoWithPipeCommit(t)
+
+		commits, err := GetCommits(t.Context(), 1)
+		require.NoError(t, err)
+		require.Len(t, commits, 1)
+		assert.Len(t, commits[0].Hash, 40)
+		assert.Equal(t, wantAuthor, commits[0].Author)
+		assert.Equal(t, wantMessage, commits[0].Message)
+	})
+
+	t.Run("GetCommit", func(t *testing.T) {
+		newRepoWithPipeCommit(t)
+
+		commit, err := GetCommit(t.Context(), "HEAD")
+		require.NoError(t, err)
+		require.NotNil(t, commit)
+		assert.Len(t, commit.Hash, 40)
+		assert.Equal(t, wantAuthor, commit.Author)
+		assert.Equal(t, wantMessage, commit.Message)
+	})
+
+	t.Run("GetBranchCommits", func(t *testing.T) {
+		newRepoWithPipeCommit(t)
+
+		commits, err := GetBranchCommits(t.Context(), "main")
+		require.NoError(t, err)
+		require.Len(t, commits, 2)
+
+		assert.Len(t, commits[0].Hash, 40)
+		assert.Equal(t, wantAuthor, commits[0].Author)
+		assert.Equal(t, wantMessage, commits[0].Message)
+		assert.Equal(t, wantBody, commits[0].Body)
+
+		assert.Equal(t, "Test", commits[1].Author)
+		assert.Equal(t, "add feature.txt", commits[1].Message)
+		assert.Empty(t, commits[1].Body)
+	})
+}
