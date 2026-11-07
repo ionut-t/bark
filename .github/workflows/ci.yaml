@@ -27,6 +27,21 @@ jobs:
         with:
           version: latest
 
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run tests
+        run: go test -race -shuffle=on ./...
+
   vuln-check:
     name: Vulnerability Check
     runs-on: ubuntu-latest
