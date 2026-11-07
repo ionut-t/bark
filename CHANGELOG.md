@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.25.1](https://github.com/ionut-t/bark/compare/v2.25.0...v2.25.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **config:** ensure empty provider override respects configured value ([#83](https://github.com/ionut-t/bark/issues/83)) ([deed8e2](https://github.com/ionut-t/bark/commit/deed8e2a026a583f629b03f350f3e8c9336306a3))
+* **git:** fall back to common branch names for base branch detection ([#88](https://github.com/ionut-t/bark/issues/88)) ([66b0f7e](https://github.com/ionut-t/bark/commit/66b0f7effbc6d713c0a85bf760df421e2666dee0))
+* **git:** include untracked files in working tree diff ([#87](https://github.com/ionut-t/bark/issues/87)) ([99f16ae](https://github.com/ionut-t/bark/commit/99f16ae9d78ba30ddfae25554f8180056f4f6a6e))
+* **git:** use merge-base for branch diffs ([#86](https://github.com/ionut-t/bark/issues/86)) ([e257b93](https://github.com/ionut-t/bark/commit/e257b930096368799689e7752b8bd99fcd21ea21))
+* **git:** use NUL delimiters for robust commit parsing ([#89](https://github.com/ionut-t/bark/issues/89)) ([69d6c73](https://github.com/ionut-t/bark/commit/69d6c73c9f6580ebd75aa664fcd2c104fbbf5bec))
+
 ## [2.25.0](https://github.com/ionut-t/bark/compare/v2.24.1...v2.25.0) (2026-11-06)
 
 
