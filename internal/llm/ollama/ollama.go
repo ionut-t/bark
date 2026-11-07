@@ -58,9 +58,14 @@ func (o *Ollama) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 			Messages:      buildMessages(system, prompt),
 			StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: openai.Bool(true)},
 		})
+		// Runs before close(errChan). The send must not block: errChan may
+		// already hold an earlier error that nobody reads, so the first wins.
 		defer func() {
 			if err := stream.Close(); err != nil {
-				errChan <- err
+				select {
+				case errChan <- fmt.Errorf("close stream: %w", err):
+				default:
+				}
 			}
 		}()
 
