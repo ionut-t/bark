@@ -12,6 +12,14 @@ import (
 )
 
 func configCmd() *cobra.Command {
+	var (
+		editor            string
+		provider          string
+		model             string
+		maxDiffLines      uint32
+		contextEnrichment bool
+	)
+
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Manage configuration",
@@ -19,44 +27,38 @@ func configCmd() *cobra.Command {
 			cfg := config.New()
 			configPath := config.GetConfigFilePath()
 
-			editorFlag, _ := cmd.Flags().GetString(config.EditorKey)
-			llmProviderFlag, _ := cmd.Flags().GetString(config.LLMProviderKey)
-			llmModelFlag, _ := cmd.Flags().GetString(config.LLMModelKey)
-			maxDiffLinesFlag, _ := cmd.Flags().GetUint32(config.MaxDiffLinesKey)
-
 			flagsSet := false
 
-			if editorFlag != "" {
-				if err := cfg.SetEditor(editorFlag); err != nil {
+			if editor != "" {
+				if err := cfg.SetEditor(editor); err != nil {
 					return err
 				}
 				flagsSet = true
 			}
 
-			if llmProviderFlag != "" {
-				if err := cfg.SetLLMProvider(llmProviderFlag); err != nil {
+			if provider != "" {
+				if err := cfg.SetLLMProvider(provider); err != nil {
 					return err
 				}
 				flagsSet = true
 			}
 
-			if llmModelFlag != "" {
-				if err := cfg.SetLLMModel(llmModelFlag); err != nil {
+			if model != "" {
+				if err := cfg.SetLLMModel(model); err != nil {
 					return err
 				}
 				flagsSet = true
 			}
 
-			if maxDiffLinesFlag != 0 {
-				if err := cfg.SetMaxDiffLines(maxDiffLinesFlag); err != nil {
+			if maxDiffLines != 0 {
+				if err := cfg.SetMaxDiffLines(maxDiffLines); err != nil {
 					return err
 				}
 				flagsSet = true
 			}
 
-			if cmd.Flags().Changed(config.ContextEnrichmentKey) {
-				contextEnrichmentFlag, _ := cmd.Flags().GetBool(config.ContextEnrichmentKey)
-				if err := cfg.SetContextEnrichment(contextEnrichmentFlag); err != nil {
+			if cmd.Flags().Changed("context-enrichment") || cmd.Flags().Changed(config.ContextEnrichmentKey) {
+				if err := cfg.SetContextEnrichment(contextEnrichment); err != nil {
 					return err
 				}
 				flagsSet = true
@@ -70,11 +72,27 @@ func configCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringP(config.EditorKey, "e", "", "Set the editor to use for editing config")
-	cmd.Flags().StringP(config.LLMProviderKey, "p", "", "Set the LLM provider: "+strings.Join(config.SupportedProviders(), ", "))
-	cmd.Flags().StringP(config.LLMModelKey, "m", "", "Set the LLM model")
-	cmd.Flags().Uint32P(config.MaxDiffLinesKey, "d", 0, fmt.Sprintf("Set the maximum number of diff lines to include in the prompt (default: %d)", config.DEFAULT_MAX_DIFF_LINES))
-	cmd.Flags().Bool(config.ContextEnrichmentKey, false, "Enable or disable enclosing-declaration context for reviews (default: false)")
+	flags := cmd.Flags()
+	flags.StringVarP(&editor, "editor", "e", "", "Set the editor to use for editing config")
+	flags.StringVarP(&provider, "provider", "p", "", "Set the LLM provider: "+strings.Join(config.SupportedProviders(), ", "))
+	flags.StringVarP(&model, "model", "m", "", "Set the LLM model")
+	flags.Uint32VarP(&maxDiffLines, "max-diff-lines", "d", 0, fmt.Sprintf("Set the maximum number of diff lines to include in the prompt (default: %d)", config.DEFAULT_MAX_DIFF_LINES))
+	flags.BoolVar(&contextEnrichment, "context-enrichment", false, "Enable or disable enclosing-declaration context for reviews (default: false)")
+
+	// Old names, matching the config file keys. Kept so existing scripts keep
+	// working; hidden from help, and pflag prints a deprecation notice.
+	flags.StringVar(&provider, config.LLMProviderKey, "", "")
+	flags.StringVar(&model, config.LLMModelKey, "", "")
+	flags.Uint32Var(&maxDiffLines, config.MaxDiffLinesKey, 0, "")
+	flags.BoolVar(&contextEnrichment, config.ContextEnrichmentKey, false, "")
+	for oldName, newName := range map[string]string{
+		config.LLMProviderKey:       "provider",
+		config.LLMModelKey:          "model",
+		config.MaxDiffLinesKey:      "max-diff-lines",
+		config.ContextEnrichmentKey: "context-enrichment",
+	} {
+		_ = flags.MarkDeprecated(oldName, "use --"+newName+" instead")
+	}
 
 	return cmd
 }
