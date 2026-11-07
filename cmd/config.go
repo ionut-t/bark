@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/config"
@@ -9,6 +10,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 func configCmd() *cobra.Command {
@@ -50,14 +52,14 @@ func configCmd() *cobra.Command {
 				flagsSet = true
 			}
 
-			if maxDiffLines != 0 {
+			if anyChanged(cmd.Flags(), "max-diff-lines", config.MaxDiffLinesKey) {
 				if err := cfg.SetMaxDiffLines(maxDiffLines); err != nil {
 					return err
 				}
 				flagsSet = true
 			}
 
-			if cmd.Flags().Changed("context-enrichment") || cmd.Flags().Changed(config.ContextEnrichmentKey) {
+			if anyChanged(cmd.Flags(), "context-enrichment", config.ContextEnrichmentKey) {
 				if err := cfg.SetContextEnrichment(contextEnrichment); err != nil {
 					return err
 				}
@@ -95,6 +97,12 @@ func configCmd() *cobra.Command {
 	}
 
 	return cmd
+}
+
+// anyChanged reports whether any of the named flags was passed. Used where
+// the zero value is a real setting, so it can't mean "not passed".
+func anyChanged(flags *pflag.FlagSet, names ...string) bool {
+	return slices.ContainsFunc(names, flags.Changed)
 }
 
 func initConfig() error {

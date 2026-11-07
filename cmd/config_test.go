@@ -21,13 +21,19 @@ type savedConfig struct {
 }
 
 // runConfigCmd runs `bark config <args>` against a config file in a temp dir
-// and returns what was saved. The config package reads global viper (R1), so
-// these tests can't run in parallel.
-func runConfigCmd(t *testing.T, args ...string) savedConfig {
+// that starts with the given contents, and returns what was saved. The config
+// package reads global viper (R1), so these tests can't run in parallel.
+func runConfigCmd(t *testing.T, existing string, args ...string) savedConfig {
 	t.Helper()
 
+	// If no flag counts as set, the command opens the editor instead; make
+	// that a no-op so the test fails on the saved values rather than hanging.
+	t.Setenv("EDITOR", "true")
+
 	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte(existing), 0o644))
 	viper.SetConfigFile(path)
+	require.NoError(t, viper.ReadInConfig())
 	t.Cleanup(viper.Reset)
 
 	cmd := configCmd()
@@ -72,33 +78,43 @@ func TestConfigCmd_SetsValues(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, want, runConfigCmd(t, tt.args...))
+			assert.Equal(t, want, runConfigCmd(t, "", tt.args...))
 		})
 	}
 }
 
-func TestConfigCmd_DisablesContextEnrichment(t *testing.T) {
-	for _, flag := range []string{"--context-enrichment=false", "--context_enrichment=false"} {
-		t.Run(flag, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "config.toml")
-			require.NoError(t, os.WriteFile(path, []byte("context_enrichment = true\n"), 0o644))
-			viper.SetConfigFile(path)
-			require.NoError(t, viper.ReadInConfig())
-			t.Cleanup(viper.Reset)
+// Zero and false are real settings (0 disables the diff limit), so passing
+// them must save them rather than be treated as "flag not given".
+func TestConfigCmd_SetsZeroValues(t *testing.T) {
+	const existing = "max_diff_lines = 300\ncontext_enrichment = true\n"
 
-			cmd := configCmd()
-			cmd.SetArgs([]string{flag})
-			cmd.SetOut(io.Discard)
-			cmd.SetErr(io.Discard)
-			require.NoError(t, cmd.Execute())
+	tests := []struct {
+		name string
+		args []string
+		want savedConfig
+	}{
+		{name: "-d 0", args: []string{"-d", "0"}, want: savedConfig{MaxDiffLines: 0, ContextEnrichment: true}},
+		{name: "--max-diff-lines 0", args: []string{"--max-diff-lines", "0"}, want: savedConfig{MaxDiffLines: 0, ContextEnrichment: true}},
+		{name: "--max_diff_lines 0", args: []string{"--max_diff_lines", "0"}, want: savedConfig{MaxDiffLines: 0, ContextEnrichment: true}},
+		{name: "--context-enrichment=false", args: []string{"--context-enrichment=false"}, want: savedConfig{MaxDiffLines: 300, ContextEnrichment: false}},
+		{name: "--context_enrichment=false", args: []string{"--context_enrichment=false"}, want: savedConfig{MaxDiffLines: 300, ContextEnrichment: false}},
+	}
 
-			data, err := os.ReadFile(path)
-			require.NoError(t, err)
-			var saved savedConfig
-			require.NoError(t, toml.Unmarshal(data, &saved))
-			assert.False(t, saved.ContextEnrichment)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := runConfigCmd(t, existing, tt.args...)
+			assert.Equal(t, tt.want.MaxDiffLines, got.MaxDiffLines)
+			assert.Equal(t, tt.want.ContextEnrichment, got.ContextEnrichment)
 		})
 	}
+}
+
+// Setting one value must keep the others already in the file.
+func TestConfigCmd_KeepsOtherValues(t *testing.T) {
+	const existing = "llm_provider = 'openai'\nllm_model = 'gpt-x'\nmax_diff_lines = 300\ncontext_enrichment = true\n"
+
+	got := runConfigCmd(t, existing, "-e", "nano")
+	assert.Equal(t, savedConfig{LLMProvider: "openai", LLMModel: "gpt-x", MaxDiffLines: 300, ContextEnrichment: true}, got)
 }
 
 func TestConfigCmd_OldFlagNamesAreHiddenAndDeprecated(t *testing.T) {
