@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fang/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/version"
 	"github.com/ionut-t/bark/v2/tui"
@@ -56,7 +57,7 @@ func handleRootCmd() error {
 // stderr; the caller only needs to set the exit status.
 func Execute() error {
 	if err := initConfig(); err != nil {
-		printError(os.Stderr, err)
+		printError(colorprofile.NewWriter(os.Stderr, os.Environ()), err)
 		return err
 	}
 

@@ -123,15 +123,10 @@ runs:
         [ "${{ inputs.with-context }}" = "true" ] && ARGS+=(--with-context)
         [ "${{ inputs.with-description }}" = "true" ] && ARGS+=(--with-description)
 
-        if ! bark "${ARGS[@]}" > /tmp/bark-review.txt 2>/tmp/bark-review-error.txt; then
-          echo "Bark failed. Bark stderr:" >&2
-          cat /tmp/bark-review-error.txt >&2
-          exit 1
-        fi
+        bark "${ARGS[@]}" > /tmp/bark-review.txt
 
         if [ ! -s /tmp/bark-review.txt ]; then
-          echo "Review output is empty. Bark stderr:" >&2
-          cat /tmp/bark-review-error.txt >&2
+          echo "Review output is empty. See Bark's output above." >&2
           exit 1
         fi
 

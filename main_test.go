@@ -124,6 +124,7 @@ func TestCommandErrors_ExitNonZeroAndPrintToStderr(t *testing.T) {
 			assert.Equal(t, 1, res.exitCode, "exit code\nstdout: %s\nstderr: %s", res.stdout, res.stderr)
 			assert.Contains(t, res.stderr, "Error: "+tt.wantErr)
 			assert.NotContains(t, res.stdout, tt.wantErr, "error must not be printed to stdout")
+			assert.NotContains(t, res.stderr, "\x1b[", "stderr is not a terminal, so it must have no ANSI codes")
 		})
 	}
 }
