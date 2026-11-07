@@ -97,12 +97,10 @@ runs:
         [ -n "${{ inputs.instructions }}" ] && ARGS+=(--instructions "${{ inputs.instructions }}")
         [ -n "${{ inputs.max-diff-lines }}" ] && ARGS+=(--max-diff-lines "${{ inputs.max-diff-lines }}")
 
-        bark "${ARGS[@]}" \
-          > /tmp/bark-pr.txt 2>/tmp/bark-pr-error.txt
+        bark "${ARGS[@]}" > /tmp/bark-pr.txt
 
         if [ ! -s /tmp/bark-pr.txt ]; then
-          echo "PR description output is empty. Bark stderr:" >&2
-          cat /tmp/bark-pr-error.txt >&2
+          echo "PR description output is empty. See Bark's output above." >&2
           exit 1
         fi
 

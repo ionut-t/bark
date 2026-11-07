@@ -49,11 +49,10 @@ jobs:
           ARGS=(pr --pr "$PR_NUMBER" --provider "$PROVIDER")
           [ -n "$BARK_MODEL" ] && ARGS+=(--model "$BARK_MODEL")
           [ -n "$BARK_MAX_DIFF_LINES" ] && ARGS+=(--max-diff-lines "$BARK_MAX_DIFF_LINES")
-          /tmp/bark "${ARGS[@]}" > /tmp/bark-pr.txt 2>/tmp/bark-pr-error.txt
+          /tmp/bark "${ARGS[@]}" > /tmp/bark-pr.txt
 
           if [ ! -s /tmp/bark-pr.txt ]; then
-            echo "PR description output is empty. Bark stderr:" >&2
-            cat /tmp/bark-pr-error.txt >&2
+            echo "PR description output is empty. See Bark's output above." >&2
             exit 1
           fi
 
@@ -113,15 +112,14 @@ jobs:
           [ -n "$BARK_MAX_DIFF_LINES" ] && ARGS+=(--max-diff-lines "$BARK_MAX_DIFF_LINES")
           [ "$BARK_WITH_CONTEXT" = "true" ] && ARGS+=(--with-context)
           [ "$WITH_DESCRIPTION" = "true" ] && ARGS+=(--with-description)
-          /tmp/bark "${ARGS[@]}" > /tmp/bark-review.txt 2>/tmp/bark-review-error.txt
+          /tmp/bark "${ARGS[@]}" > /tmp/bark-review.txt
 
       - name: Post or update PR comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ ! -s /tmp/bark-review.txt ]; then
-            echo "Review output is empty. Bark stderr:" >&2
-            cat /tmp/bark-review-error.txt >&2
+            echo "Review output is empty. See the 'Run bark review' step log." >&2
             exit 1
           fi
 

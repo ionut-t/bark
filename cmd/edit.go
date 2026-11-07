@@ -24,15 +24,13 @@ func editCmd() *cobra.Command {
 		bark edit -r // will show a list to select the reviewer to edit
 		bark edit -i // will show a list to select the instruction to edit`,
 		Args: cobra.MaximumNArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			var name string
 			if len(args) > 0 {
 				name = args[0]
 			}
 
-			if err := handleEditCmd(cmd, name); err != nil {
-				PrintError(err)
-			}
+			return handleEditCmd(cmd, name)
 		},
 	}
 

@@ -20,15 +20,13 @@ func deleteCmd() *cobra.Command {
 		bark delete -r // will show a list to select the reviewer to remove
 		bark delete -i // will show a list to select the instruction to remove`,
 		Args: cobra.MaximumNArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			var name string
 			if len(args) > 0 {
 				name = args[0]
 			}
 
-			if err := handleDeleteCmd(cmd, name); err != nil {
-				PrintError(err)
-			}
+			return handleDeleteCmd(cmd, name)
 		},
 	}
 

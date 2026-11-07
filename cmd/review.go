@@ -14,14 +14,8 @@ func reviewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "review",
 		Short: "Review code changes",
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := runReviewCmd(cmd); err != nil {
-				if hasStdinData() || isPlainMode(cmd) {
-					plain.Errf("%s", err)
-				} else {
-					PrintError(err)
-				}
-			}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReviewCmd(cmd)
 		},
 	}
 

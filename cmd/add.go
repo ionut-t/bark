@@ -14,14 +14,13 @@ func addCmd() *cobra.Command {
 		Short:   "Add a new instruction",
 		Args:    cobra.ExactArgs(1),
 		Example: `bark add "my-instruction"`,
-		Run: func(cmd *cobra.Command, args []string) {
-			err := handleAddCmd(args[0])
-			if err != nil {
-				PrintError(err)
-				return
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := handleAddCmd(args[0]); err != nil {
+				return err
 			}
 
 			fmt.Println("Instruction added")
+			return nil
 		},
 	}
 

@@ -14,14 +14,8 @@ func commitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "commit",
 		Short: "Generate a commit message and optionally create the commit",
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := runCommitCmd(cmd); err != nil {
-				if hasStdinData() || isPlainMode(cmd) {
-					plain.Errf("%s", err)
-				} else {
-					PrintError(err)
-				}
-			}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCommitCmd(cmd)
 		},
 	}
 

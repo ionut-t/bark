@@ -9,6 +9,7 @@ require (
 	charm.land/huh/v2 v2.0.3
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/anthropics/anthropic-sdk-go v1.84.0
+	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/ionut-t/coffee/help v0.0.0-20261024081733-050ab0cea83e
 	github.com/ionut-t/coffee/styles v0.0.0-20261024081733-050ab0cea83e
 	github.com/ionut-t/goeditor v0.19.0
@@ -32,7 +33,6 @@ require (
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20261023060817-a45b7c86333f // indirect
 	github.com/charmbracelet/x/ansi v0.11.9 // indirect
 	github.com/charmbracelet/x/exp/charmtone v0.1.1 // indirect
@@ -89,7 +89,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.6 // indirect
-	go.yaml.in/yaml/v4 v4.0.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
