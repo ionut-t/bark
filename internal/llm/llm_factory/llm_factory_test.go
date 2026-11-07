@@ -26,3 +26,31 @@ func TestNewUsesConfiguredProviderWithoutFlag(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "anthropic", provider)
 }
+
+// Every provider the config accepts must be handled by the factory.
+func TestValidateProvider_HandlesEverySupportedProvider(t *testing.T) {
+	creds := &providerCredentials{
+		vertexAIProjectID: "project",
+		vertexAILocation:  "location",
+		hasGemini:         true,
+		hasVertexAI:       true,
+		hasOpenAI:         true,
+		hasOllama:         true,
+		hasAnthropic:      true,
+	}
+
+	for _, provider := range config.SupportedProviders() {
+		t.Run(provider, func(t *testing.T) {
+			assert.NoError(t, creds.validateProvider(provider))
+		})
+	}
+}
+
+func TestValidateProvider_InvalidErrorListsSupportedProviders(t *testing.T) {
+	err := (&providerCredentials{}).validateProvider("not-a-provider")
+	require.ErrorIs(t, err, ErrInvalidProvider)
+
+	for _, provider := range config.SupportedProviders() {
+		assert.Contains(t, err.Error(), provider)
+	}
+}

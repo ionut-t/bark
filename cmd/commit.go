@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
@@ -22,7 +23,7 @@ func commitCmd() *cobra.Command {
 	cmd.Flags().BoolP("all", "a", false, "Include all changes")
 	cmd.Flags().StringP("hint", "i", "", "Provide a hint for the commit message generation (e.g., 'feature/fix/docs')")
 	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
-	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config): gemini, vertexai, openai, anthropic, ollama")
+	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config): "+strings.Join(config.SupportedProviders(), ", "))
 
 	return cmd
 }

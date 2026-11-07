@@ -106,7 +106,7 @@ func (c *providerCredentials) validateProvider(provider string) error {
 	case "ollama":
 		// Ollama runs locally; no credentials required
 	default:
-		return fmt.Errorf("%w: %s (supported: gemini, vertexai, openai, anthropic, ollama)", ErrInvalidProvider, provider)
+		return fmt.Errorf("%w: %s (supported: %s)", ErrInvalidProvider, provider, strings.Join(config.SupportedProviders(), ", "))
 	}
 
 	return nil

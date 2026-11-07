@@ -1,6 +1,8 @@
 package config
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -73,4 +75,56 @@ func TestOverrideProvider(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestOverrideProvider_AcceptsEverySupportedProvider(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range SupportedProviders() {
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &config{}
+			require.NoError(t, cfg.OverrideProvider(provider))
+
+			got, err := cfg.GetLLMProvider()
+			require.NoError(t, err)
+			assert.Equal(t, provider, got)
+		})
+	}
+}
+
+func TestOverrideProvider_InvalidErrorListsSupportedProviders(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config{}
+	err := cfg.OverrideProvider("not-a-provider")
+	require.Error(t, err)
+
+	for _, provider := range SupportedProviders() {
+		assert.Contains(t, err.Error(), provider)
+	}
+}
+
+// The config file comment is a struct tag, so it can't be built from the
+// list; this catches it going stale when a provider is added.
+func TestConfigFileCommentListsSupportedProviders(t *testing.T) {
+	t.Parallel()
+
+	field, ok := reflect.TypeFor[configData]().FieldByName("LLMProvider")
+	require.True(t, ok)
+	comment := strings.ToLower(field.Tag.Get("comment"))
+
+	for _, provider := range SupportedProviders() {
+		assert.Contains(t, comment, provider)
+	}
+}
+
+func TestSupportedProvidersReturnsCopy(t *testing.T) {
+	t.Parallel()
+
+	providers := SupportedProviders()
+	providers[0] = "changed"
+
+	assert.NotEqual(t, "changed", SupportedProviders()[0])
 }
