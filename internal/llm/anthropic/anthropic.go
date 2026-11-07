@@ -60,7 +60,7 @@ func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan l
 		defer func() {
 			if err := stream.Close(); err != nil {
 				select {
-				case errChan <- err:
+				case errChan <- fmt.Errorf("close stream: %w", err):
 				default:
 				}
 			}
