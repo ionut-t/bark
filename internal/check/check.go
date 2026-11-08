@@ -113,6 +113,7 @@ type Input struct {
 	Diff string
 	// Files maps a path to its full new-side content. Files that couldn't be
 	// read are left out; their findings are checked against the diff alone.
+	// Long files are cut to the lines around the findings (see excerpts).
 	Files map[string]string
 }
 
@@ -129,17 +130,11 @@ func Prompt(in Input, fs []findings.Finding) string {
 		b.WriteString("\n")
 	}
 
-	paths := make([]string, 0, len(in.Files))
-	for _, f := range referencedFiles(fs) {
-		if _, ok := in.Files[f]; ok {
-			paths = append(paths, f)
-		}
-	}
-	if len(paths) > 0 {
-		b.WriteString("\n## Files\n\nThe full new version of each file the findings point to, with line numbers.\n")
-		for _, p := range paths {
-			fmt.Fprintf(&b, "\n### %s\n\n", p)
-			writeNumbered(&b, in.Files[p])
+	if ex := excerpts(in.Files, fs); len(ex) > 0 {
+		b.WriteString("\n## Files\n\nThe new version of each file the findings point to, with line numbers: " +
+			"the whole file, or for a long file the lines around each finding.\n")
+		for _, e := range ex {
+			e.write(&b)
 		}
 	}
 
@@ -163,11 +158,105 @@ func referencedFiles(fs []findings.Finding) []string {
 	return out
 }
 
-func writeNumbered(b *strings.Builder, content string) {
-	lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
-	for i, l := range lines {
-		fmt.Fprintf(b, "%d\t%s\n", i+1, l)
+// Limits on how much of the files the check sends, so a long file doesn't
+// make the call slow, expensive or too big for the model. About 14 tokens
+// per line of Go.
+const (
+	// wholeFileLines is the longest file sent whole.
+	wholeFileLines = 1500
+	// windowLines is how many lines before and after a finding are sent
+	// from a longer file.
+	windowLines = 150
+	// maxSentLines caps the lines sent from all files together. Files that
+	// don't fit are left out and their findings are checked against the
+	// diff alone.
+	maxSentLines = 4000
+)
+
+// excerpt is the part of a file the check is shown: ranges of 1-based,
+// inclusive line numbers.
+type excerpt struct {
+	path   string
+	lines  []string
+	ranges [][2]int
+}
+
+func (e excerpt) write(b *strings.Builder) {
+	fmt.Fprintf(b, "\n### %s\n\n", e.path)
+	whole := len(e.ranges) == 1 && e.ranges[0] == [2]int{1, len(e.lines)}
+	if !whole {
+		fmt.Fprintf(b, "(%d lines; only the lines around the findings are shown)\n", len(e.lines))
 	}
+	for i, r := range e.ranges {
+		if i > 0 || (!whole && r[0] > 1) {
+			b.WriteString("...\n")
+		}
+		for n := r[0]; n <= r[1]; n++ {
+			fmt.Fprintf(b, "%d\t%s\n", n, e.lines[n-1])
+		}
+	}
+	if last := e.ranges[len(e.ranges)-1]; last[1] < len(e.lines) {
+		b.WriteString("...\n")
+	}
+}
+
+// excerpts picks what to show of each file the findings point to: the whole
+// file up to wholeFileLines, otherwise windowLines around each finding, all
+// within maxSentLines. Files are taken in path order; one that doesn't fit
+// in what's left of the budget is left out.
+func excerpts(files map[string]string, fs []findings.Finding) []excerpt {
+	var out []excerpt
+	budget := maxSentLines
+	for _, path := range referencedFiles(fs) {
+		content, ok := files[path]
+		if !ok {
+			continue
+		}
+		lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+		ranges := [][2]int{{1, len(lines)}}
+		if len(lines) > wholeFileLines {
+			ranges = windows(fs, path, len(lines))
+		}
+		size := 0
+		for _, r := range ranges {
+			size += r[1] - r[0] + 1
+		}
+		if size > budget {
+			continue
+		}
+		budget -= size
+		out = append(out, excerpt{path: path, lines: lines, ranges: ranges})
+	}
+	return out
+}
+
+// windows returns the merged ranges within windowLines of the findings on
+// path, in a file of n lines. Findings without a line get the top of the
+// file.
+func windows(fs []findings.Finding, path string, n int) [][2]int {
+	var rs [][2]int
+	for _, f := range fs {
+		if f.File != path {
+			continue
+		}
+		start, end := 1, 2*windowLines
+		if f.Line > 0 {
+			start, end = f.Line-windowLines, max(f.Line, f.EndLine)+windowLines
+		}
+		rs = append(rs, [2]int{max(start, 1), min(end, n)})
+	}
+	sort.Slice(rs, func(i, j int) bool { return rs[i][0] < rs[j][0] })
+
+	merged := rs[:1]
+	for _, r := range rs[1:] {
+		last := &merged[len(merged)-1]
+		if r[0] <= last[1]+1 {
+			last[1] = max(last[1], r[1])
+			continue
+		}
+		merged = append(merged, r)
+	}
+	return merged
 }
 
 // findingJSON shows the model the neutral fields only; the persona's remark
@@ -236,7 +325,7 @@ type Outcome struct {
 // dropped. A kept finding takes the check's severity, and loses its
 // suggestion if the check found it broken.
 func Apply(in Input, fs []findings.Finding, verdicts map[int]Verdict) []Outcome {
-	code := newCorpus(in)
+	code := newCorpus(in.Diff, excerpts(in.Files, fs))
 	out := make([]Outcome, len(fs))
 	for i, f := range fs {
 		v, ok := verdicts[i+1]
@@ -269,15 +358,15 @@ func isScale(s findings.Severity) bool {
 }
 
 // corpus is the code a verdict's evidence is looked up in: every line of the
-// diff and the files, without line numbers, diff markers or surrounding
-// whitespace.
+// diff and of the files as the check was shown them, without line numbers,
+// diff markers or surrounding whitespace.
 type corpus struct {
 	lines []string
 }
 
-func newCorpus(in Input) corpus {
+func newCorpus(diff string, files []excerpt) corpus {
 	var c corpus
-	for l := range strings.SplitSeq(in.Diff, "\n") {
+	for l := range strings.SplitSeq(diff, "\n") {
 		l = stripLineNumber(l)
 		c.add(l)
 		// Without the diff marker too; the marker can't be told apart from
@@ -286,9 +375,11 @@ func newCorpus(in Input) corpus {
 			c.add(l[1:])
 		}
 	}
-	for _, content := range in.Files {
-		for l := range strings.SplitSeq(content, "\n") {
-			c.add(l)
+	for _, e := range files {
+		for _, r := range e.ranges {
+			for _, l := range e.lines[r[0]-1 : r[1]] {
+				c.add(l)
+			}
 		}
 	}
 	return c

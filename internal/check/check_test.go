@@ -3,6 +3,7 @@ package check
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -264,4 +265,114 @@ func TestRun_Error(t *testing.T) {
 	calls := 0
 	_, err := Run(context.Background(), fakeLLM{err: errors.New("boom"), calls: &calls}, input(), events, nil)
 	require.ErrorContains(t, err, "boom")
+}
+
+// longFile returns a file of n lines, "line 1" to "line n".
+func longFile(n int) string {
+	var b strings.Builder
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&b, "line %d\n", i)
+	}
+	return b.String()
+}
+
+func TestExcerpts(t *testing.T) {
+	t.Parallel()
+
+	long := wholeFileLines + 1000
+	tests := []struct {
+		name  string
+		files map[string]string
+		fs    []findings.Finding
+		want  map[string][][2]int
+	}{
+		{
+			name:  "short file is sent whole",
+			files: map[string]string{"a.go": longFile(wholeFileLines)},
+			fs:    []findings.Finding{{File: "a.go", Line: 10}},
+			want:  map[string][][2]int{"a.go": {{1, wholeFileLines}}},
+		},
+		{
+			name:  "long file is cut to windows around the findings",
+			files: map[string]string{"a.go": longFile(long)},
+			fs:    []findings.Finding{{File: "a.go", Line: 100}, {File: "a.go", Line: 1000, EndLine: 1010}},
+			want: map[string][][2]int{"a.go": {
+				{1, 100 + windowLines},
+				{1000 - windowLines, 1010 + windowLines},
+			}},
+		},
+		{
+			name:  "overlapping windows are merged",
+			files: map[string]string{"a.go": longFile(long)},
+			fs:    []findings.Finding{{File: "a.go", Line: 1000}, {File: "a.go", Line: 1000 + windowLines}},
+			want:  map[string][][2]int{"a.go": {{1000 - windowLines, 1000 + 2*windowLines}}},
+		},
+		{
+			name:  "window at the end of the file",
+			files: map[string]string{"a.go": longFile(long)},
+			fs:    []findings.Finding{{File: "a.go", Line: long}},
+			want:  map[string][][2]int{"a.go": {{long - windowLines, long}}},
+		},
+		{
+			name:  "finding without a line gets the top of the file",
+			files: map[string]string{"a.go": longFile(long)},
+			fs:    []findings.Finding{{File: "a.go"}},
+			want:  map[string][][2]int{"a.go": {{1, 2 * windowLines}}},
+		},
+		{
+			name: "files past the budget are left out",
+			files: map[string]string{
+				"a.go": longFile(wholeFileLines),
+				"b.go": longFile(wholeFileLines),
+				"c.go": longFile(wholeFileLines),
+				"d.go": longFile(10),
+			},
+			fs: []findings.Finding{{File: "a.go"}, {File: "b.go"}, {File: "c.go"}, {File: "d.go"}},
+			want: map[string][][2]int{
+				"a.go": {{1, wholeFileLines}},
+				"b.go": {{1, wholeFileLines}},
+				"d.go": {{1, 10}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := map[string][][2]int{}
+			for _, e := range excerpts(tt.files, tt.fs) {
+				got[e.path] = e.ranges
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPromptShowsWindowsOfLongFiles(t *testing.T) {
+	t.Parallel()
+
+	long := wholeFileLines + 1000
+	in := Input{Diff: diff, Files: map[string]string{"big.go": longFile(long)}}
+	got := Prompt(in, []findings.Finding{{File: "big.go", Line: 1000, Title: "t", Body: "b"}})
+
+	assert.Contains(t, got, fmt.Sprintf("### big.go\n\n(%d lines; only the lines around the findings are shown)\n...\n%d\tline %d\n",
+		long, 1000-windowLines, 1000-windowLines))
+	assert.Contains(t, got, fmt.Sprintf("%d\tline %d\n...\n\n## Findings", 1000+windowLines, 1000+windowLines))
+	assert.NotContains(t, got, "\tline 1\n")
+}
+
+// Evidence must come from what the check was shown: a quote from a part of
+// a long file that wasn't sent doesn't count.
+func TestApplyEvidenceOnlyFromSentLines(t *testing.T) {
+	t.Parallel()
+
+	in := Input{Diff: diff, Files: map[string]string{"big.go": longFile(wholeFileLines + 1000)}}
+	fs := []findings.Finding{{File: "big.go", Line: 1000, Title: "t"}}
+
+	inside := Apply(in, fs, map[int]Verdict{1: {Verdict: "keep", Evidence: "line 1001", Reason: "r"}})
+	outside := Apply(in, fs, map[int]Verdict{1: {Verdict: "keep", Evidence: "line 2000", Reason: "r"}})
+
+	assert.True(t, inside[0].Kept)
+	assert.False(t, outside[0].Kept)
 }
