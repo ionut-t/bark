@@ -358,3 +358,62 @@ func TestLoadConfigFrom_ReadsGivenFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "custom-model", model)
 }
+
+// The config file is TOML whatever its name, so --config works with any
+// extension.
+func TestReadConfigData_AnyFileName(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"config.toml", "bark.conf", "barkrc"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), name)
+			require.NoError(t, os.WriteFile(path, []byte("llm_model = 'custom-model'\n"), 0o644))
+
+			got, err := readConfigData(path)
+			require.NoError(t, err)
+			assert.Equal(t, withDefaults(func(d *config.Data) { d.LLMModel = "custom-model" }), got)
+		})
+	}
+}
+
+// A value of the wrong type is an error, not silently converted.
+func TestReadConfigData_InvalidValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		contents string
+	}{
+		{name: "negative max_diff_lines", contents: "max_diff_lines = -1\n"},
+		{name: "quoted number", contents: "max_diff_lines = '300'\n"},
+		{name: "quoted bool", contents: "relative_number = 'true'\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "config.toml")
+			require.NoError(t, os.WriteFile(path, []byte(tt.contents), 0o644))
+
+			got, err := readConfigData(path)
+			require.Error(t, err, "loaded %+v", got)
+			assert.Contains(t, err.Error(), path+":1:")
+		})
+	}
+}
+
+// A syntax error says which file and line to fix.
+func TestReadConfigData_ErrorNamesFileAndLine(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("editor = 'nano'\nnot = = toml\n"), 0o644))
+
+	_, err := readConfigData(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), path+":2:7:")
+	assert.Contains(t, err.Error(), "unexpected character")
+}
