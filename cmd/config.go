@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-func configCmd(cfg config.Config) *cobra.Command {
+func configCmd(getCfg configFunc) *cobra.Command {
 	var (
 		editor            string
 		provider          string
@@ -28,6 +28,7 @@ func configCmd(cfg config.Config) *cobra.Command {
 		Use:   "config",
 		Short: "Manage configuration",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg := getCfg()
 			flagsSet := false
 
 			if editor != "" {
@@ -104,14 +105,10 @@ func anyChanged(flags *pflag.FlagSet, names ...string) bool {
 	return slices.ContainsFunc(names, flags.Changed)
 }
 
-// initConfig sets up Bark's files in $HOME/.bark and loads the config.
-func initConfig() (config.Config, error) {
-	path, err := config.DefaultFilePath()
-	if err != nil {
-		return nil, fmt.Errorf("error getting config path: %w", err)
-	}
-
-	cfg, err := loadConfig(path)
+// initConfig sets up Bark's files in $HOME/.bark and loads the config file
+// at path (the --config flag), or the default one when path is empty.
+func initConfig(path string) (config.Config, error) {
+	cfg, err := loadConfigFrom(path)
 	if err != nil {
 		return nil, fmt.Errorf("error initializing config: %w", err)
 	}
@@ -134,6 +131,26 @@ func initConfig() (config.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// loadConfigFrom loads the config file at path, which must exist, or the
+// default file (created if missing) when path is empty. A file passed with
+// --config is never created, so a mistyped path fails instead of silently
+// running with defaults.
+func loadConfigFrom(path string) (config.Config, error) {
+	if path == "" {
+		defaultPath, err := config.DefaultFilePath()
+		if err != nil {
+			return nil, fmt.Errorf("error getting config path: %w", err)
+		}
+		return loadConfig(defaultPath)
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+
+	return loadConfig(path)
 }
 
 // loadConfig reads the config file at path, first creating it with default

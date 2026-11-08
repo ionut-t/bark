@@ -46,7 +46,7 @@ func runConfigCmd(t *testing.T, existing string, args ...string) savedConfig {
 	cfg, err := loadConfig(path)
 	require.NoError(t, err)
 
-	cmd := configCmd(cfg)
+	cmd := configCmd(staticConfig(cfg))
 	cmd.SetArgs(args)
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
@@ -144,7 +144,7 @@ func TestConfigCmd_OldFlagNamesAreHiddenAndDeprecated(t *testing.T) {
 		config.ContextEnrichmentKey: "context-enrichment",
 	}
 
-	flags := configCmd(config.New("", config.Data{})).Flags()
+	flags := configCmd(staticConfig(config.New("", config.Data{}))).Flags()
 	for oldName, newName := range renamed {
 		old := flags.Lookup(oldName)
 		require.NotNil(t, old, oldName)
@@ -166,7 +166,7 @@ func TestConfigCmd_SetsEditor(t *testing.T) {
 	cfg, err := loadConfig(path)
 	require.NoError(t, err)
 
-	cmd := configCmd(cfg)
+	cmd := configCmd(staticConfig(cfg))
 	cmd.SetArgs([]string{"-e", "nano"})
 	require.NoError(t, cmd.Execute())
 
@@ -259,4 +259,34 @@ func TestLoadConfig_InvalidFile(t *testing.T) {
 
 	_, err := loadConfig(path)
 	assert.Error(t, err)
+}
+
+func TestLoadConfigFrom_MissingFileIsAnError(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "missing.toml")
+
+	_, err := loadConfigFrom(path)
+
+	require.ErrorIs(t, err, os.ErrNotExist)
+	assert.NoFileExists(t, path, "a mistyped --config path must not be created")
+}
+
+func TestLoadConfigFrom_ReadsGivenFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "custom.toml")
+	require.NoError(t, os.WriteFile(path, []byte("llm_provider = 'anthropic'\nllm_model = 'custom-model'\n"), 0o644))
+
+	cfg, err := loadConfigFrom(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, path, cfg.Path())
+	provider, err := cfg.GetLLMProvider()
+	require.NoError(t, err)
+	assert.Equal(t, "anthropic", provider)
+
+	model, err := cfg.GetLLMModel()
+	require.NoError(t, err)
+	assert.Equal(t, "custom-model", model)
 }

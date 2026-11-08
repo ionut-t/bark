@@ -143,3 +143,52 @@ func TestCommandSuccess_ExitZeroAndPrintToStdout(t *testing.T) {
 	assert.Contains(t, res.stdout, "Instructions have been reset to default")
 	assert.NotContains(t, res.stderr, "Error")
 }
+
+func TestConfigFlag_UsesGivenFile(t *testing.T) {
+	tests := []struct {
+		name string
+		args func(path string) []string
+	}{
+		{name: "before the subcommand", args: func(p string) []string { return []string{"--config", p, "config", "-m", "flag-model"} }},
+		{name: "after the subcommand", args: func(p string) []string { return []string{"config", "--config", p, "-m", "flag-model"} }},
+		{name: "with =", args: func(p string) []string { return []string{"config", "--config=" + p, "-m", "flag-model"} }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "custom.toml")
+			require.NoError(t, os.WriteFile(path, []byte("editor = 'true'\nllm_model = 'old-model'\n"), 0o644))
+
+			res := runBark(t, tt.args(path)...)
+
+			require.Equal(t, 0, res.exitCode, "stderr: %s", res.stderr)
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			assert.Contains(t, string(data), "flag-model", "model must be saved to the --config file")
+		})
+	}
+}
+
+func TestConfigFlag_AcceptedByEverySubcommand(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "custom.toml")
+	require.NoError(t, os.WriteFile(path, []byte("editor = 'true'\n"), 0o644))
+
+	for _, sub := range []string{"config", "review", "commit", "pr", "reset", "add", "delete", "edit", "actions"} {
+		t.Run(sub, func(t *testing.T) {
+			res := runBark(t, sub, "--config", path, "--help")
+
+			assert.Equal(t, 0, res.exitCode, "stderr: %s", res.stderr)
+			assert.NotContains(t, res.stderr, "unknown flag")
+		})
+	}
+}
+
+func TestConfigFlag_MissingFileIsAnError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.toml")
+
+	res := runBark(t, "config", "--config", path, "-m", "flag-model")
+
+	assert.Equal(t, 1, res.exitCode, "stdout: %s\nstderr: %s", res.stdout, res.stderr)
+	assert.Contains(t, res.stderr, "Error: ")
+	assert.NoFileExists(t, path, "a mistyped --config path must not be created")
+}

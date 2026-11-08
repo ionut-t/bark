@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func deleteCmd(cfg config.Config) *cobra.Command {
+func deleteCmd(getCfg configFunc) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete",
 		Short: "Delete an instruction or a reviewer",
@@ -26,7 +26,7 @@ func deleteCmd(cfg config.Config) *cobra.Command {
 				name = args[0]
 			}
 
-			return handleDeleteCmd(cmd, cfg, name)
+			return handleDeleteCmd(cmd, getCfg(), name)
 		},
 	}
 

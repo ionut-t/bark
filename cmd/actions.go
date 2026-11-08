@@ -9,12 +9,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func actionsCmd(cfg config.Config) *cobra.Command {
+func actionsCmd(getCfg configFunc) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "actions",
 		Short: "Scaffold GitHub Actions workflows",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runActionsCmd(cfg)
+			return runActionsCmd(getCfg())
 		},
 	}
 
