@@ -52,7 +52,9 @@ type Comment struct {
 func Build(events []findings.Event, diff string) Review {
 	lines := commentableLines(diff)
 
-	var comments []Comment
+	// Not nil: GitHub rejects "comments": null ("nil is not an array"), and
+	// a review can have no inline comments (no findings, or all doubted).
+	comments := []Comment{}
 	var rest []findings.Event
 	var doubted []findings.Finding
 	for _, e := range events {

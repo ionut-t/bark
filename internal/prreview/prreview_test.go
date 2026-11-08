@@ -164,7 +164,11 @@ func TestBuild(t *testing.T) {
 			got := Build(events, diff)
 
 			assert.Equal(t, "COMMENT", got.Event)
-			assert.Equal(t, tt.want, got.Comments)
+			want := tt.want
+			if want == nil {
+				want = []Comment{}
+			}
+			assert.Equal(t, want, got.Comments)
 			assert.True(t, strings.HasPrefix(got.Body, Marker+"\n## Bark AI Code Review\n\nHello.\n\n"), got.Body)
 			assert.True(t, strings.HasSuffix(got.Body, "## Verdict\n\nBye.\n"), got.Body)
 			if tt.inBody != "" {
@@ -451,4 +455,37 @@ func TestBuildDoubtedFindingsWithoutVerdict(t *testing.T) {
 
 	assert.Empty(t, review.Comments)
 	assert.True(t, strings.HasSuffix(review.Body, "\n  No.\n\n</details>\n"), review.Body)
+}
+
+// GitHub rejects a review whose comments are null ("nil is not an array"),
+// so a review without inline comments must still send an empty list.
+func TestBuildWithoutInlineCommentsSendsEmptyList(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		events []findings.Event
+		diff   string
+	}{
+		{name: "no findings", events: []findings.Event{{Intro: "i"}, {Verdict: "v"}}, diff: diff},
+		{name: "every finding doubted", events: []findings.Event{
+			{Finding: &findings.Finding{File: "a.go", Line: 2, Title: "t", Doubt: "No."}},
+		}, diff: diff},
+		{name: "finding off the diff", events: []findings.Event{
+			{Finding: &findings.Finding{File: "a.go", Line: 100, Title: "t"}},
+		}, diff: diff},
+		{name: "no diff", events: []findings.Event{
+			{Finding: &findings.Finding{File: "a.go", Line: 2, Title: "t"}},
+		}, diff: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			payload, err := json.Marshal(Build(tt.events, tt.diff))
+			require.NoError(t, err)
+			assert.Contains(t, string(payload), `"comments":[]`)
+		})
+	}
 }
