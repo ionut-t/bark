@@ -209,6 +209,14 @@ func TestGetBaseBranch(t *testing.T) {
 			want: "develop",
 		},
 		{
+			name: "origin/HEAD pointing at a branch with a slash keeps the full name",
+			setup: func(t *testing.T, dir string) {
+				runGit(t, dir, "update-ref", "refs/remotes/origin/release/2.x", "main")
+				runGit(t, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/release/2.x")
+			},
+			want: "release/2.x",
+		},
+		{
 			name:  "no origin/HEAD falls back to main",
 			setup: func(t *testing.T, dir string) {},
 			want:  "main",
