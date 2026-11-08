@@ -435,12 +435,14 @@ func CommitChanges(ctx context.Context, message string, all bool) (<-chan string
 // GetBaseBranch attempts to determine the base branch (main, master, develop)
 func GetBaseBranch(ctx context.Context) (string, error) {
 	// Try to find the default branch from remote
+	// Trim the full "refs/remotes/origin/" prefix so a default branch with a
+	// slash (e.g. release/2.x) keeps its full name. --short isn't used: it
+	// prints "remotes/origin/..." when a local branch shadows the short name.
 	cmd := exec.CommandContext(ctx, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	output, err := cmd.Output()
 	if err == nil {
-		parts := strings.Split(strings.TrimSpace(string(output)), "/")
-		if len(parts) > 0 {
-			return parts[len(parts)-1], nil
+		if branch, ok := strings.CutPrefix(strings.TrimSpace(string(output)), "refs/remotes/origin/"); ok && branch != "" {
+			return branch, nil
 		}
 	}
 
