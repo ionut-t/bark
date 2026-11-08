@@ -130,7 +130,7 @@ func TestBuild(t *testing.T) {
 			name:  "suggestion containing a fence",
 			event: fix(21, 0, "b()", "s := \"```\""),
 			want: []Comment{{Path: "a.go", Line: 21, Side: "RIGHT",
-				Body: "**[HIGH · bug] T**\n\nB.\n\n````suggestion\ns := \"```\"\n````\n\n> _R._"}},
+				Body: "**[HIGH · bug] T**\n\nB.\n\n````suggestion\n\ts := \"```\"\n````\n\n> _R._"}},
 		},
 		{
 			name:   "line outside the diff goes in the body",
@@ -282,4 +282,122 @@ func TestBuildFoldsUnreadableFindingContainingFence(t *testing.T) {
 	bad := `{"file":"a.go","suggestion":"` + "```" + `" x}`
 	got := Build([]findings.Event{{Text: bad}}, diff)
 	assert.Contains(t, got.Body, "````json\n"+bad+"\n````")
+}
+
+func TestFixIndent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		original   []string
+		file       []string
+		suggestion string
+		want       string
+		wantOK     bool
+	}{
+		{
+			name:       "exact copy is unchanged",
+			original:   []string{"\t\treturn x"},
+			file:       []string{"\t\treturn x"},
+			suggestion: "\t\treturn y\n",
+			want:       "\t\treturn y\n",
+			wantOK:     true,
+		},
+		{
+			// PR #104, post.go:56.
+			name:       "single line that lost its indentation",
+			original:   []string{"return Result{}, err"},
+			file:       []string{"\t\treturn Result{}, err"},
+			suggestion: "return Result{}, fmt.Errorf(\"x: %w\", err)",
+			want:       "\t\treturn Result{}, fmt.Errorf(\"x: %w\", err)",
+			wantOK:     true,
+		},
+		{
+			// PR #104, post.go:89: only the first line lost it, the rest
+			// of the suggestion is already indented for the file.
+			name:       "one original line, several suggestion lines",
+			original:   []string{"_ = json.Unmarshal(out, &created)"},
+			file:       []string{"\t_ = json.Unmarshal(out, &created)"},
+			suggestion: "if err := json.Unmarshal(out, &created); err != nil {\n\t\treturn err\n\t}",
+			wantOK:     false,
+		},
+		{
+			name:       "original lost it but the suggestion kept it",
+			original:   []string{"b()"},
+			file:       []string{"\tb()"},
+			suggestion: "\tb(ctx)",
+			want:       "\tb(ctx)",
+			wantOK:     true,
+		},
+		{
+			name:       "every line lost the same indentation",
+			original:   []string{"if x {", "\treturn", "}"},
+			file:       []string{"\tif x {", "\t\treturn", "\t}"},
+			suggestion: "if y {\n\treturn\n\n}",
+			want:       "\tif y {\n\t\treturn\n\n\t}",
+			wantOK:     true,
+		},
+		{
+			name:       "only the first line lost it",
+			original:   []string{"if x {", "\t\treturn", "\t}"},
+			file:       []string{"\tif x {", "\t\treturn", "\t}"},
+			suggestion: "if y {\n\t\treturn\n\t}",
+			want:       "\tif y {\n\t\treturn\n\t}",
+			wantOK:     true,
+		},
+		{
+			name:       "lines lost different amounts",
+			original:   []string{"if x {", "return", "\t}"},
+			file:       []string{"\tif x {", "\t\treturn", "\t}"},
+			suggestion: "if y {\nreturn\n\t}",
+			wantOK:     false,
+		},
+		{
+			name:       "original has more indentation than the file",
+			original:   []string{"\t\t\tb()"},
+			file:       []string{"\tb()"},
+			suggestion: "\t\t\tb(ctx)",
+			wantOK:     false,
+		},
+		{
+			name:       "spaces instead of tabs",
+			original:   []string{"  b()"},
+			file:       []string{"\tb()"},
+			suggestion: "  b(ctx)",
+			wantOK:     false,
+		},
+		{
+			name:       "suggestion indented differently from original",
+			original:   []string{"b()"},
+			file:       []string{"\t\tb()"},
+			suggestion: "\tb(ctx)",
+			wantOK:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := fixIndent(tt.original, tt.file, tt.suggestion)
+			assert.Equal(t, tt.wantOK, ok)
+			if tt.wantOK {
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+// PR #104, prreview.go:135: the suggestion block posted there had lost its
+// indentation; it must now be indented like the line it replaces.
+func TestBuildRestoresIndentation(t *testing.T) {
+	t.Parallel()
+
+	got := Build([]findings.Event{fix(21, 0, "b()", "b(ctx)")}, diff)
+	require.Len(t, got.Comments, 1)
+	assert.Equal(t, suggestionBody("\tb(ctx)"), got.Comments[0].Body)
+
+	got = Build([]findings.Event{fix(21, 0, "b()", "if b() {\n\t\tc()\n\t}")}, diff)
+	require.Len(t, got.Comments, 1)
+	assert.Equal(t, plainCodeBody("if b() {\n\t\tc()\n\t}"), got.Comments[0].Body)
 }

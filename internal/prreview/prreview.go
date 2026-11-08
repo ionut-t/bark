@@ -92,6 +92,14 @@ func comment(f findings.Finding, lines map[int]diffLine) (Comment, bool) {
 		return Comment{}, false
 	}
 
+	if verified {
+		file := make([]string, 0, end-start+1)
+		for l := start; l <= end; l++ {
+			file = append(file, lines[l].text)
+		}
+		f.Suggestion, verified = fixIndent(splitLines(f.Original), file, f.Suggestion)
+	}
+
 	c := Comment{Path: f.File, Line: end, Side: "RIGHT", Body: commentBody(f, verified)}
 	if end > start {
 		c.StartLine, c.StartSide = start, "RIGHT"
@@ -103,7 +111,7 @@ func comment(f findings.Finding, lines map[int]diffLine) (Comment, bool) {
 // a line, and whether they hold f's original text.
 func locate(f findings.Finding, lines map[int]diffLine) (start, end int, verified bool) {
 	if f.Suggestion != "" && f.Original != "" {
-		want := strings.Split(strings.TrimRight(f.Original, "\n"), "\n")
+		want := splitLines(f.Original)
 		best := 0
 		for l := range lines {
 			if matches(lines, l, want) && (best == 0 || closer(l, best, f.Line)) {
@@ -125,8 +133,8 @@ func locate(f findings.Finding, lines map[int]diffLine) (start, end int, verifie
 }
 
 // matches reports whether the lines from start hold want, in one hunk.
-// Leading and trailing whitespace is ignored: models often change
-// indentation when they copy code.
+// Leading and trailing whitespace is ignored: models often drop
+// indentation when they copy code (fixIndent deals with that).
 func matches(lines map[int]diffLine, start int, want []string) bool {
 	if !inOneHunk(lines, start, start+len(want)-1) {
 		return false
@@ -137,6 +145,90 @@ func matches(lines map[int]diffLine, start int, want []string) bool {
 		}
 	}
 	return true
+}
+
+// fixIndent returns suggestion with the indentation the model dropped when
+// it copied original from file put back. Models often drop the leading
+// whitespace of the first line, or of every line, of both original and
+// suggestion. ok is false when the indentation can't be worked out; the
+// suggestion then mustn't be offered as one to apply.
+func fixIndent(original, file []string, suggestion string) (string, bool) {
+	// added is the whitespace missing from the start of each line of
+	// original, or "" when it's complete or the line is blank.
+	added := make([]string, len(original))
+	var lastAdded string
+	nonBlank, missing := 0, 0
+	for i, o := range original {
+		if strings.TrimSpace(o) == "" {
+			continue
+		}
+		fi, oi := indent(file[i]), indent(o)
+		if !strings.HasSuffix(fi, oi) {
+			return suggestion, false
+		}
+		added[i] = fi[:len(fi)-len(oi)]
+		nonBlank++
+		if added[i] != "" {
+			missing++
+			if lastAdded != "" && added[i] != lastAdded {
+				return suggestion, false
+			}
+			lastAdded = added[i]
+		}
+	}
+	if missing == 0 {
+		return suggestion, true
+	}
+
+	sug := splitLines(suggestion)
+	switch indent(sug[0]) {
+	case indent(file[0]):
+		// The suggestion kept its indentation; only original lost it.
+		return suggestion, true
+	case strings.TrimPrefix(indent(file[0]), added[0]):
+		// The suggestion lost the same indentation as original.
+	default:
+		return suggestion, false
+	}
+
+	sugNonBlank := 0
+	for _, l := range sug {
+		if strings.TrimSpace(l) != "" {
+			sugNonBlank++
+		}
+	}
+
+	var toFirstOnly bool
+	switch {
+	case missing == nonBlank && (nonBlank > 1 || sugNonBlank == 1):
+		// Every line lost the same indentation.
+	case missing == 1 && added[0] != "" && nonBlank > 1:
+		// Only the first line lost its indentation.
+		toFirstOnly = true
+	default:
+		// One line of original lost its indentation but the suggestion
+		// has several: whether the rest of the suggestion lost it too
+		// can't be told.
+		return suggestion, false
+	}
+
+	for i, l := range sug {
+		if strings.TrimSpace(l) != "" {
+			sug[i] = lastAdded + l
+		}
+		if toFirstOnly {
+			break
+		}
+	}
+	return strings.Join(sug, "\n"), true
+}
+
+func indent(s string) string {
+	return s[:len(s)-len(strings.TrimLeft(s, " \t"))]
+}
+
+func splitLines(s string) []string {
+	return strings.Split(strings.TrimRight(s, "\n"), "\n")
 }
 
 func inOneHunk(lines map[int]diffLine, start, end int) bool {

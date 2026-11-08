@@ -29,8 +29,8 @@ Write one object per issue, ordered from most to least severe:
 - `category`: one of `bug`, `security`, `performance`, `concurrency`, `error-handling`, `design`, `testing`, `readability`, `docs`.
 - `title`: one short sentence naming the problem.
 - `body`: what is wrong, why, and the concrete input or state where it fails.
-- `original`: required when you give a `suggestion`, otherwise omit it. The current text of lines `line` to `end_line`, copied exactly from the diff without the line numbers and diff markers.
-- `suggestion`: optional. Replacement code for lines `line` to `end_line` (or just `line`), exactly as it should appear in the file, with the original indentation. No diff markers, no code fences. Omit it if the fix isn't a local code change.
+- `original`: required when you give a `suggestion`, otherwise omit it. The current text of lines `line` to `end_line`, copied exactly from the diff without the line numbers and diff markers. Keep each line's leading tabs and spaces, the first line's too.
+- `suggestion`: optional. Replacement code for lines `line` to `end_line` (or just `line`), exactly as it should appear in the file, with the full indentation of every line, the first line's too. No diff markers, no code fences. Omit it if the fix isn't a local code change.
 - `remark`: one to three sentences in the persona's voice reacting to this specific problem. Stay in character; this is where the persona's reaction to the issue belongs.
 
 Report only real problems you can point to in the diff. Don't report praise, or style issues a formatter or linter would catch. If you are unsure whether something is a problem, leave it out.
