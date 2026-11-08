@@ -208,8 +208,6 @@ func TestReadConfigData_ReadsEveryField(t *testing.T) {
 func TestReadConfigData_MissingKeysUseDefaults(t *testing.T) {
 	t.Parallel()
 
-	defaults := config.DefaultData()
-
 	tests := []struct {
 		name     string
 		contents string
@@ -218,17 +216,20 @@ func TestReadConfigData_MissingKeysUseDefaults(t *testing.T) {
 		{
 			name:     "only editor",
 			contents: "editor = 'nano'\n",
-			want:     config.Data{Editor: "nano", LLMModel: defaults.LLMModel, MaxDiffLines: defaults.MaxDiffLines},
+			want:     withDefaults(func(d *config.Data) { d.Editor = "nano" }),
 		},
 		{
 			name:     "only provider and model",
 			contents: "llm_provider = 'anthropic'\nllm_model = 'custom-model'\n",
-			want:     config.Data{Editor: defaults.Editor, LLMProvider: "anthropic", LLMModel: "custom-model", MaxDiffLines: defaults.MaxDiffLines},
+			want: withDefaults(func(d *config.Data) {
+				d.LLMProvider = "anthropic"
+				d.LLMModel = "custom-model"
+			}),
 		},
 		{
 			name:     "empty file",
 			contents: "",
-			want:     defaults,
+			want:     withDefaults(func(*config.Data) {}),
 		},
 	}
 
@@ -251,10 +252,23 @@ func TestReadConfigData_MissingKeysUseDefaults(t *testing.T) {
 func TestConfigCmd_PartialFileSavesDefaults(t *testing.T) {
 	t.Parallel()
 
-	defaults := config.DefaultData()
+	want := withDefaults(func(d *config.Data) { d.LLMProvider = "anthropic" })
 
 	got := runConfigCmd(t, "", "-p", "anthropic")
-	assert.Equal(t, savedConfig{LLMProvider: "anthropic", LLMModel: defaults.LLMModel, MaxDiffLines: defaults.MaxDiffLines}, got)
+	assert.Equal(t, savedConfig{
+		LLMProvider:       want.LLMProvider,
+		LLMModel:          want.LLMModel,
+		MaxDiffLines:      want.MaxDiffLines,
+		ContextEnrichment: want.ContextEnrichment,
+	}, got)
+}
+
+// withDefaults returns the default config data with change applied, so a
+// test lists only the fields that differ from the defaults.
+func withDefaults(change func(*config.Data)) config.Data {
+	d := config.DefaultData()
+	change(&d)
+	return d
 }
 
 func TestLoadConfig_ReadsFile(t *testing.T) {
