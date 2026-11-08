@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/config"
@@ -170,6 +171,36 @@ func TestConfigCmd_SetsEditor(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 
 	assert.Equal(t, savedConfig{Editor: "nano", LLMModel: "gpt-x"}, readSavedConfig(t, path))
+}
+
+// Every field saved to the config file must be read back. Catches a field
+// added to config.Data that loading doesn't pick up.
+func TestReadConfigData_ReadsEveryField(t *testing.T) {
+	t.Parallel()
+
+	want := config.Data{
+		Editor:            "nano",
+		LLMProvider:       "anthropic",
+		LLMModel:          "claude-sonnet-5-5",
+		MaxDiffLines:      300,
+		RelativeNumber:    true,
+		ContextEnrichment: true,
+	}
+
+	// A field left at its zero value here would pass even if it isn't read.
+	fields := reflect.ValueOf(want)
+	for i := range fields.NumField() {
+		require.False(t, fields.Field(i).IsZero(), "set %s in this test", fields.Type().Field(i).Name)
+	}
+
+	out, err := toml.Marshal(want)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, out, 0o644))
+
+	got, err := readConfigData(path)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
 }
 
 func TestLoadConfig_ReadsFile(t *testing.T) {

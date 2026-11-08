@@ -137,8 +137,7 @@ func initConfig() (config.Config, error) {
 }
 
 // loadConfig reads the config file at path, first creating it with default
-// values if it doesn't exist. It uses its own viper instance, so loading
-// doesn't touch global state.
+// values if it doesn't exist.
 func loadConfig(path string) (config.Config, error) {
 	created, err := config.EnsureFile(path)
 	if err != nil {
@@ -148,18 +147,27 @@ func loadConfig(path string) (config.Config, error) {
 		fmt.Fprintln(os.Stderr, "Created config at", path)
 	}
 
-	v := viper.New()
-	v.SetConfigFile(path)
-	if err := v.ReadInConfig(); err != nil {
+	data, err := readConfigData(path)
+	if err != nil {
 		return nil, err
 	}
 
-	return config.New(path, config.Data{
-		Editor:            v.GetString(config.EditorKey),
-		LLMProvider:       v.GetString(config.LLMProviderKey),
-		LLMModel:          v.GetString(config.LLMModelKey),
-		MaxDiffLines:      v.GetUint32(config.MaxDiffLinesKey),
-		RelativeNumber:    v.GetBool(config.RelativeNumberKey),
-		ContextEnrichment: v.GetBool(config.ContextEnrichmentKey),
-	}), nil
+	return config.New(path, data), nil
+}
+
+// readConfigData reads the config file at path. It uses its own viper
+// instance, so reading doesn't touch global state.
+func readConfigData(path string) (config.Data, error) {
+	v := viper.New()
+	v.SetConfigFile(path)
+	if err := v.ReadInConfig(); err != nil {
+		return config.Data{}, err
+	}
+
+	var data config.Data
+	if err := v.Unmarshal(&data); err != nil {
+		return config.Data{}, fmt.Errorf("error reading config: %w", err)
+	}
+
+	return data, nil
 }
