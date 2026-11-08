@@ -194,8 +194,7 @@ func readConfigData(path string) (config.Data, error) {
 	// Unmarshal only sets the keys present in the file.
 	data := config.DefaultData()
 	if err := toml.Unmarshal(contents, &data); err != nil {
-		var decodeErr *toml.DecodeError
-		if errors.As(err, &decodeErr) {
+		if decodeErr, ok := errors.AsType[*toml.DecodeError](err); ok {
 			row, col := decodeErr.Position()
 			return config.Data{}, fmt.Errorf("%s:%d:%d: %w", path, row, col, err)
 		}
