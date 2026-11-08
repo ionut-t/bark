@@ -92,6 +92,9 @@ func comment(f findings.Finding, lines map[int]diffLine) (Comment, bool) {
 		return Comment{}, false
 	}
 
+	// A repaired finding's suggestion may have been cut short, so it is
+	// never offered as one to apply.
+	verified = verified && !f.Repaired
 	if verified {
 		file := make([]string, 0, end-start+1)
 		for l := start; l <= end; l++ {

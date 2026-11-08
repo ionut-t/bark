@@ -70,6 +70,7 @@ func TestParseRepairsCopiedCode(t *testing.T) {
 			events := Parse(tt.line)
 			require.Len(t, events, 1)
 			require.NotNil(t, events[0].Finding, "got %+v", events[0])
+			tt.want.Repaired = true
 			assert.Equal(t, tt.want, *events[0].Finding)
 		})
 	}
@@ -111,3 +112,19 @@ func TestRendererRepairsStreamedLines(t *testing.T) {
 		require.False(t, strings.Contains(got, `{"file"`), "chunk size %d", size)
 	}
 }
+
+// A broken line can be read more than one way, so a repaired finding is
+// marked. Here the suggestion holds JSON-like code, and repair cuts it at
+// "title":"a.
+func TestParseMarksRepairedFindings(t *testing.T) {
+	t.Parallel()
+
+	events := Parse(jsonInSuggestion + "\n" + `{"file":"a.go","title":"Fine"}`)
+	require.Len(t, events, 2)
+	assert.True(t, events[0].Finding.Repaired)
+	assert.False(t, events[1].Finding.Repaired)
+}
+
+// jsonInSuggestion has an unescaped quote in original and, in suggestion,
+// code that looks like the next field.
+const jsonInSuggestion = "{\"file\":\"a.go\",\"line\":2,\"title\":\"T\",\"original\":\"var x = \"2\"\",\"suggestion\":\"var x = `{\"title\":\"a\", \"body\":\"b\"}`\",\"remark\":\"R\"}"

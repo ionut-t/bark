@@ -401,3 +401,20 @@ func TestBuildRestoresIndentation(t *testing.T) {
 	require.Len(t, got.Comments, 1)
 	assert.Equal(t, plainCodeBody("if b() {\n\t\tc()\n\t}"), got.Comments[0].Body)
 }
+
+// A finding Bark had to repair never gets a one-click suggestion: the repair
+// may have cut the suggestion short (here at "title":"a) while original
+// still matches the file.
+func TestBuildNoSuggestionBlockForRepairedFindings(t *testing.T) {
+	t.Parallel()
+
+	line := "{\"file\":\"a.go\",\"line\":2,\"severity\":\"high\",\"category\":\"bug\",\"title\":\"T\",\"original\":\"var x = 2\",\"suggestion\":\"var x = `{\"title\":\"a\", \"body\":\"b\"}`\",\"remark\":\"R.\"}"
+	events := findings.Parse(line)
+	require.Len(t, events, 1)
+	require.NotNil(t, events[0].Finding)
+
+	got := Build(events, diff)
+	require.Len(t, got.Comments, 1)
+	assert.Equal(t, 2, got.Comments[0].Line)
+	assert.NotContains(t, got.Comments[0].Body, "```suggestion")
+}

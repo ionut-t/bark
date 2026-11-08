@@ -44,6 +44,10 @@ type Finding struct {
 	// appear in the file.
 	Suggestion string `json:"suggestion,omitempty"`
 	Remark     string `json:"remark,omitempty"`
+	// Repaired is true when the model's line wasn't valid JSON and Bark
+	// fixed it. A broken line can be read more than one way, so a repaired
+	// finding's fields, the suggestion in particular, may be cut short.
+	Repaired bool `json:"-"`
 }
 
 // Event is one parsed line of output. Exactly one field is set: the
@@ -113,6 +117,7 @@ func parseLine(raw string) (Event, bool) {
 	}
 
 	var l line
+	repaired := false
 	if !strings.HasPrefix(s, "{") {
 		return Event{Text: strings.TrimRight(raw, "\r")}, true
 	}
@@ -123,6 +128,7 @@ func parseLine(raw string) (Event, bool) {
 		if json.Unmarshal([]byte(repair(s)), &l) != nil {
 			return Event{Text: strings.TrimRight(raw, "\r")}, true
 		}
+		repaired = true
 	}
 
 	switch l.Type {
@@ -138,6 +144,7 @@ func parseLine(raw string) (Event, bool) {
 		return Event{Text: s}, true
 	}
 	f := normaliseFinding(l.Finding)
+	f.Repaired = repaired
 	return Event{Finding: &f}, true
 }
 
