@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/internal/debuglog"
 	"github.com/ionut-t/bark/v2/internal/enclosing"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/git"
@@ -131,7 +133,7 @@ func RunReview(opts ReviewOptions) error {
 	}
 	promptText := prompt.FormatReviewContent(reviewDiff.ContextHeader, reviewDiff.Stat, reviewDiff.Commits, diff, enclosingContext)
 
-	client, _, err := llm_factory.New(context.Background(), opts.Config)
+	client, provider, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
 		return fmt.Errorf("error creating LLM client: %w", err)
 	}
@@ -139,12 +141,30 @@ func RunReview(opts ReviewOptions) error {
 	llmCtx, llmCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer llmCancel()
 
-	out := io.Writer(os.Stdout)
-	if opts.Stream {
-		return streamResponse(llmCtx, client, system, promptText, out, structured)
+	model, _ := opts.Config.GetLLMModel()
+	debugLog, err := debuglog.Start(opts.Storage, "review", debuglog.Meta{
+		Fields: []debuglog.Field{
+			{Key: "provider", Value: provider},
+			{Key: "model", Value: model},
+			{Key: "reviewer", Value: reviewer.Name},
+			{Key: "structured", Value: strconv.FormatBool(structured)},
+		},
+		System: system,
+		Prompt: promptText,
+	})
+	// Stderr, so the review on stdout stays clean for pipes.
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bark: debug log: %v\n", err)
+	} else if debugLog != nil {
+		fmt.Fprintf(os.Stderr, "bark: debug log: %s\n", debugLog.Path())
 	}
 
-	return fullResponse(llmCtx, client, system, promptText, out, structured)
+	out := io.Writer(os.Stdout)
+	if opts.Stream {
+		return streamResponse(llmCtx, client, system, promptText, out, structured, debugLog)
+	}
+
+	return fullResponse(llmCtx, client, system, promptText, out, structured, debugLog)
 }
 
 // RunCommit generates a commit message and writes it to stdout.
@@ -247,11 +267,12 @@ func RunPR(opts PROptions) error {
 
 // streamResponse streams the review to out. A structured review is rendered
 // to Markdown as it arrives.
-func streamResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool) error {
+func streamResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool, debugLog *debuglog.Log) error {
 	responseChan, errChan := client.Stream(ctx, system, promptText)
 
 	var renderer findings.Renderer
 	for chunk := range responseChan {
+		debugLog.Write(chunk.Content, chunk.Usage)
 		if structured {
 			_, _ = fmt.Fprint(out, renderer.Write(chunk.Content))
 		} else {
@@ -263,15 +284,19 @@ func streamResponse(ctx context.Context, client llm.LLM, system, promptText stri
 	}
 	_, _ = fmt.Fprintln(out)
 
-	if err := <-errChan; err != nil {
+	err := <-errChan
+	debugLog.Finish(err)
+	if err != nil {
 		return fmt.Errorf("error during review: %w", err)
 	}
 
 	return nil
 }
 
-func fullResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool) error {
+func fullResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool, debugLog *debuglog.Log) error {
 	response, err := client.Generate(ctx, system, promptText)
+	debugLog.Write(response.Content, response.Usage)
+	debugLog.Finish(err)
 	if err != nil {
 		return fmt.Errorf("error during review: %w", err)
 	}

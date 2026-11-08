@@ -851,6 +851,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	m.review.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.review.setUsedModel(m.getLlmModelName())
 	m.review.setStructured(structured)
+	m.review.setLogInfo(m.storage, m.llmProvider)
 	m.currentView = viewReview
 
 	return m, m.review.startReview(ctx)

@@ -2,8 +2,12 @@ package tui
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/ionut-t/bark/v2/internal/debuglog"
+	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,4 +64,30 @@ func TestReviewStructuredRetryResetsParser(t *testing.T) {
 	m, _ = m.Update(streamCompleteMsg{})
 
 	assert.Equal(t, "## Verdict\n\nClean.\n\n", m.contentBuilder.String())
+}
+
+// With BARK_DEBUG set, the raw output (not the rendered Markdown) and the
+// stats go to a log file under the storage directory.
+func TestReviewWritesDebugLog(t *testing.T) {
+	t.Setenv(debuglog.EnvVar, "1")
+	dir := t.TempDir()
+
+	m := newReviewModel(reviewers.Reviewer{Name: "Spock"}, "SYSTEM", "PROMPT", 80, 40, nil)
+	m.setStructured(true)
+	m.setLogInfo(dir, "gemini")
+	_ = m.startReview(context.Background())
+
+	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Fine."}`})
+	_, _ = m.Update(streamCompleteMsg{usage: llm.Usage{InputTokens: 1, OutputTokens: 2, TotalTokens: 3}, hasUsage: true})
+
+	logs, err := filepath.Glob(filepath.Join(dir, "logs", "*-review.log"))
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	content, err := os.ReadFile(logs[0])
+	require.NoError(t, err)
+
+	assert.Contains(t, string(content), "provider:   gemini\n")
+	assert.Contains(t, string(content), "reviewer:   Spock\nstructured: true\n", "the widest key, structured, sets the alignment")
+	assert.Contains(t, string(content), "===== response (raw) =====\n"+`{"type":"verdict","text":"Fine."}`)
+	assert.Contains(t, string(content), "tokens:       1 input, 2 output, 3 total\n")
 }
