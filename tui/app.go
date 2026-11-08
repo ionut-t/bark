@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/ionut-t/bark/v2/internal/check"
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/bark/v2/internal/instructions"
@@ -852,6 +853,16 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	m.review.setUsedModel(m.getLlmModelName())
 	m.review.setStructured(structured)
 	m.review.setLogInfo(m.storage, m.llmProvider)
+	if structured && m.config.GetCheckFindings() {
+		m.review.setCheck(check.Review{
+			Client:     m.llm,
+			ReviewDiff: msg.reviewDiff,
+			Diff:       diff,
+			LogDir:     m.storage,
+			Provider:   m.llmProvider,
+			Model:      m.getLlmModelName(),
+		})
+	}
 	m.currentView = viewReview
 
 	return m, m.review.startReview(ctx)

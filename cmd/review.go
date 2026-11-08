@@ -36,6 +36,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().Bool("with-description", false, "Include the PR description in the review context (only applies with --pr)")
 	cmd.Flags().Bool("with-context", false, "Include enclosing declarations (functions, structs, classes) as context for review")
 	cmd.Flags().Bool("structured", false, "Ask for structured findings (file, line, severity, suggestion); the reviewer persona voices the intro, remarks and verdict")
+	cmd.Flags().Bool("check", true, "Check structured findings with a second model call that reads the code around them, and set aside the ones that don't hold up (overrides config)")
 	cmd.Flags().Bool("comment", false, "Post the review to the pull request, with findings as inline comments and fixes as suggestions (requires --pr; implies --structured)")
 
 	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged", "hash", "pr")
@@ -96,6 +97,11 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	if cmd.Flags().Changed("structured") {
 		structured, _ := cmd.Flags().GetBool("structured")
 		cfg.OverrideStructuredFindings(structured)
+	}
+
+	if cmd.Flags().Changed("check") {
+		check, _ := cmd.Flags().GetBool("check")
+		cfg.OverrideCheckFindings(check)
 	}
 
 	// Posting runs in plain mode: the TUI has no step for it.

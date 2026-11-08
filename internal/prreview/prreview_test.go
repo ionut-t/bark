@@ -164,7 +164,11 @@ func TestBuild(t *testing.T) {
 			got := Build(events, diff)
 
 			assert.Equal(t, "COMMENT", got.Event)
-			assert.Equal(t, tt.want, got.Comments)
+			want := tt.want
+			if want == nil {
+				want = []Comment{}
+			}
+			assert.Equal(t, want, got.Comments)
 			assert.True(t, strings.HasPrefix(got.Body, Marker+"\n## Bark AI Code Review\n\nHello.\n\n"), got.Body)
 			assert.True(t, strings.HasSuffix(got.Body, "## Verdict\n\nBye.\n"), got.Body)
 			if tt.inBody != "" {
@@ -417,4 +421,71 @@ func TestBuildNoSuggestionBlockForRepairedFindings(t *testing.T) {
 	require.Len(t, got.Comments, 1)
 	assert.Equal(t, 2, got.Comments[0].Line)
 	assert.NotContains(t, got.Comments[0].Body, "```suggestion")
+}
+
+// Findings Bark's check doubted never become inline comments; they are
+// listed in a collapsed block before the verdict.
+func TestBuildPutsDoubtedFindingsInCollapsedBlock(t *testing.T) {
+	t.Parallel()
+
+	events := []findings.Event{
+		{Intro: "Hello."},
+		{Finding: &findings.Finding{File: "a.go", Line: 2, Severity: findings.High, Title: "Kept", Body: "b"}},
+		{Finding: &findings.Finding{File: "a.go", Line: 3, Severity: findings.Low, Category: "design", Title: "Doubted",
+			Body: "b", Suggestion: "x", Original: "var y = 3", Doubt: "A preference."}},
+		{Verdict: "Bye."},
+	}
+
+	review := Build(events, diff)
+
+	require.Len(t, review.Comments, 1)
+	assert.Equal(t, 2, review.Comments[0].Line)
+	assert.Contains(t, review.Body, "Hello.\n\n<details>\n<summary>Bark's check doubted 1 finding(s)</summary>\n\n"+
+		"A second pass checked these against the code and doubts them.\n\n"+
+		"- **[LOW · design] Doubted** `a.go:3`\n  A preference.\n\n</details>\n\n## Verdict\n\nBye.")
+	assert.NotContains(t, review.Body, "suggestion")
+}
+
+func TestBuildDoubtedFindingsWithoutVerdict(t *testing.T) {
+	t.Parallel()
+
+	review := Build([]findings.Event{
+		{Finding: &findings.Finding{File: "a.go", Line: 2, Severity: findings.Low, Title: "Doubted", Doubt: "No."}},
+	}, diff)
+
+	assert.Empty(t, review.Comments)
+	assert.True(t, strings.HasSuffix(review.Body, "\n  No.\n\n</details>\n"), review.Body)
+}
+
+// GitHub rejects a review whose comments are null ("nil is not an array"),
+// so a review without inline comments must still send an empty list.
+func TestBuildWithoutInlineCommentsSendsEmptyList(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		events []findings.Event
+		diff   string
+	}{
+		{name: "no findings", events: []findings.Event{{Intro: "i"}, {Verdict: "v"}}, diff: diff},
+		{name: "every finding doubted", events: []findings.Event{
+			{Finding: &findings.Finding{File: "a.go", Line: 2, Title: "t", Doubt: "No."}},
+		}, diff: diff},
+		{name: "finding off the diff", events: []findings.Event{
+			{Finding: &findings.Finding{File: "a.go", Line: 100, Title: "t"}},
+		}, diff: diff},
+		{name: "no diff", events: []findings.Event{
+			{Finding: &findings.Finding{File: "a.go", Line: 2, Title: "t"}},
+		}, diff: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			payload, err := json.Marshal(Build(tt.events, tt.diff))
+			require.NoError(t, err)
+			assert.Contains(t, string(payload), `"comments":[]`)
+		})
+	}
 }

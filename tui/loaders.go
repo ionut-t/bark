@@ -71,6 +71,9 @@ func loadReviewInstructionsCmd(storage string) tea.Cmd {
 }
 
 type reviewDiffLoadedMsg struct {
+	// reviewDiff is everything else GetReviewDiff returned; Bark's check
+	// reads the files it points to.
+	reviewDiff       git.ReviewDiff
 	instruction      string
 	diff             string
 	stat             string
@@ -129,6 +132,7 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 		}
 
 		return reviewDiffLoadedMsg{
+			reviewDiff:       result,
 			instruction:      params.instruction,
 			diff:             result.Diff,
 			stat:             result.Stat,

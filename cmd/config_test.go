@@ -20,6 +20,7 @@ type savedConfig struct {
 	MaxDiffLines       uint32 `toml:"max_diff_lines"`
 	ContextEnrichment  bool   `toml:"context_enrichment"`
 	StructuredFindings bool   `toml:"structured_findings"`
+	CheckFindings      bool   `toml:"check_findings"`
 }
 
 func readSavedConfig(t *testing.T, path string) savedConfig {
@@ -67,6 +68,7 @@ func TestConfigCmd_SetsValues(t *testing.T) {
 		MaxDiffLines:       500,
 		ContextEnrichment:  true,
 		StructuredFindings: true,
+		CheckFindings:      true,
 	}
 
 	tests := []struct {
@@ -75,15 +77,15 @@ func TestConfigCmd_SetsValues(t *testing.T) {
 	}{
 		{
 			name: "long flags",
-			args: []string{"--provider", "anthropic", "--model", "claude-sonnet-5-5", "--max-diff-lines", "500", "--context-enrichment", "--structured-findings"},
+			args: []string{"--provider", "anthropic", "--model", "claude-sonnet-5-5", "--max-diff-lines", "500", "--context-enrichment", "--structured-findings", "--check-findings"},
 		},
 		{
 			name: "short flags",
-			args: []string{"-p", "anthropic", "-m", "claude-sonnet-5-5", "-d", "500", "--context-enrichment", "--structured-findings"},
+			args: []string{"-p", "anthropic", "-m", "claude-sonnet-5-5", "-d", "500", "--context-enrichment", "--structured-findings", "--check-findings"},
 		},
 		{
 			name: "deprecated flags still work",
-			args: []string{"--llm_provider", "anthropic", "--llm_model", "claude-sonnet-5-5", "--max_diff_lines", "500", "--context_enrichment", "--structured-findings"},
+			args: []string{"--llm_provider", "anthropic", "--llm_model", "claude-sonnet-5-5", "--max_diff_lines", "500", "--context_enrichment", "--structured-findings", "--check-findings"},
 		},
 	}
 
@@ -101,29 +103,33 @@ func TestConfigCmd_SetsValues(t *testing.T) {
 func TestConfigCmd_SetsZeroValues(t *testing.T) {
 	t.Parallel()
 
-	const existing = "max_diff_lines = 300\ncontext_enrichment = true\nstructured_findings = true\n"
+	const existing = "max_diff_lines = 300\ncontext_enrichment = true\nstructured_findings = true\ncheck_findings = true\n"
+	base := savedConfig{LLMModel: config.DefaultData().LLMModel, MaxDiffLines: 300, ContextEnrichment: true, StructuredFindings: true, CheckFindings: true}
+	with := func(change func(*savedConfig)) savedConfig {
+		c := base
+		change(&c)
+		return c
+	}
 
 	tests := []struct {
 		name string
 		args []string
 		want savedConfig
 	}{
-		{name: "-d 0", args: []string{"-d", "0"}, want: savedConfig{MaxDiffLines: 0, ContextEnrichment: true, StructuredFindings: true}},
-		{name: "--max-diff-lines 0", args: []string{"--max-diff-lines", "0"}, want: savedConfig{MaxDiffLines: 0, ContextEnrichment: true, StructuredFindings: true}},
-		{name: "--max_diff_lines 0", args: []string{"--max_diff_lines", "0"}, want: savedConfig{MaxDiffLines: 0, ContextEnrichment: true, StructuredFindings: true}},
-		{name: "--context-enrichment=false", args: []string{"--context-enrichment=false"}, want: savedConfig{MaxDiffLines: 300, ContextEnrichment: false, StructuredFindings: true}},
-		{name: "--context_enrichment=false", args: []string{"--context_enrichment=false"}, want: savedConfig{MaxDiffLines: 300, ContextEnrichment: false, StructuredFindings: true}},
-		{name: "--structured-findings=false", args: []string{"--structured-findings=false"}, want: savedConfig{MaxDiffLines: 300, ContextEnrichment: true, StructuredFindings: false}},
+		{name: "-d 0", args: []string{"-d", "0"}, want: with(func(c *savedConfig) { c.MaxDiffLines = 0 })},
+		{name: "--max-diff-lines 0", args: []string{"--max-diff-lines", "0"}, want: with(func(c *savedConfig) { c.MaxDiffLines = 0 })},
+		{name: "--max_diff_lines 0", args: []string{"--max_diff_lines", "0"}, want: with(func(c *savedConfig) { c.MaxDiffLines = 0 })},
+		{name: "--context-enrichment=false", args: []string{"--context-enrichment=false"}, want: with(func(c *savedConfig) { c.ContextEnrichment = false })},
+		{name: "--context_enrichment=false", args: []string{"--context_enrichment=false"}, want: with(func(c *savedConfig) { c.ContextEnrichment = false })},
+		{name: "--structured-findings=false", args: []string{"--structured-findings=false"}, want: with(func(c *savedConfig) { c.StructuredFindings = false })},
+		{name: "--check-findings=false", args: []string{"--check-findings=false"}, want: with(func(c *savedConfig) { c.CheckFindings = false })},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := runConfigCmd(t, existing, tt.args...)
-			assert.Equal(t, tt.want.MaxDiffLines, got.MaxDiffLines)
-			assert.Equal(t, tt.want.ContextEnrichment, got.ContextEnrichment)
-			assert.Equal(t, tt.want.StructuredFindings, got.StructuredFindings)
+			assert.Equal(t, tt.want, runConfigCmd(t, existing, tt.args...))
 		})
 	}
 }
@@ -135,7 +141,7 @@ func TestConfigCmd_KeepsOtherValues(t *testing.T) {
 	const existing = "llm_provider = 'openai'\nllm_model = 'gpt-x'\nmax_diff_lines = 300\ncontext_enrichment = true\n"
 
 	got := runConfigCmd(t, existing, "-e", "nano")
-	assert.Equal(t, savedConfig{LLMProvider: "openai", LLMModel: "gpt-x", MaxDiffLines: 300, ContextEnrichment: true}, got)
+	assert.Equal(t, savedConfig{LLMProvider: "openai", LLMModel: "gpt-x", MaxDiffLines: 300, ContextEnrichment: true, CheckFindings: true}, got)
 }
 
 func TestConfigCmd_OldFlagNamesAreHiddenAndDeprecated(t *testing.T) {
@@ -174,7 +180,7 @@ func TestConfigCmd_SetsEditor(t *testing.T) {
 	cmd.SetArgs([]string{"-e", "nano"})
 	require.NoError(t, cmd.Execute())
 
-	assert.Equal(t, savedConfig{Editor: "nano", LLMModel: "gpt-x"}, readSavedConfig(t, path))
+	assert.Equal(t, savedConfig{Editor: "nano", LLMModel: "gpt-x", CheckFindings: true}, readSavedConfig(t, path))
 }
 
 // Every field saved to the config file must be read back. Catches a field
@@ -190,12 +196,16 @@ func TestReadConfigData_ReadsEveryField(t *testing.T) {
 		RelativeNumber:     true,
 		ContextEnrichment:  true,
 		StructuredFindings: true,
+		CheckFindings:      false,
 	}
 
-	// A field left at its zero value here would pass even if it isn't read.
+	// Loading starts from the defaults, so a field left at its default here
+	// would pass even if it isn't read.
 	fields := reflect.ValueOf(want)
+	defaults := reflect.ValueOf(config.DefaultData())
 	for i := range fields.NumField() {
-		require.False(t, fields.Field(i).IsZero(), "set %s in this test", fields.Type().Field(i).Name)
+		require.NotEqual(t, defaults.Field(i).Interface(), fields.Field(i).Interface(),
+			"set %s to a value other than its default in this test", fields.Type().Field(i).Name)
 	}
 
 	out, err := toml.Marshal(want)
@@ -265,6 +275,7 @@ func TestConfigCmd_PartialFileSavesDefaults(t *testing.T) {
 		LLMModel:          want.LLMModel,
 		MaxDiffLines:      want.MaxDiffLines,
 		ContextEnrichment: want.ContextEnrichment,
+		CheckFindings:     want.CheckFindings,
 	}, got)
 }
 

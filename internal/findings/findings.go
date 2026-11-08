@@ -48,6 +48,9 @@ type Finding struct {
 	// fixed it. A broken line can be read more than one way, so a repaired
 	// finding's fields, the suggestion in particular, may be cut short.
 	Repaired bool `json:"-"`
+	// Doubt is why Bark's check (a second model call that reads the full
+	// files) didn't keep the finding. Empty if it was kept or not checked.
+	Doubt string `json:"-"`
 }
 
 // Event is one parsed line of output. Exactly one field is set: the

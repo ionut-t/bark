@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ionut-t/bark/v2/internal/check"
 	"github.com/ionut-t/bark/v2/internal/debuglog"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
@@ -90,4 +91,73 @@ func TestReviewWritesDebugLog(t *testing.T) {
 	assert.Contains(t, string(content), "reviewer:   Spock\nstructured: true\n", "the widest key, structured, sets the alignment")
 	assert.Contains(t, string(content), "===== response (raw) =====\n"+`{"type":"verdict","text":"Fine."}`)
 	assert.Contains(t, string(content), "tokens:       1 input, 2 output, 3 total\n")
+}
+
+// checkLLM answers the check's Generate call with output.
+type checkLLM struct{ output string }
+
+func (c checkLLM) Stream(context.Context, string, string) (<-chan llm.Response, <-chan error) {
+	panic("the check doesn't stream")
+}
+
+func (c checkLLM) Generate(context.Context, string, string) (llm.Response, error) {
+	return llm.Response{Content: c.output}, nil
+}
+
+// Once a structured review is done, its findings are checked and the
+// check's report is appended to the review.
+func TestReviewStructuredRunsCheck(t *testing.T) {
+	t.Parallel()
+
+	m := newStructuredReview(t)
+	m.setCheck(check.Review{Client: checkLLM{output: `{"id":1,"verdict":"drop","reason":"m is never nil."}`}})
+
+	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","line":2,"severity":"high","title":"Nil map","body":"b"}` + "\n"})
+	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Fix it."}`})
+	m, cmd := m.Update(streamCompleteMsg{})
+	require.NotNil(t, cmd)
+	assert.True(t, m.checking)
+
+	msg := cmd()
+	require.IsType(t, checkDoneMsg{}, msg)
+	m, _ = m.Update(msg)
+
+	assert.False(t, m.checking)
+	assert.Contains(t, m.response, "## Verdict\n\nFix it.\n\n## Bark's check\n\n"+
+		"A second pass checked 1 finding against the code and doubts 1:\n\n"+
+		"- **[HIGH] Nil map** `a.go:2`\n  m is never nil.\n")
+	assert.Contains(t, m.editor.GetCurrentContent(), "m is never nil.", "the report is shown, not only stored")
+}
+
+// Without findings there is nothing to check.
+func TestReviewStructuredNoFindingsNoCheck(t *testing.T) {
+	t.Parallel()
+
+	m := newStructuredReview(t)
+	m.setCheck(check.Review{Client: checkLLM{}})
+
+	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Clean."}`})
+	m, _ = m.Update(streamCompleteMsg{})
+
+	assert.False(t, m.checking)
+	assert.NotContains(t, m.response, "Bark's check")
+}
+
+// A check result for a review that was restarted is dropped.
+func TestReviewStructuredIgnoresStaleCheck(t *testing.T) {
+	t.Parallel()
+
+	m := newStructuredReview(t)
+	m.setCheck(check.Review{Client: checkLLM{}})
+	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","title":"T","body":"b"}` + "\n"})
+	m, _ = m.Update(streamCompleteMsg{})
+	require.True(t, m.checking)
+	stale := checkDoneMsg{run: m.run, report: "## Bark's check\n\nstale\n"}
+
+	_ = m.startReview(context.Background())
+	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Clean."}`})
+	m, _ = m.Update(streamCompleteMsg{})
+	m, _ = m.Update(stale)
+
+	assert.NotContains(t, m.response, "stale")
 }

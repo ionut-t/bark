@@ -157,6 +157,7 @@ func TestNew_SettersWriteEveryValueToItsOwnPath(t *testing.T) {
 		RelativeNumber:     true,
 		ContextEnrichment:  true,
 		StructuredFindings: true,
+		CheckFindings:      true,
 	}
 
 	tests := []struct {
@@ -198,6 +199,11 @@ func TestNew_SettersWriteEveryValueToItsOwnPath(t *testing.T) {
 			name: "structured findings",
 			set:  func(c Config) error { return c.SetStructuredFindings(false) },
 			want: func(d Data) Data { d.StructuredFindings = false; return d },
+		},
+		{
+			name: "check findings",
+			set:  func(c Config) error { return c.SetCheckFindings(false) },
+			want: func(d Data) Data { d.CheckFindings = false; return d },
 		},
 	}
 
@@ -262,6 +268,7 @@ func TestNew_OverridesAreNotSaved(t *testing.T) {
 	cfg.OverrideMaxDiffLines(10)
 	cfg.OverrideContextEnrichment(true)
 	cfg.OverrideStructuredFindings(true)
+	cfg.OverrideCheckFindings(true)
 	require.NoError(t, cfg.SetRelativeNumber(true))
 
 	data.RelativeNumber = true
@@ -280,6 +287,7 @@ func TestNew_OverridesSurviveSetters(t *testing.T) {
 	cfg.OverrideMaxDiffLines(10)
 	cfg.OverrideContextEnrichment(true)
 	cfg.OverrideStructuredFindings(true)
+	cfg.OverrideCheckFindings(true)
 	require.NoError(t, cfg.SetRelativeNumber(true))
 
 	model, err := cfg.GetLLMModel()
@@ -293,6 +301,7 @@ func TestNew_OverridesSurviveSetters(t *testing.T) {
 	assert.Equal(t, uint32(10), cfg.GetMaxDiffLines())
 	assert.True(t, cfg.GetContextEnrichment())
 	assert.True(t, cfg.GetStructuredFindings())
+	assert.True(t, cfg.GetCheckFindings())
 	assert.True(t, cfg.GetRelativeNumber())
 }
 
@@ -356,6 +365,14 @@ func TestNew_SetterReplacesOverride(t *testing.T) {
 			override: func(c Config) error { c.OverrideStructuredFindings(true); return nil },
 			set:      func(c Config) error { return c.SetStructuredFindings(false) },
 			get:      func(c Config) any { return c.GetStructuredFindings() },
+			want:     false,
+			saved:    func(d Data) Data { return d },
+		},
+		{
+			name:     "check findings",
+			override: func(c Config) error { c.OverrideCheckFindings(true); return nil },
+			set:      func(c Config) error { return c.SetCheckFindings(false) },
+			get:      func(c Config) any { return c.GetCheckFindings() },
 			want:     false,
 			saved:    func(d Data) Data { return d },
 		},

@@ -20,6 +20,7 @@ const (
 	RelativeNumberKey     = "relative_number"
 	ContextEnrichmentKey  = "context_enrichment"
 	StructuredFindingsKey = "structured_findings"
+	CheckFindingsKey      = "check_findings"
 
 	rootDir                    = ".bark"
 	configFileName             = ".config.toml"
@@ -55,6 +56,9 @@ type Config interface {
 	SetStructuredFindings(structured bool) error
 	GetStructuredFindings() bool
 	OverrideStructuredFindings(structured bool)
+	SetCheckFindings(check bool) error
+	GetCheckFindings() bool
+	OverrideCheckFindings(check bool)
 }
 
 // Data is the contents of the config file. The toml tags name the keys both
@@ -67,6 +71,7 @@ type Data struct {
 	RelativeNumber     bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
 	ContextEnrichment  bool   `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) as context for review (default: false)"`
 	StructuredFindings bool   `toml:"structured_findings" comment:"Whether reviews ask the model for structured findings (file, line, severity, ...) instead of free text (default: false)"`
+	CheckFindings      bool   `toml:"check_findings" comment:"Whether structured reviews make a second model call that checks each finding against the code and sets aside the ones that don't hold up (default: true)"`
 }
 
 // config is safe for concurrent use: the TUI saves relative_number from a tea.Cmd
@@ -90,6 +95,7 @@ type overrides struct {
 	maxDiffLines      *uint32
 	contextEnrichment *bool
 	structured        *bool
+	checkFindings     *bool
 }
 
 // valueOr returns the override if set, otherwise the saved value.
@@ -116,9 +122,10 @@ func New(path string, data Data) Config {
 // DefaultData is what a new config file contains.
 func DefaultData() Data {
 	return Data{
-		Editor:       DefaultEditor(),
-		LLMModel:     defaultLLMModel,
-		MaxDiffLines: DEFAULT_MAX_DIFF_LINES,
+		Editor:        DefaultEditor(),
+		LLMModel:      defaultLLMModel,
+		MaxDiffLines:  DEFAULT_MAX_DIFF_LINES,
+		CheckFindings: true,
 	}
 }
 
@@ -345,6 +352,35 @@ func (c *config) OverrideStructuredFindings(structured bool) {
 	defer c.mu.Unlock()
 
 	c.overrides.structured = &structured
+}
+
+func (c *config) SetCheckFindings(check bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.checkFindings = nil
+
+	if check == c.data.CheckFindings {
+		return nil
+	}
+
+	c.data.CheckFindings = check
+
+	return writeConfig(c.path, c.data)
+}
+
+func (c *config) GetCheckFindings() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return valueOr(c.overrides.checkFindings, c.data.CheckFindings)
+}
+
+func (c *config) OverrideCheckFindings(check bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.checkFindings = &check
 }
 
 func writeConfig(path string, data Data) error {

@@ -197,3 +197,63 @@ func TestMarkdownIsAppendable(t *testing.T) {
 	}
 	assert.Equal(t, Markdown(events), b.String())
 }
+
+func TestMarkdownMovesDoubtedFindingsBeforeVerdict(t *testing.T) {
+	t.Parallel()
+
+	events := []Event{
+		{Intro: "i"},
+		{Finding: &Finding{File: "a.go", Line: 1, Severity: High, Category: "bug", Title: "Kept"}},
+		{Finding: &Finding{File: "b.go", Line: 2, EndLine: 3, Severity: Low, Category: "design", Title: "Doubted",
+			Body: "b", Doubt: "A preference,\n  not a defect."}},
+		{Finding: &Finding{Severity: Medium, Title: "Nowhere", Doubt: "Can't happen."}},
+		{Verdict: "v"},
+	}
+
+	want := "i\n\n" +
+		"### [HIGH · bug] Kept\n\n`a.go:1`\n\n" +
+		"## Doubted by Bark's check\n\n" +
+		"A second pass checked these findings against the code and doubts them. They are listed in case it's wrong.\n\n" +
+		"- **[LOW · design] Doubted** `b.go:2-3`\n  A preference, not a defect.\n" +
+		"- **[MEDIUM] Nowhere**\n  Can't happen.\n\n" +
+		"## Verdict\n\nv\n\n"
+	assert.Equal(t, want, Markdown(events))
+}
+
+func TestMarkdownDoubtedFindingsWithoutVerdict(t *testing.T) {
+	t.Parallel()
+
+	got := Markdown([]Event{{Finding: &Finding{File: "a.go", Severity: Low, Title: "T", Doubt: "No."}}})
+	assert.True(t, strings.HasPrefix(got, "## Doubted by Bark's check\n\n"))
+	assert.True(t, strings.HasSuffix(got, "- **[LOW] T** `a.go`\n  No.\n\n"))
+}
+
+func TestCheckReport(t *testing.T) {
+	t.Parallel()
+
+	kept := Event{Finding: &Finding{File: "a.go", Line: 1, Severity: High, Title: "Kept"}}
+	doubted := Event{Finding: &Finding{File: "b.go", Line: 2, Severity: Low, Title: "Doubted", Doubt: "No."}}
+
+	tests := []struct {
+		name    string
+		events  []Event
+		checked int
+		want    string
+	}{
+		{name: "nothing checked", events: []Event{kept}, checked: 0, want: ""},
+		{name: "one kept", events: []Event{kept}, checked: 1,
+			want: "## Bark's check\n\nA second pass checked 1 finding against the code and kept it.\n\n"},
+		{name: "all kept", events: []Event{kept, kept}, checked: 2,
+			want: "## Bark's check\n\nA second pass checked 2 findings against the code and kept them all.\n\n"},
+		{name: "some doubted", events: []Event{{Intro: "i"}, kept, doubted, {Verdict: "v"}}, checked: 2,
+			want: "## Bark's check\n\nA second pass checked 2 findings against the code and doubts 1:\n\n" +
+				"- **[LOW] Doubted** `b.go:2`\n  No.\n\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, CheckReport(tt.events, tt.checked))
+		})
+	}
+}
