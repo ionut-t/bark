@@ -240,3 +240,121 @@ func TestEnsureFile_CreatesDefaultsOnce(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, existing, string(content))
 }
+
+// Overrides apply to one run only and are never saved.
+func TestNew_OverridesAreNotSaved(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), configFileName)
+	data := Data{Editor: "nano", LLMProvider: "openai", LLMModel: "gpt-x", MaxDiffLines: 300}
+	cfg := New(path, data)
+
+	cfg.OverrideModel("other-model")
+	require.NoError(t, cfg.OverrideProvider("anthropic"))
+	cfg.OverrideMaxDiffLines(10)
+	cfg.OverrideContextEnrichment(true)
+	require.NoError(t, cfg.SetRelativeNumber(true))
+
+	data.RelativeNumber = true
+	assert.Equal(t, data, readSaved(t, path))
+}
+
+// Saving an unrelated setting keeps the overrides for the current run.
+func TestNew_OverridesSurviveSetters(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), configFileName)
+	cfg := New(path, Data{Editor: "nano", LLMProvider: "openai", LLMModel: "gpt-x", MaxDiffLines: 300})
+
+	cfg.OverrideModel("other-model")
+	require.NoError(t, cfg.OverrideProvider("anthropic"))
+	cfg.OverrideMaxDiffLines(10)
+	cfg.OverrideContextEnrichment(true)
+	require.NoError(t, cfg.SetRelativeNumber(true))
+
+	model, err := cfg.GetLLMModel()
+	require.NoError(t, err)
+	assert.Equal(t, "other-model", model)
+
+	provider, err := cfg.GetLLMProvider()
+	require.NoError(t, err)
+	assert.Equal(t, "anthropic", provider)
+
+	assert.Equal(t, uint32(10), cfg.GetMaxDiffLines())
+	assert.True(t, cfg.GetContextEnrichment())
+	assert.True(t, cfg.GetRelativeNumber())
+}
+
+// Setting an overridden field saves the new value and uses it from then on:
+// the most recent change wins.
+func TestNew_SetterReplacesOverride(t *testing.T) {
+	t.Parallel()
+
+	data := Data{Editor: "nano", LLMProvider: "openai", LLMModel: "gpt-x", MaxDiffLines: 300}
+
+	tests := []struct {
+		name     string
+		override func(Config) error
+		set      func(Config) error
+		get      func(Config) any
+		want     any
+		saved    func(Data) Data
+	}{
+		{
+			name:     "model",
+			override: func(c Config) error { c.OverrideModel("other-model"); return nil },
+			set:      func(c Config) error { return c.SetLLMModel("claude-sonnet-5-5") },
+			get:      func(c Config) any { m, _ := c.GetLLMModel(); return m },
+			want:     "claude-sonnet-5-5",
+			saved:    func(d Data) Data { d.LLMModel = "claude-sonnet-5-5"; return d },
+		},
+		{
+			name:     "model set back to the saved value",
+			override: func(c Config) error { c.OverrideModel("other-model"); return nil },
+			set:      func(c Config) error { return c.SetLLMModel("gpt-x") },
+			get:      func(c Config) any { m, _ := c.GetLLMModel(); return m },
+			want:     "gpt-x",
+			saved:    func(d Data) Data { return d },
+		},
+		{
+			name:     "provider",
+			override: func(c Config) error { return c.OverrideProvider("anthropic") },
+			set:      func(c Config) error { return c.SetLLMProvider("ollama") },
+			get:      func(c Config) any { p, _ := c.GetLLMProvider(); return p },
+			want:     "ollama",
+			saved:    func(d Data) Data { d.LLMProvider = "ollama"; return d },
+		},
+		{
+			name:     "max diff lines",
+			override: func(c Config) error { c.OverrideMaxDiffLines(10); return nil },
+			set:      func(c Config) error { return c.SetMaxDiffLines(0) },
+			get:      func(c Config) any { return c.GetMaxDiffLines() },
+			want:     uint32(0),
+			saved:    func(d Data) Data { d.MaxDiffLines = 0; return d },
+		},
+		{
+			name:     "context enrichment",
+			override: func(c Config) error { c.OverrideContextEnrichment(true); return nil },
+			set:      func(c Config) error { return c.SetContextEnrichment(false) },
+			get:      func(c Config) any { return c.GetContextEnrichment() },
+			want:     false,
+			saved:    func(d Data) Data { return d },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), configFileName)
+			require.NoError(t, writeConfig(path, data))
+			cfg := New(path, data)
+
+			require.NoError(t, tt.override(cfg))
+			require.NoError(t, tt.set(cfg))
+
+			assert.Equal(t, tt.want, tt.get(cfg))
+			assert.Equal(t, tt.saved(data), readSaved(t, path))
+		})
+	}
+}

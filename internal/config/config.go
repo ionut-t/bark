@@ -65,11 +65,32 @@ type Data struct {
 
 type config struct {
 	path string
-	data Data
+	// data is what the setters save; the overrides below are never saved.
+	data      Data
+	overrides overrides
+}
+
+// overrides hold the values set for the current run only. A nil field means
+// the saved value is used.
+type overrides struct {
+	llmProvider       *string
+	llmModel          *string
+	maxDiffLines      *uint32
+	contextEnrichment *bool
+}
+
+// valueOr returns the override if set, otherwise the saved value.
+func valueOr[T any](override *T, saved T) T {
+	if override != nil {
+		return *override
+	}
+
+	return saved
 }
 
 // New returns a Config holding data. The setters save every value to path;
-// the Override methods change values for the current run only. An empty
+// the Override methods change values for the current run only and are never
+// saved. Setting an overridden value replaces the override. An empty
 // editor falls back to $EDITOR, then the platform default.
 func New(path string, data Data) Config {
 	if data.Editor == "" {
@@ -107,6 +128,8 @@ func (c *config) GetEditor() string {
 }
 
 func (c *config) SetLLMProvider(provider string) error {
+	c.overrides.llmProvider = nil
+
 	if provider == c.data.LLMProvider {
 		return nil
 	}
@@ -117,7 +140,7 @@ func (c *config) SetLLMProvider(provider string) error {
 }
 
 func (c *config) GetLLMProvider() (string, error) {
-	provider := c.data.LLMProvider
+	provider := valueOr(c.overrides.llmProvider, c.data.LLMProvider)
 
 	if provider == "" {
 		return "", fmt.Errorf("%s not set in config", LLMProviderKey)
@@ -128,7 +151,7 @@ func (c *config) GetLLMProvider() (string, error) {
 
 func (c *config) OverrideModel(model string) {
 	if model != "" {
-		c.data.LLMModel = model
+		c.overrides.llmModel = &model
 	}
 }
 
@@ -141,15 +164,17 @@ func (c *config) OverrideProvider(provider string) error {
 		return fmt.Errorf("invalid provider: %s (supported: %s)", provider, strings.Join(supportedProviders, ", "))
 	}
 
-	c.data.LLMProvider = provider
+	c.overrides.llmProvider = &provider
 	return nil
 }
 
 func (c *config) OverrideMaxDiffLines(lines uint32) {
-	c.data.MaxDiffLines = lines
+	c.overrides.maxDiffLines = &lines
 }
 
 func (c *config) SetLLMModel(model string) error {
+	c.overrides.llmModel = nil
+
 	if model == c.data.LLMModel {
 		return nil
 	}
@@ -160,7 +185,7 @@ func (c *config) SetLLMModel(model string) error {
 }
 
 func (c *config) GetLLMModel() (string, error) {
-	model := c.data.LLMModel
+	model := valueOr(c.overrides.llmModel, c.data.LLMModel)
 
 	if model == "" {
 		return "", fmt.Errorf("%s not set in config", LLMModelKey)
@@ -170,6 +195,8 @@ func (c *config) GetLLMModel() (string, error) {
 }
 
 func (c *config) SetMaxDiffLines(lines uint32) error {
+	c.overrides.maxDiffLines = nil
+
 	if lines == c.data.MaxDiffLines {
 		return nil
 	}
@@ -180,7 +207,7 @@ func (c *config) SetMaxDiffLines(lines uint32) error {
 }
 
 func (c *config) GetMaxDiffLines() uint32 {
-	return c.data.MaxDiffLines
+	return valueOr(c.overrides.maxDiffLines, c.data.MaxDiffLines)
 }
 
 func (c *config) GetCommitInstructions() string {
@@ -211,6 +238,8 @@ func (c *config) GetRelativeNumber() bool {
 }
 
 func (c *config) SetContextEnrichment(enrich bool) error {
+	c.overrides.contextEnrichment = nil
+
 	if enrich == c.data.ContextEnrichment {
 		return nil
 	}
@@ -221,11 +250,11 @@ func (c *config) SetContextEnrichment(enrich bool) error {
 }
 
 func (c *config) GetContextEnrichment() bool {
-	return c.data.ContextEnrichment
+	return valueOr(c.overrides.contextEnrichment, c.data.ContextEnrichment)
 }
 
 func (c *config) OverrideContextEnrichment(enrich bool) {
-	c.data.ContextEnrichment = enrich
+	c.overrides.contextEnrichment = &enrich
 }
 
 func writeConfig(path string, data Data) error {
