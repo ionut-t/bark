@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/ionut-t/bark/v2/internal/templates"
 	"github.com/pelletier/go-toml/v2"
@@ -63,8 +64,14 @@ type Data struct {
 	ContextEnrichment bool   `toml:"context_enrichment" mapstructure:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) as context for review (default: false)"`
 }
 
+// config is safe for concurrent use: the TUI saves relative_number from a tea.Cmd
+// goroutine while Update reads it.
 type config struct {
 	path string
+
+	// mu guards data and overrides. Setters hold it while writing the file,
+	// so saves can't interleave and the file matches data.
+	mu sync.Mutex
 	// data is what the setters save; the overrides below are never saved.
 	data      Data
 	overrides overrides
@@ -114,7 +121,10 @@ func (c *config) Path() string {
 }
 
 func (c *config) SetEditor(editor string) error {
-	if editor == c.GetEditor() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if editor == c.data.Editor {
 		return nil
 	}
 
@@ -124,10 +134,16 @@ func (c *config) SetEditor(editor string) error {
 }
 
 func (c *config) GetEditor() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	return c.data.Editor
 }
 
 func (c *config) SetLLMProvider(provider string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.overrides.llmProvider = nil
 
 	if provider == c.data.LLMProvider {
@@ -140,6 +156,9 @@ func (c *config) SetLLMProvider(provider string) error {
 }
 
 func (c *config) GetLLMProvider() (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	provider := valueOr(c.overrides.llmProvider, c.data.LLMProvider)
 
 	if provider == "" {
@@ -150,12 +169,18 @@ func (c *config) GetLLMProvider() (string, error) {
 }
 
 func (c *config) OverrideModel(model string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if model != "" {
 		c.overrides.llmModel = &model
 	}
 }
 
 func (c *config) OverrideProvider(provider string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if provider == "" {
 		return nil
 	}
@@ -169,10 +194,16 @@ func (c *config) OverrideProvider(provider string) error {
 }
 
 func (c *config) OverrideMaxDiffLines(lines uint32) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.overrides.maxDiffLines = &lines
 }
 
 func (c *config) SetLLMModel(model string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.overrides.llmModel = nil
 
 	if model == c.data.LLMModel {
@@ -185,6 +216,9 @@ func (c *config) SetLLMModel(model string) error {
 }
 
 func (c *config) GetLLMModel() (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	model := valueOr(c.overrides.llmModel, c.data.LLMModel)
 
 	if model == "" {
@@ -195,6 +229,9 @@ func (c *config) GetLLMModel() (string, error) {
 }
 
 func (c *config) SetMaxDiffLines(lines uint32) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.overrides.maxDiffLines = nil
 
 	if lines == c.data.MaxDiffLines {
@@ -207,6 +244,9 @@ func (c *config) SetMaxDiffLines(lines uint32) error {
 }
 
 func (c *config) GetMaxDiffLines() uint32 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	return valueOr(c.overrides.maxDiffLines, c.data.MaxDiffLines)
 }
 
@@ -224,6 +264,9 @@ func (c *config) GetPRInstructions() string {
 }
 
 func (c *config) SetRelativeNumber(relative bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if relative == c.data.RelativeNumber {
 		return nil
 	}
@@ -234,10 +277,16 @@ func (c *config) SetRelativeNumber(relative bool) error {
 }
 
 func (c *config) GetRelativeNumber() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	return c.data.RelativeNumber
 }
 
 func (c *config) SetContextEnrichment(enrich bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.overrides.contextEnrichment = nil
 
 	if enrich == c.data.ContextEnrichment {
@@ -250,10 +299,16 @@ func (c *config) SetContextEnrichment(enrich bool) error {
 }
 
 func (c *config) GetContextEnrichment() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	return valueOr(c.overrides.contextEnrichment, c.data.ContextEnrichment)
 }
 
 func (c *config) OverrideContextEnrichment(enrich bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.overrides.contextEnrichment = &enrich
 }
 
