@@ -183,6 +183,11 @@ func RunReview(opts ReviewOptions) error {
 	var checkFn func([]findings.Event) ([]findings.Event, int)
 	if structured && opts.Config.GetCheckFindings() {
 		r := check.Review{Client: client, ReviewDiff: reviewDiff, Diff: diff, LogDir: opts.Storage, Provider: provider, Model: model}
+		if !opts.Stream {
+			// Nothing is shown before the check, so the intro and verdict
+			// can still be rewritten to match it.
+			r.Persona = reviewer.Prompt
+		}
 		checkFn = func(events []findings.Event) ([]findings.Event, int) {
 			return checkFindings(r, events)
 		}
@@ -397,7 +402,17 @@ func checkFindings(r check.Review, events []findings.Event) ([]findings.Event, i
 		return events, 0
 	}
 	fmt.Fprintf(os.Stderr, "bark: the check kept %d of %d finding(s)\n", res.Checked-res.Doubted, res.Checked)
-	return res.Events, res.Checked
+
+	// The intro and verdict were written before the check; rewrite them so
+	// they don't demand fixes for doubted findings.
+	revised, ok, err := r.Revise(ctx, res.Events)
+	switch {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "bark: %v; keeping the original\n", err)
+	case ok:
+		fmt.Fprintln(os.Stderr, "bark: rewrote the intro and verdict to match the checked findings")
+	}
+	return revised, res.Checked
 }
 
 // resolveReviewer loads a reviewer from a file path, by name, or from .bark/reviewer.md.

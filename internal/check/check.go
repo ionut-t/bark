@@ -472,6 +472,10 @@ type Review struct {
 	ReviewDiff git.ReviewDiff
 	// Diff is the diff as the review saw it, with line numbers.
 	Diff string
+	// Persona, if set, is the reviewer's prompt; Revise then rewrites the
+	// intro and verdict in its voice. Leave it empty when the review's own
+	// intro and verdict have already been shown (streamed output).
+	Persona string
 	// LogDir, Provider and Model are for the BARK_DEBUG log. OnLog, if not
 	// nil, is told where the log is, or why it couldn't be started.
 	LogDir, Provider, Model string
@@ -485,8 +489,24 @@ func (r Review) Run(ctx context.Context, events []findings.Event) (Result, error
 		return r.ReviewDiff.NewSideFile(ctx, path)
 	})
 	in := Input{Header: r.ReviewDiff.ContextHeader, Diff: r.Diff, Files: files}
-	return Run(ctx, r.Client, in, events, func(system, prompt string) *debuglog.Log {
-		log, err := debuglog.Start(r.LogDir, "check", debuglog.Meta{
+	return Run(ctx, r.Client, in, events, r.startLog("check"))
+}
+
+// Revise rewrites the intro and verdict of a checked review in the
+// persona's voice when the check doubted findings they may rest on (see the
+// package function Revise). It reports whether it did; without a persona,
+// or with nothing doubted, it makes no call.
+func (r Review) Revise(ctx context.Context, events []findings.Event) ([]findings.Event, bool, error) {
+	if r.Persona == "" || !NeedsRevision(events) {
+		return events, false, nil
+	}
+	out, err := Revise(ctx, r.Client, r.Persona, events, r.startLog("verdict"))
+	return out, err == nil, err
+}
+
+func (r Review) startLog(kind string) func(system, prompt string) *debuglog.Log {
+	return func(system, prompt string) *debuglog.Log {
+		log, err := debuglog.Start(r.LogDir, kind, debuglog.Meta{
 			Fields: []debuglog.Field{
 				{Key: "provider", Value: r.Provider},
 				{Key: "model", Value: r.Model},
@@ -498,7 +518,7 @@ func (r Review) Run(ctx context.Context, events []findings.Event) (Result, error
 			r.OnLog(log.Path(), err)
 		}
 		return log
-	})
+	}
 }
 
 // Count returns the number of findings in events.
