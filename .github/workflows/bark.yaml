@@ -99,6 +99,7 @@ jobs:
           BARK_REVIEWER: ${{ vars.BARK_REVIEWER }}
           BARK_MAX_DIFF_LINES: ${{ vars.BARK_MAX_DIFF_LINES }}
           BARK_WITH_CONTEXT: ${{ vars.BARK_WITH_CONTEXT }}
+          BARK_INLINE_COMMENTS: ${{ vars.BARK_INLINE_COMMENTS }}
           WITH_DESCRIPTION: ${{ needs.pr-description.result == 'success' }}
         run: |
           PROVIDER=$(echo "$BARK_PROVIDER" | tr '[:upper:]' '[:lower:]')
@@ -118,9 +119,12 @@ jobs:
           [ -n "$BARK_MAX_DIFF_LINES" ] && ARGS+=(--max-diff-lines "$BARK_MAX_DIFF_LINES")
           [ "$BARK_WITH_CONTEXT" = "true" ] && ARGS+=(--with-context)
           [ "$WITH_DESCRIPTION" = "true" ] && ARGS+=(--with-description)
+          # Posts a review with inline comments itself; the next step is skipped.
+          [ "$BARK_INLINE_COMMENTS" = "true" ] && ARGS+=(--comment)
           /tmp/bark "${ARGS[@]}" > /tmp/bark-review.txt
 
       - name: Post or update PR comment
+        if: vars.BARK_INLINE_COMMENTS != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

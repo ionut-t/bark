@@ -814,7 +814,23 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		r.ContextHeader = FormatBranchHeader(branch)
 	}
 
+	r.ContextHeader += goVersionHeader(ctx, r.Diff)
+
 	return r, nil
+}
+
+// goVersionHeader reads go.mod at the repository root. For a pull request,
+// that's the checked-out go.mod, which is the PR's own in CI.
+func goVersionHeader(ctx context.Context, diff string) string {
+	root, err := RepoRoot(ctx)
+	if err != nil {
+		return ""
+	}
+	goMod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	return FormatGoVersionHeader(goMod, diff)
 }
 
 func truncateDiff(diff string, maxLines uint32) string {

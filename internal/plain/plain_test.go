@@ -62,14 +62,16 @@ func TestReviewOutput(t *testing.T) {
 			t.Parallel()
 
 			var out strings.Builder
+			var raw string
 			var err error
 			if tt.stream {
-				err = streamResponse(context.Background(), client, "", "", &out, tt.structured, nil)
+				raw, err = streamResponse(context.Background(), client, "", "", &out, tt.structured, nil)
 			} else {
-				err = fullResponse(context.Background(), client, "", "", &out, tt.structured, nil)
+				raw, err = fullResponse(context.Background(), client, "", "", &out, tt.structured, nil)
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, out.String())
+			assert.Equal(t, structuredOutput, raw)
 		})
 	}
 }

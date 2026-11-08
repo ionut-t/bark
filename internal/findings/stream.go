@@ -115,7 +115,7 @@ func pendingMarkdown(partial string) string {
 	}
 
 	switch open {
-	case "", "title", "body", "suggestion", "remark":
+	case "", "title", "body", "original", "suggestion", "remark":
 	default:
 		// A field that renders above the streaming prose isn't complete
 		// yet; showing it now could change what is already written.

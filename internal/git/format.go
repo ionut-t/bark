@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -71,4 +72,23 @@ func FormatBranchInfo(branch *BranchInfo) string {
 	sb.WriteString(branch.Diffs)
 
 	return sb.String()
+}
+
+var (
+	goFileInDiff = regexp.MustCompile(`(?m)^diff --git a/.+ b/.+\.go$`)
+	goDirective  = regexp.MustCompile(`(?m)^go\s+(\S+)\s*(?://.*)?$`)
+)
+
+// FormatGoVersionHeader returns a markdown header naming the Go version in
+// goMod, if diff changes Go files. Models otherwise judge a change against
+// the Go they were trained on and report newer standard library APIs (such
+// as errors.AsType, added in Go 1.26) as nonexistent.
+func FormatGoVersionHeader(goMod []byte, diff string) string {
+	m := goDirective.FindSubmatch(goMod)
+	if m == nil || !goFileInDiff.MatchString(diff) {
+		return ""
+	}
+	return fmt.Sprintf("## Go version\n\n"+
+		"go.mod targets Go %[1]s. The language features and standard library APIs of Go %[1]s and earlier exist; "+
+		"don't report one as missing or nonexistent because you don't know it.\n\n", m[1])
 }

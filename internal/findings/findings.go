@@ -36,6 +36,10 @@ type Finding struct {
 	Category string   `json:"category"`
 	Title    string   `json:"title"`
 	Body     string   `json:"body"`
+	// Original is the current text of Line..EndLine, copied by the model
+	// when it writes a Suggestion, so the lines it replaces can be checked
+	// against the diff.
+	Original string `json:"original,omitempty"`
 	// Suggestion is replacement code for Line..EndLine, exactly as it should
 	// appear in the file.
 	Suggestion string `json:"suggestion,omitempty"`

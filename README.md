@@ -64,6 +64,14 @@ To provide custom instructions to the reviewer, use the `--instructions` or `-i`
 bark review --instructions <instruction-name>
 ```
 
+To review a GitHub pull request and post the review on it, use `--pr` with `--comment` (needs the [gh CLI](https://cli.github.com)):
+
+```bash
+bark review --pr 42 --comment
+```
+
+`--comment` turns on structured findings. Each finding on a line the pull request changes becomes an inline comment, and its fix becomes a suggestion that can be applied with one click. The reviewer's intro and verdict, and findings about other lines, go in the review body.
+
 ### Commit Message Generation
 
 To generate a commit message for the current staged changes, run `bark commit`:

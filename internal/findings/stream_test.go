@@ -26,7 +26,7 @@ func TestRendererMatchesWholeRender(t *testing.T) {
 
 	output := "```jsonl\n" +
 		`{"type":"intro","text":"  Well, well. \"Structured\", they said.\n\nCafé é time. "}` + "\n" +
-		`{"file":"a.go","line":4,"end_line":5,"severity":"high","category":"bug","title":"Nil map write","body":"m is nil when\nn == 0.","suggestion":"m := map[string]int{}\n\tm[k]++\n","remark":"Ugh — again."}` + "\n" +
+		`{"file":"a.go","line":4,"end_line":5,"severity":"high","category":"bug","title":"Nil map write","body":"m is nil when\nn == 0.","original":"var m map[string]int\n\tm[k]++","suggestion":"m := map[string]int{}\n\tm[k]++\n","remark":"Ugh — again."}` + "\n" +
 		"\n" +
 		`{"file":"README","severity":"LOW","category":"docs","title":"Typo"}` + "\r\n" +
 		"some stray text é\n" +

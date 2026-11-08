@@ -16,7 +16,7 @@ Start with exactly one intro object as the first line:
 
 Write one object per issue, ordered from most to least severe:
 
-{"file":"internal/api/handler.go","line":42,"end_line":44,"severity":"high","category":"bug","title":"...","body":"...","suggestion":"...","remark":"..."}
+{"file":"internal/api/handler.go","line":42,"end_line":44,"severity":"high","category":"bug","title":"...","body":"...","original":"...","suggestion":"...","remark":"..."}
 
 - `file`: the path as it appears in the diff (the new side, without the `b/` prefix).
 - `line`: the first line of the issue in the new version of the file. Every added and context line in the diff starts with that number; copy it from the diff, and pick an added or context line. Use 0 if the issue isn't tied to a line.
@@ -29,6 +29,7 @@ Write one object per issue, ordered from most to least severe:
 - `category`: one of `bug`, `security`, `performance`, `concurrency`, `error-handling`, `design`, `testing`, `readability`, `docs`.
 - `title`: one short sentence naming the problem.
 - `body`: what is wrong, why, and the concrete input or state where it fails.
+- `original`: required when you give a `suggestion`, otherwise omit it. The current text of lines `line` to `end_line`, copied exactly from the diff without the line numbers and diff markers.
 - `suggestion`: optional. Replacement code for lines `line` to `end_line` (or just `line`), exactly as it should appear in the file, with the original indentation. No diff markers, no code fences. Omit it if the fix isn't a local code change.
 - `remark`: one to three sentences in the persona's voice reacting to this specific problem. Stay in character; this is where the persona's reaction to the issue belongs.
 

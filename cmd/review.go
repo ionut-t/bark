@@ -36,6 +36,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().Bool("with-description", false, "Include the PR description in the review context (only applies with --pr)")
 	cmd.Flags().Bool("with-context", false, "Include enclosing declarations (functions, structs, classes) as context for review")
 	cmd.Flags().Bool("structured", false, "Ask for structured findings (file, line, severity, suggestion); the reviewer persona voices the intro, remarks and verdict")
+	cmd.Flags().Bool("comment", false, "Post the review to the pull request, with findings as inline comments and fixes as suggestions (requires --pr; implies --structured)")
 
 	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged", "hash", "pr")
 
@@ -61,9 +62,14 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	withDescription, _ := cmd.Flags().GetBool("with-description")
 	model, _ := cmd.Flags().GetString("model")
 	provider, _ := cmd.Flags().GetString("provider")
+	comment, _ := cmd.Flags().GetBool("comment")
 
 	if withDescription && pr == "" {
 		return fmt.Errorf("--with-description requires --pr")
+	}
+
+	if comment && pr == "" {
+		return fmt.Errorf("--comment requires --pr")
 	}
 
 	stdinDiff, err := readStdinIfPiped()
@@ -92,7 +98,8 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		cfg.OverrideStructuredFindings(structured)
 	}
 
-	if stdinDiff != nil || isPlainMode(cmd) {
+	// Posting runs in plain mode: the TUI has no step for it.
+	if stdinDiff != nil || comment || isPlainMode(cmd) {
 		return plain.RunReview(plain.ReviewOptions{
 			Diff:              stdinDiff,
 			ReviewerName:      reviewerName,
@@ -107,6 +114,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 			Stream:            stream,
 			PR:                pr,
 			WithPRDescription: withDescription,
+			Comment:           comment,
 		})
 	}
 
