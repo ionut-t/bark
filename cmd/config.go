@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -11,9 +12,10 @@ import (
 	"github.com/ionut-t/bark/v2/internal/utils"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
-func configCmd() *cobra.Command {
+func configCmd(cfg config.Config) *cobra.Command {
 	var (
 		editor            string
 		provider          string
@@ -26,9 +28,6 @@ func configCmd() *cobra.Command {
 		Use:   "config",
 		Short: "Manage configuration",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := config.New()
-			configPath := config.GetConfigFilePath()
-
 			flagsSet := false
 
 			if editor != "" {
@@ -67,7 +66,7 @@ func configCmd() *cobra.Command {
 			}
 
 			if !flagsSet {
-				return utils.OpenEditor(configPath)
+				return utils.OpenEditor(cfg.GetEditor(), cfg.Path())
 			}
 
 			return nil
@@ -105,27 +104,70 @@ func anyChanged(flags *pflag.FlagSet, names ...string) bool {
 	return slices.ContainsFunc(names, flags.Changed)
 }
 
-func initConfig() error {
-	if _, err := config.InitialiseConfigFile(); err != nil {
-		return fmt.Errorf("error initializing config: %w", err)
+// initConfig sets up Bark's files in $HOME/.bark and loads the config.
+func initConfig() (config.Config, error) {
+	path, err := config.DefaultFilePath()
+	if err != nil {
+		return nil, fmt.Errorf("error getting config path: %w", err)
+	}
+
+	cfg, err := loadConfig(path)
+	if err != nil {
+		return nil, fmt.Errorf("error initializing config: %w", err)
 	}
 
 	storage, err := config.GetStorage()
 	if err != nil {
-		return fmt.Errorf("error getting storage path: %w", err)
+		return nil, fmt.Errorf("error getting storage path: %w", err)
 	}
 
 	if err := reviewers.Config(storage, false); err != nil {
-		return fmt.Errorf("error initializing reviewers: %w", err)
+		return nil, fmt.Errorf("error initializing reviewers: %w", err)
 	}
 
 	if err := instructions.Config(storage, false); err != nil {
-		return fmt.Errorf("error initializing instructions: %w", err)
+		return nil, fmt.Errorf("error initializing instructions: %w", err)
 	}
 
 	if err := config.InitialiseCommitInstructions(); err != nil {
-		return fmt.Errorf("error initializing commit instructions: %w", err)
+		return nil, fmt.Errorf("error initializing commit instructions: %w", err)
 	}
 
-	return nil
+	return cfg, nil
+}
+
+// loadConfig reads the config file at path, first creating it with default
+// values if it doesn't exist.
+func loadConfig(path string) (config.Config, error) {
+	created, err := config.EnsureFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if created {
+		fmt.Fprintln(os.Stderr, "Created config at", path)
+	}
+
+	data, err := readConfigData(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return config.New(path, data), nil
+}
+
+// readConfigData reads the config file at path. It uses its own viper
+// instance, so reading doesn't touch global state.
+func readConfigData(path string) (config.Data, error) {
+	v := viper.New()
+	v.SetConfigFile(path)
+	if err := v.ReadInConfig(); err != nil {
+		return config.Data{}, err
+	}
+
+	var data config.Data
+	if err := v.Unmarshal(&data); err != nil {
+		return config.Data{}, fmt.Errorf("error reading config: %w", err)
+	}
+
+	return data, nil
 }

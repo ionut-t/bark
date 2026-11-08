@@ -9,7 +9,6 @@ import (
 
 	"github.com/ionut-t/bark/v2/internal/templates"
 	"github.com/pelletier/go-toml/v2"
-	"github.com/spf13/viper"
 )
 
 const (
@@ -26,9 +25,13 @@ const (
 	prInstructionsFileName     = "pull_request_description.md"
 
 	DEFAULT_MAX_DIFF_LINES = 0
+
+	defaultLLMModel = "gemini-2.5-pro"
 )
 
 type Config interface {
+	// Path is the config file the setters write to.
+	Path() string
 	SetEditor(editor string) error
 	GetEditor() string
 	SetLLMProvider(provider string) error
@@ -49,34 +52,44 @@ type Config interface {
 	OverrideContextEnrichment(enrich bool)
 }
 
-type configData struct {
-	Editor            string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
-	LLMProvider       string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark will try to auto-detect the provider based on available credentials."`
-	LLMModel          string `toml:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
-	MaxDiffLines      uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt (0 disables the limit)"`
-	RelativeNumber    bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
-	ContextEnrichment bool   `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) as context for review (default: false)"`
+// Data is the contents of the config file. The toml tags name the keys when
+// saving and the mapstructure tags when loading (viper); keep them the same.
+type Data struct {
+	Editor            string `toml:"editor" mapstructure:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
+	LLMProvider       string `toml:"llm_provider" mapstructure:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark will try to auto-detect the provider based on available credentials."`
+	LLMModel          string `toml:"llm_model" mapstructure:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
+	MaxDiffLines      uint32 `toml:"max_diff_lines" mapstructure:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt (0 disables the limit)"`
+	RelativeNumber    bool   `toml:"relative_number" mapstructure:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
+	ContextEnrichment bool   `toml:"context_enrichment" mapstructure:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) as context for review (default: false)"`
 }
 
 type config struct {
-	data configData
+	path string
+	data Data
 }
 
-func getConfigData() configData {
-	return configData{
-		Editor:            GetEditor(),
-		LLMProvider:       viper.GetString(LLMProviderKey),
-		LLMModel:          viper.GetString(LLMModelKey),
-		MaxDiffLines:      viper.GetUint32(MaxDiffLinesKey),
-		RelativeNumber:    viper.GetBool(RelativeNumberKey),
-		ContextEnrichment: viper.GetBool(ContextEnrichmentKey),
+// New returns a Config holding data. The setters save every value to path;
+// the Override methods change values for the current run only. An empty
+// editor falls back to $EDITOR, then the platform default.
+func New(path string, data Data) Config {
+	if data.Editor == "" {
+		data.Editor = DefaultEditor()
+	}
+
+	return &config{path: path, data: data}
+}
+
+// DefaultData is what a new config file contains.
+func DefaultData() Data {
+	return Data{
+		Editor:       DefaultEditor(),
+		LLMModel:     defaultLLMModel,
+		MaxDiffLines: DEFAULT_MAX_DIFF_LINES,
 	}
 }
 
-func New() Config {
-	return &config{
-		data: getConfigData(),
-	}
+func (c *config) Path() string {
+	return c.path
 }
 
 func (c *config) SetEditor(editor string) error {
@@ -86,7 +99,7 @@ func (c *config) SetEditor(editor string) error {
 
 	c.data.Editor = editor
 
-	return writeConfig(c.data)
+	return writeConfig(c.path, c.data)
 }
 
 func (c *config) GetEditor() string {
@@ -100,7 +113,7 @@ func (c *config) SetLLMProvider(provider string) error {
 
 	c.data.LLMProvider = provider
 
-	return writeConfig(c.data)
+	return writeConfig(c.path, c.data)
 }
 
 func (c *config) GetLLMProvider() (string, error) {
@@ -143,7 +156,7 @@ func (c *config) SetLLMModel(model string) error {
 
 	c.data.LLMModel = model
 
-	return writeConfig(c.data)
+	return writeConfig(c.path, c.data)
 }
 
 func (c *config) GetLLMModel() (string, error) {
@@ -163,7 +176,7 @@ func (c *config) SetMaxDiffLines(lines uint32) error {
 
 	c.data.MaxDiffLines = lines
 
-	return writeConfig(c.data)
+	return writeConfig(c.path, c.data)
 }
 
 func (c *config) GetMaxDiffLines() uint32 {
@@ -190,7 +203,7 @@ func (c *config) SetRelativeNumber(relative bool) error {
 
 	c.data.RelativeNumber = relative
 
-	return writeConfig(c.data)
+	return writeConfig(c.path, c.data)
 }
 
 func (c *config) GetRelativeNumber() bool {
@@ -204,7 +217,7 @@ func (c *config) SetContextEnrichment(enrich bool) error {
 
 	c.data.ContextEnrichment = enrich
 
-	return writeConfig(c.data)
+	return writeConfig(c.path, c.data)
 }
 
 func (c *config) GetContextEnrichment() bool {
@@ -215,16 +228,18 @@ func (c *config) OverrideContextEnrichment(enrich bool) {
 	c.data.ContextEnrichment = enrich
 }
 
-func writeConfig(config configData) error {
-	out, err := toml.Marshal(config)
+func writeConfig(path string, data Data) error {
+	out, err := toml.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	return os.WriteFile(GetConfigFilePath(), out, 0o644)
+	return os.WriteFile(path, out, 0o644)
 }
 
-func getDefaultEditor() string {
+// DefaultEditor is the editor used when the config doesn't set one: $EDITOR,
+// then notepad on Windows or vim elsewhere.
+func DefaultEditor() string {
 	if editor := os.Getenv("EDITOR"); editor != "" {
 		return editor
 	}
@@ -236,53 +251,31 @@ func getDefaultEditor() string {
 	return "vim"
 }
 
-func GetEditor() string {
-	editor := viper.GetString(EditorKey)
-
-	if editor == "" {
-		return getDefaultEditor()
+// DefaultFilePath returns the config file path, $HOME/.bark/.config.toml,
+// creating its directory if needed.
+func DefaultFilePath() (string, error) {
+	dir, err := GetStorage()
+	if err != nil {
+		return "", err
 	}
 
-	return editor
+	return filepath.Join(dir, configFileName), nil
 }
 
-func InitialiseConfigFile() (string, error) {
-	configPath := viper.ConfigFileUsed()
-
-	if configPath == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-
-		dir := filepath.Join(home, rootDir)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return "", err
-		}
-
-		configPath = filepath.Join(dir, configFileName)
-		viper.SetConfigFile(configPath)
-
-		if _, err := os.Stat(configPath); os.IsNotExist(err) {
-			viper.SetDefault(EditorKey, GetEditor())
-			viper.SetDefault(LLMProviderKey, "")
-			viper.SetDefault(LLMModelKey, "gemini-2.5-pro")
-			viper.SetDefault(MaxDiffLinesKey, DEFAULT_MAX_DIFF_LINES)
-			viper.SetDefault(RelativeNumberKey, false)
-			viper.SetDefault(ContextEnrichmentKey, false)
-
-			if err := writeConfig(getConfigData()); err != nil {
-				return "", err
-			}
-
-			fmt.Fprintln(os.Stderr, "Created config at", configPath)
-		} else {
-			viper.SetConfigFile(configPath)
-			return "", viper.ReadInConfig()
-		}
+// EnsureFile writes DefaultData to path if no file exists there, and reports
+// whether it did. An existing file is left untouched.
+func EnsureFile(path string) (bool, error) {
+	if _, err := os.Stat(path); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
 	}
 
-	return configPath, nil
+	if err := writeConfig(path, DefaultData()); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func InitialiseCommitInstructions() error {
@@ -302,10 +295,6 @@ func InitialiseCommitInstructions() error {
 	}
 
 	return nil
-}
-
-func GetConfigFilePath() string {
-	return viper.ConfigFileUsed()
 }
 
 func GetStorage() (string, error) {

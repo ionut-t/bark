@@ -10,7 +10,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/ionut-t/bark/v2/internal/config"
 )
 
 var codeFenceEndPattern = regexp.MustCompile("(?m)([^\\n])(\\+```|-```)([^\\n\\s]*)\\s*$")
@@ -65,9 +64,9 @@ func RemoveCodeFences(message string) string {
 	return strings.TrimSpace(message)
 }
 
-// OpenEditor opens the specified file in the user's preferred text editor.
-func OpenEditor(path string) error {
-	cmd, err := OpenInEditorCmd(config.GetEditor(), path)
+// OpenEditor opens path in editor, attached to the terminal.
+func OpenEditor(editor, path string) error {
+	cmd, err := OpenInEditorCmd(editor, path)
 	if err != nil {
 		return err
 	}

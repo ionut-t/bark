@@ -11,12 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func reviewCmd() *cobra.Command {
+func reviewCmd(cfg config.Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "review",
 		Short: "Review code changes",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runReviewCmd(cmd)
+			return runReviewCmd(cmd, cfg)
 		},
 	}
 
@@ -41,7 +41,7 @@ func reviewCmd() *cobra.Command {
 	return cmd
 }
 
-func runReviewCmd(cmd *cobra.Command) error {
+func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	storage, err := config.GetStorage()
 	if err != nil {
 		return fmt.Errorf("error getting storage: %w", err)
@@ -64,8 +64,6 @@ func runReviewCmd(cmd *cobra.Command) error {
 	if withDescription && pr == "" {
 		return fmt.Errorf("--with-description requires --pr")
 	}
-
-	cfg := config.New()
 
 	stdinDiff, err := readStdinIfPiped()
 	if err != nil {

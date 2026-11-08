@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func editCmd() *cobra.Command {
+func editCmd(cfg config.Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit",
 		Short: "Edit an instruction or a reviewer",
@@ -30,7 +30,7 @@ func editCmd() *cobra.Command {
 				name = args[0]
 			}
 
-			return handleEditCmd(cmd, name)
+			return handleEditCmd(cmd, cfg, name)
 		},
 	}
 
@@ -41,7 +41,7 @@ func editCmd() *cobra.Command {
 	return cmd
 }
 
-func handleEditCmd(cmd *cobra.Command, name string) error {
+func handleEditCmd(cmd *cobra.Command, cfg config.Config, name string) error {
 	reviewer, _ := cmd.Flags().GetBool("reviewer")
 	instruction, _ := cmd.Flags().GetBool("instruction")
 	commit, _ := cmd.Flags().GetBool("commit")
@@ -57,7 +57,7 @@ func handleEditCmd(cmd *cobra.Command, name string) error {
 
 	if commit {
 		path := filepath.Join(storage, "commit.md")
-		if err := utils.OpenEditor(path); err != nil {
+		if err := utils.OpenEditor(cfg.GetEditor(), path); err != nil {
 			return fmt.Errorf("error opening editor: %w", err)
 		}
 
@@ -89,10 +89,10 @@ func handleEditCmd(cmd *cobra.Command, name string) error {
 			}
 		}
 
-		return utils.OpenEditor(assetPath)
+		return utils.OpenEditor(cfg.GetEditor(), assetPath)
 	}
 
-	p := tea.NewProgram(tui.NewAssetsModel(storage, assetType, tui.AssetActionEdit))
+	p := tea.NewProgram(tui.NewAssetsModel(storage, assetType, tui.AssetActionEdit, cfg.GetEditor()))
 
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("error running UI: %w", err)

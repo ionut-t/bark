@@ -25,15 +25,17 @@ __________               __
         \/      \/           \/
 `
 
-var rootCmd = &cobra.Command{
-	Use:  "bark",
-	Long: "Get your code reviewed by legends, generate commit messages and PR descriptions",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return handleRootCmd()
-	},
+func newRootCmd(cfg config.Config) *cobra.Command {
+	return &cobra.Command{
+		Use:  "bark",
+		Long: "Get your code reviewed by legends, generate commit messages and PR descriptions",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return handleRootCmd(cfg)
+		},
+	}
 }
 
-func handleRootCmd() error {
+func handleRootCmd(cfg config.Config) error {
 	storage, err := config.GetStorage()
 	if err != nil {
 		return fmt.Errorf("error getting storage: %w", err)
@@ -41,7 +43,7 @@ func handleRootCmd() error {
 
 	m := tui.New(tui.Options{
 		Storage: storage,
-		Config:  config.New(),
+		Config:  cfg,
 	})
 
 	p := tea.NewProgram(m)
@@ -56,22 +58,25 @@ func handleRootCmd() error {
 // Execute runs the CLI. Any returned error has already been printed to
 // stderr; the caller only needs to set the exit status.
 func Execute() error {
-	if err := initConfig(); err != nil {
+	cfg, err := initConfig()
+	if err != nil {
 		printError(colorprofile.NewWriter(os.Stderr, os.Environ()), err)
 		return err
 	}
 
+	rootCmd := newRootCmd(cfg)
+
 	rootCmd.SetVersionTemplate(versionTemplate())
 
-	rootCmd.AddCommand(configCmd())
-	rootCmd.AddCommand(reviewCmd())
-	rootCmd.AddCommand(commitCmd())
-	rootCmd.AddCommand(prCmd())
+	rootCmd.AddCommand(configCmd(cfg))
+	rootCmd.AddCommand(reviewCmd(cfg))
+	rootCmd.AddCommand(commitCmd(cfg))
+	rootCmd.AddCommand(prCmd(cfg))
 	rootCmd.AddCommand(resetCmd())
-	rootCmd.AddCommand(addCmd())
-	rootCmd.AddCommand(deleteCmd())
-	rootCmd.AddCommand(editCmd())
-	rootCmd.AddCommand(actionsCmd())
+	rootCmd.AddCommand(addCmd(cfg))
+	rootCmd.AddCommand(deleteCmd(cfg))
+	rootCmd.AddCommand(editCmd(cfg))
+	rootCmd.AddCommand(actionsCmd(cfg))
 
 	rootCmd.PersistentFlags().Bool("plain", false, "Output plain text instead of TUI (auto-detected when stdout is piped)")
 	rootCmd.Flags().StringP("config", "c", "", "config file (default is $HOME/.bark/.config.toml)")

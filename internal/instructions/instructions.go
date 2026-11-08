@@ -63,8 +63,8 @@ func RemoveDir(storage string) error {
 	return assets.RemoveAssetDir(storage, assetDirName)
 }
 
-func Add(storage, name string) error {
-	return assets.Add(storage, assetDirName, name)
+func Add(storage, name, editor string) error {
+	return assets.Add(storage, assetDirName, name, editor)
 }
 
 func Delete(storage, name string) error {

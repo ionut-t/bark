@@ -11,12 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func prCmd() *cobra.Command {
+func prCmd(cfg config.Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pr",
 		Short: "Generate a pull request description",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPRCmd(cmd)
+			return runPRCmd(cmd, cfg)
 		},
 	}
 
@@ -32,14 +32,12 @@ func prCmd() *cobra.Command {
 	return cmd
 }
 
-func runPRCmd(cmd *cobra.Command) error {
+func runPRCmd(cmd *cobra.Command, cfg config.Config) error {
 	branch, _ := cmd.Flags().GetString("branch")
 	pr, _ := cmd.Flags().GetString("pr")
 	model, _ := cmd.Flags().GetString("model")
 	provider, _ := cmd.Flags().GetString("provider")
 	instructions, _ := cmd.Flags().GetString("instructions")
-
-	cfg := config.New()
 
 	stdinDiff, err := readStdinIfPiped()
 	if err != nil {
