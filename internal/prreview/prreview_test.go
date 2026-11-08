@@ -262,3 +262,24 @@ func TestPostReportsBothErrors(t *testing.T) {
 	assert.ErrorContains(t, err, "first")
 	assert.ErrorContains(t, err, "second")
 }
+
+// A finding the model wrote as invalid JSON (here, unescaped quotes in
+// original) is shown in the body folded away as code, not as a raw line.
+func TestBuildFoldsUnreadableFindings(t *testing.T) {
+	t.Parallel()
+
+	bad := `{"file":"a.go","line":2,"title":"T","original":"if msg != "" {"}`
+	events := findings.Parse("{\"type\":\"intro\",\"text\":\"Hi.\"}\n" + bad + "\nsome prose\n{\"type\":\"verdict\",\"text\":\"Bye.\"}\n")
+
+	got := Build(events, diff)
+	assert.Contains(t, got.Body, "Hi.\n\n<details>\n<summary>A finding Bark couldn't read</summary>\n\n```json\n"+bad+"\n```\n\n</details>\n\nsome prose\n## Verdict")
+	assert.Equal(t, 1, strings.Count(got.Body, bad))
+}
+
+func TestBuildFoldsUnreadableFindingContainingFence(t *testing.T) {
+	t.Parallel()
+
+	bad := `{"file":"a.go","suggestion":"` + "```" + `" x}`
+	got := Build([]findings.Event{{Text: bad}}, diff)
+	assert.Contains(t, got.Body, "````json\n"+bad+"\n````")
+}

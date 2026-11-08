@@ -82,13 +82,16 @@ var (
 // FormatGoVersionHeader returns a markdown header naming the Go version in
 // goMod, if diff changes Go files. Models otherwise judge a change against
 // the Go they were trained on and report newer standard library APIs (such
-// as errors.AsType, added in Go 1.26) as nonexistent.
+// as errors.AsType, added in Go 1.26) as nonexistent, or mock the version
+// itself as made up.
 func FormatGoVersionHeader(goMod []byte, diff string) string {
 	m := goDirective.FindSubmatch(goMod)
 	if m == nil || !goFileInDiff.MatchString(diff) {
 		return ""
 	}
 	return fmt.Sprintf("## Go version\n\n"+
-		"go.mod targets Go %[1]s. The language features and standard library APIs of Go %[1]s and earlier exist; "+
-		"don't report one as missing or nonexistent because you don't know it.\n\n", m[1])
+		"go.mod targets Go %s, a released version that may be newer than your training data. "+
+		"Its language features and standard library APIs, and those of earlier versions, exist: "+
+		"don't report one as missing or nonexistent because you don't know it. "+
+		"Don't comment on the Go version itself.\n\n", m[1])
 }

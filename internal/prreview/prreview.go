@@ -60,6 +60,9 @@ func Build(events []findings.Event, diff string) Review {
 				continue
 			}
 		}
+		if strings.HasPrefix(strings.TrimSpace(e.Text), "{") {
+			e.Text = folded(e.Text)
+		}
 		rest = append(rest, e)
 	}
 
@@ -69,6 +72,18 @@ func Build(events []findings.Event, diff string) Review {
 		Event:    "COMMENT",
 		Comments: comments,
 	}
+}
+
+// folded wraps a line that looks like a finding but isn't valid JSON
+// (models sometimes leave quotes in copied code unescaped) in a collapsed
+// code block, so it doesn't fill the review body with raw JSON.
+func folded(line string) string {
+	fence := "```"
+	for strings.Contains(line, fence) {
+		fence += "`"
+	}
+	return fmt.Sprintf("<details>\n<summary>A finding Bark couldn't read</summary>\n\n%sjson\n%s\n%s\n\n</details>\n",
+		fence, strings.TrimSpace(line), fence)
 }
 
 func comment(f findings.Finding, lines map[int]diffLine) (Comment, bool) {

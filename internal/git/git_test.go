@@ -389,7 +389,8 @@ func TestFormatGoVersionHeader(t *testing.T) {
 		diff  string
 		want  string
 	}{
-		{"go diff", goMod, goDiff, "go.mod targets Go 1.27.3. The language features and standard library APIs of Go 1.27.3 and earlier exist"},
+		{"go diff", goMod, goDiff, "go.mod targets Go 1.27.3, a released version that may be newer than your training data."},
+		{"tells the model not to question the version", goMod, goDiff, "Don't comment on the Go version itself."},
 		{"no go files in diff", goMod, mdDiff, ""},
 		{"no go directive", []byte("module example.com/m\n"), goDiff, ""},
 		{"no go.mod", nil, goDiff, ""},
