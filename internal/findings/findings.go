@@ -9,6 +9,10 @@ import (
 	"strings"
 )
 
+// Severity is how serious a finding is. The model is asked for one of the
+// constants below, but a Finding keeps whatever it wrote (lowercased) so an
+// odd value stays visible; code that compares severities should treat values
+// outside the scale as Medium.
 type Severity string
 
 const (
@@ -133,13 +137,11 @@ func normaliseFinding(f Finding) Finding {
 	return f
 }
 
-// normaliseSeverity lowercases s and maps values outside the scale to
-// Medium, so later filtering by severity has a known set to work with.
+// normaliseSeverity lowercases s. A missing severity becomes Medium; any
+// other value, even one outside the scale, is kept so it shows in the review.
 func normaliseSeverity(s Severity) Severity {
-	switch v := Severity(strings.ToLower(strings.TrimSpace(string(s)))); v {
-	case Critical, High, Medium, Low:
+	if v := Severity(strings.ToLower(strings.TrimSpace(string(s)))); v != "" {
 		return v
-	default:
-		return Medium
 	}
+	return Medium
 }

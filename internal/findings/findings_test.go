@@ -49,11 +49,12 @@ func TestParse(t *testing.T) {
 			want:   []Event{{Verdict: "ok"}},
 		},
 		{
-			name:   "severity is lowercased and unknown values become medium",
-			output: `{"file":"a.go","severity":"HIGH","title":"A"}` + "\n" + `{"file":"a.go","severity":"blocker","title":"B"}`,
+			name:   "severity is lowercased, unknown values are kept and a missing one becomes medium",
+			output: `{"file":"a.go","severity":"HIGH","title":"A"}` + "\n" + `{"file":"a.go","severity":" Nuclear ","title":"B"}` + "\n" + `{"file":"a.go","title":"C"}`,
 			want: []Event{
 				{Finding: &Finding{File: "a.go", Severity: High, Title: "A"}},
-				{Finding: &Finding{File: "a.go", Severity: Medium, Title: "B"}},
+				{Finding: &Finding{File: "a.go", Severity: "nuclear", Title: "B"}},
+				{Finding: &Finding{File: "a.go", Severity: Medium, Title: "C"}},
 			},
 		},
 		{
@@ -158,6 +159,11 @@ func TestMarkdown(t *testing.T) {
 			name:   "intro",
 			events: []Event{{Intro: "Oh dear.\n\nWhere to start."}},
 			want:   "Oh dear.\n\nWhere to start.\n\n",
+		},
+		{
+			name:   "unknown severity is shown as written",
+			events: []Event{{Finding: &Finding{File: "a.go", Severity: "nuclear", Category: "bug", Title: "T"}}},
+			want:   "### [NUCLEAR · bug] T\n\n`a.go`\n\n",
 		},
 		{
 			name:   "verdict and text",
