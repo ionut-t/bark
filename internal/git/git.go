@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -650,11 +651,13 @@ type PRMeta struct {
 	Title   string
 	Body    string
 	Commits []Commit
+	// HeadSHA is the commit the pull request's branch points to.
+	HeadSHA string
 }
 
 // GetPRMeta fetches the title and commit messages for a GitHub pull request via the gh CLI.
 func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "commits,title,number,body")
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "commits,title,number,body,headRefOid")
 	out, err := cmd.Output()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
@@ -672,6 +675,7 @@ func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
 		Number  int    `json:"number"`
 		Title   string `json:"title"`
 		Body    string `json:"body"`
+		HeadSHA string `json:"headRefOid"`
 		Commits []struct {
 			MessageHeadline string `json:"messageHeadline"`
 			MessageBody     string `json:"messageBody"`
@@ -686,7 +690,7 @@ func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
 		commits[i] = Commit{Message: c.MessageHeadline, Body: c.MessageBody}
 	}
 
-	return &PRMeta{Number: raw.Number, Title: raw.Title, Body: raw.Body, Commits: commits}, nil
+	return &PRMeta{Number: raw.Number, Title: raw.Title, Body: raw.Body, Commits: commits, HeadSHA: raw.HeadSHA}, nil
 }
 
 // ReviewDiffParams controls which diff GetReviewDiff fetches.
@@ -754,6 +758,45 @@ type ReviewDiff struct {
 	// SkipEnrichment is true when no local ref matches the diff (e.g. a PR head
 	// that is not checked out), so enclosing-context extraction must be skipped.
 	SkipEnrichment bool
+
+	// source is where NewSideFile reads files from: a revision, or a pull
+	// request's head (prHead). A ReviewDiff not made by GetReviewDiff has
+	// no source.
+	source string
+	prHead string
+}
+
+// sourceWorkingTree is the source of a working-tree diff; "" means none.
+const sourceWorkingTree = "worktree"
+
+// NewSideFile returns path as it is on the new side of the diff, so its line
+// numbers match the diff's. For a pull request it reads the head commit,
+// from the local repository if it has it, otherwise from GitHub.
+func (r ReviewDiff) NewSideFile(ctx context.Context, path string) ([]byte, error) {
+	switch {
+	case r.prHead != "":
+		if out, err := GetFileContent(ctx, r.prHead, path); err == nil {
+			return out, nil
+		}
+		return ghFileContent(ctx, r.prHead, path)
+	case r.source == sourceWorkingTree:
+		return GetFileContent(ctx, "", path)
+	case r.source != "":
+		return GetFileContent(ctx, r.source, path)
+	}
+	return nil, errors.New("no source for the new side of the diff")
+}
+
+// ghFileContent reads path at commit sha from the current repository on
+// GitHub.
+func ghFileContent(ctx context.Context, sha, path string) ([]byte, error) {
+	endpoint := "repos/{owner}/{repo}/contents/" + (&url.URL{Path: path}).EscapedPath() + "?ref=" + url.QueryEscape(sha)
+	cmd := exec.CommandContext(ctx, "gh", "api", "-H", "Accept: application/vnd.github.raw", endpoint)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s at %s from GitHub: %w", path, sha, err)
+	}
+	return out, nil
 }
 
 // GetReviewDiff fetches the diff, stat, commits and context header for a review.
@@ -777,6 +820,7 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 			}
 			r.ContextHeader = FormatPRHeader(meta)
 			r.Commits = meta.Commits
+			r.prHead = meta.HeadSHA
 		}
 
 	case params.branch != "":
@@ -786,10 +830,13 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 			return r, &BranchDiffError{Branch: params.branch, Err: err}
 		}
 		r.Stat = GetBranchDiffStat(ctx, params.branch)
+		// The diff is <branch>...HEAD, so uncommitted changes aren't in it.
+		r.source = "HEAD"
 		r.Commits, _ = GetBranchCommits(ctx, params.branch)
 
 	case params.commitHash != "":
 		r.Ref = params.commitHash
+		r.source = params.commitHash
 		var err error
 		r.Diff, err = GetDiff(ctx, params.commitHash)
 		if err != nil {
@@ -800,8 +847,10 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 
 	default:
 		all := !params.stagedOnly
+		r.source = sourceWorkingTree
 		if params.stagedOnly {
 			r.Ref = ":"
+			r.source = ":"
 		}
 		var err error
 		r.Diff, err = GetWorkingTreeDiff(ctx, all)

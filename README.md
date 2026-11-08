@@ -72,6 +72,8 @@ bark review --pr 42 --comment
 
 `--comment` turns on structured findings. Each finding on a line the pull request changes becomes an inline comment, and its fix becomes a suggestion that can be applied with one click. The reviewer's intro and verdict, and findings about other lines, go in the review body.
 
+Structured reviews (`--structured`, or `--comment`) are checked before they're shown in full or posted: a second model call reads the full version of each file the findings point to and must quote the code a finding rests on. Findings that don't hold up are set aside in a "Doubted by Bark's check" section (collapsed in a posted review, never inline comments) with the reason. The check costs one extra call per review that has findings, with the diff and those files as input. Turn it off with `--check=false`, or for good with `bark config --check-findings=false`.
+
 ### Commit Message Generation
 
 To generate a commit message for the current staged changes, run `bark commit`:

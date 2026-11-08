@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ionut-t/bark/v2/internal/check"
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/debuglog"
 	"github.com/ionut-t/bark/v2/internal/enclosing"
@@ -173,15 +174,27 @@ func RunReview(opts ReviewOptions) error {
 	if opts.Stream {
 		output, err = streamResponse(llmCtx, client, system, promptText, out, structured, debugLog)
 	} else {
-		output, err = fullResponse(llmCtx, client, system, promptText, out, structured, debugLog)
+		output, err = fullResponse(llmCtx, client, system, promptText, debugLog)
 	}
-	if err != nil || !opts.Comment {
+	if err != nil {
 		return err
+	}
+
+	var checkFn func([]findings.Event) ([]findings.Event, int)
+	if structured && opts.Config.GetCheckFindings() {
+		r := check.Review{Client: client, ReviewDiff: reviewDiff, Diff: diff, LogDir: opts.Storage, Provider: provider, Model: model}
+		checkFn = func(events []findings.Event) ([]findings.Event, int) {
+			return checkFindings(r, events)
+		}
+	}
+	events := finishReview(out, output, opts.Stream, structured, checkFn)
+	if !opts.Comment {
+		return nil
 	}
 
 	postCtx, postCancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer postCancel()
-	result, err := prreview.Post(postCtx, opts.PR, findings.Parse(output), reviewDiff.Diff)
+	result, err := prreview.Post(postCtx, opts.PR, events, reviewDiff.Diff)
 	if err != nil {
 		return err
 	}
@@ -320,25 +333,71 @@ func streamResponse(ctx context.Context, client llm.LLM, system, promptText stri
 	return output.String(), nil
 }
 
-// fullResponse writes the whole review to out once it is complete. Like
-// streamResponse, it returns the raw model output.
-func fullResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool, debugLog *debuglog.Log) (string, error) {
+// finishReview writes what's left of the review to out once the model is
+// done, and returns its events (nil for a free-text review). A streamed
+// review is already on out; a whole one is written now. checkFn, if not nil,
+// runs Bark's check on a structured review's findings: a whole review shows
+// the doubted findings in a section of their own, a streamed one gets a
+// report of them appended.
+func finishReview(out io.Writer, output string, stream, structured bool, checkFn func([]findings.Event) ([]findings.Event, int)) []findings.Event {
+	if !structured {
+		if !stream {
+			_, _ = fmt.Fprintln(out, output)
+		}
+		return nil
+	}
+
+	events := findings.Parse(output)
+	checked := 0
+	if checkFn != nil {
+		events, checked = checkFn(events)
+	}
+	if stream {
+		_, _ = fmt.Fprint(out, findings.CheckReport(events, checked))
+	} else {
+		_, _ = fmt.Fprintln(out, findings.Markdown(events))
+	}
+	return events
+}
+
+// fullResponse returns the whole review once it is complete.
+func fullResponse(ctx context.Context, client llm.LLM, system, promptText string, debugLog *debuglog.Log) (string, error) {
 	response, err := client.Generate(ctx, system, promptText)
 	debugLog.Write(response.Content, response.Usage)
 	debugLog.Finish(err)
 	if err != nil {
 		return "", fmt.Errorf("error during review: %w", err)
 	}
-
-	content := response.Content
-	if structured {
-		content = findings.Markdown(findings.Parse(content))
-	}
-
-	_, _ = fmt.Fprint(out, content)
-	_, _ = fmt.Fprintln(out)
-
 	return response.Content, nil
+}
+
+// checkFindings runs Bark's check on the findings in events and returns the
+// events with the doubted findings marked, and how many findings were
+// checked. Progress and errors go to stderr; if the check fails, events are
+// returned unchanged.
+func checkFindings(r check.Review, events []findings.Event) ([]findings.Event, int) {
+	n := check.Count(events)
+	if n == 0 {
+		return events, 0
+	}
+	fmt.Fprintf(os.Stderr, "bark: checking %d finding(s) against the full files...\n", n)
+
+	r.OnLog = func(path string, err error) {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "bark: debug log: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "bark: debug log: %s\n", path)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	res, err := r.Run(ctx, events)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bark: %v; the findings are unchecked\n", err)
+		return events, 0
+	}
+	fmt.Fprintf(os.Stderr, "bark: the check kept %d of %d finding(s)\n", res.Checked-res.Doubted, res.Checked)
+	return res.Events, res.Checked
 }
 
 // resolveReviewer loads a reviewer from a file path, by name, or from .bark/reviewer.md.

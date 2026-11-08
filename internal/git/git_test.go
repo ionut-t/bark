@@ -410,3 +410,68 @@ func TestFormatGoVersionHeader(t *testing.T) {
 		})
 	}
 }
+
+// NewSideFile reads the version of a file whose line numbers the diff uses.
+func TestReviewDiff_NewSideFile(t *testing.T) {
+	read := func(t *testing.T, params ReviewDiffParams, path string) string {
+		t.Helper()
+		r, err := GetReviewDiff(t.Context(), params)
+		require.NoError(t, err)
+		content, err := r.NewSideFile(t.Context(), path)
+		require.NoError(t, err)
+		return string(content)
+	}
+
+	t.Run("working tree", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("edited\n"), 0o644))
+
+		assert.Equal(t, "edited\n", read(t, WorkingTreeDiff(false), "feature.txt"))
+	})
+
+	t.Run("staged", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("staged\n"), 0o644))
+		runGit(t, dir, "add", "feature.txt")
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("not staged\n"), 0o644))
+
+		assert.Equal(t, "staged\n", read(t, WorkingTreeDiff(true), "feature.txt"))
+	})
+
+	t.Run("commit", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		commitFile(t, dir, "feature.txt", "second\n")
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("edited\n"), 0o644))
+
+		assert.Equal(t, "feature\n", read(t, CommitDiff("HEAD~1"), "feature.txt"))
+	})
+
+	t.Run("branch reads HEAD, not uncommitted changes", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("edited\n"), 0o644))
+
+		assert.Equal(t, "feature\n", read(t, BranchDiff("main"), "feature.txt"))
+	})
+
+	t.Run("pull request head in the local repository", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		runGit(t, dir, "checkout", "main")
+
+		cmd := exec.Command("git", "rev-parse", "feature")
+		cmd.Dir = dir
+		sha, err := cmd.Output()
+		require.NoError(t, err)
+
+		r := ReviewDiff{prHead: strings.TrimSpace(string(sha))}
+		content, err := r.NewSideFile(t.Context(), "feature.txt")
+		require.NoError(t, err)
+		assert.Equal(t, "feature\n", string(content))
+	})
+
+	t.Run("no source", func(t *testing.T) {
+		newDivergedRepo(t)
+
+		_, err := ReviewDiff{Diff: "x"}.NewSideFile(t.Context(), "feature.txt")
+		require.Error(t, err)
+	})
+}

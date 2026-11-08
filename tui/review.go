@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/ionut-t/bark/v2/internal/check"
 	"github.com/ionut-t/bark/v2/internal/debuglog"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/llm"
@@ -123,6 +124,13 @@ type streamCompleteMsg struct {
 	hasUsage bool
 }
 
+// checkDoneMsg carries the outcome of Bark's check for the review started
+// as run number run.
+type checkDoneMsg struct {
+	run    int
+	report string
+}
+
 type reviewLoadingMsg struct {
 	message string
 }
@@ -138,6 +146,15 @@ type reviewModel struct {
 	// turns them into Markdown as they stream.
 	structured bool
 	renderer   *findings.Renderer
+	// raw is the model's output so far; Bark's check parses it once the
+	// review is done.
+	raw *strings.Builder
+	// check, if not nil, checks a finished structured review's findings.
+	check    *check.Review
+	checking bool
+	// run counts the reviews started, so the result of a check for a
+	// review that was restarted is ignored.
+	run int
 	// debugLog is the BARK_DEBUG log of the running review, or nil.
 	debugLog         *debuglog.Log
 	logDir           string
@@ -190,6 +207,10 @@ func (m *reviewModel) setStructured(structured bool) {
 	m.structured = structured
 }
 
+func (m *reviewModel) setCheck(r check.Review) {
+	m.check = &r
+}
+
 // setLogInfo sets what the BARK_DEBUG log needs beyond the review itself.
 func (m *reviewModel) setLogInfo(storage, provider string) {
 	m.logDir = storage
@@ -230,6 +251,8 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		if m.loadingChunks && !m.loading {
 			m.setStreamingStatusLine()
+		} else if m.checking {
+			m.setCheckingStatusLine()
 		}
 		return m, cmd
 
@@ -253,6 +276,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 			m.debugLog.Write(msg.content, nil)
 		}
 
+		m.raw.WriteString(msg.content)
 		content := msg.content
 		if m.renderer != nil {
 			content = m.renderer.Write(content)
@@ -305,9 +329,30 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		m.editor.SetExtraHighlightedContextLines(finalHighlightContextLines)
 		m.response = m.editor.GetCurrentContent() + "\n\n"
 		m.editor.SetContent(m.response)
-		reviewerInfo := m.styles.Accent.Render("Reviewed by " + m.reviewer.Name + " ")
-		m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
 		_ = m.editor.SetCursorPosition(0, 0)
+
+		if m.structured && m.check != nil {
+			if events := findings.Parse(m.raw.String()); check.Count(events) > 0 {
+				m.checking = true
+				m.setCheckingStatusLine()
+				return m, runCheckCmd(*m.check, m.run, events)
+			}
+		}
+		m.setDoneStatusLine()
+
+	case checkDoneMsg:
+		if msg.run != m.run || !m.checking {
+			return m, nil
+		}
+		m.checking = false
+		m.setDoneStatusLine()
+		m.response = strings.TrimRight(m.response, "\n") + "\n\n" + msg.report + "\n"
+		if !m.showPrompt {
+			pos := m.editor.GetCursorPosition()
+			m.editor.SetContent(m.response)
+			_ = m.editor.SetCursorPosition(pos.Row, pos.Col)
+		}
+		return m, nil
 
 	case editor.QuitMsg:
 		return m, tea.Quit
@@ -444,6 +489,9 @@ func (m reviewModel) View() string {
 }
 
 func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
+	m.run++
+	m.checking = false
+	m.raw = &strings.Builder{}
 	m.contentBuilder = &strings.Builder{}
 	m.renderer = nil
 	if m.structured {
@@ -489,6 +537,31 @@ func (m *reviewModel) setStreamingStatusLine() {
 	spacer := m.styles.Surface1.Render(" ")
 	reviewerInfo := m.styles.Surface1.Render(m.spinner.View()) + spacer + reviewerAction
 	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
+}
+
+func (m *reviewModel) setCheckingStatusLine() {
+	action := m.styles.Accent.Background(m.styles.Surface1.GetBackground()).Render("Checking the findings... ")
+	spacer := m.styles.Surface1.Render(" ")
+	info := m.styles.Surface1.Render(m.spinner.View()) + spacer + action
+	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, info)
+}
+
+func (m *reviewModel) setDoneStatusLine() {
+	reviewerInfo := m.styles.Accent.Render("Reviewed by " + m.reviewer.Name + " ")
+	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
+}
+
+// runCheckCmd runs Bark's check on the findings of review number run.
+func runCheckCmd(r check.Review, run int, events []findings.Event) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		res, err := r.Run(ctx, events)
+		if err != nil {
+			return checkDoneMsg{run: run, report: "## Bark's check\n\nThe check failed, so the findings above are unchecked: " + err.Error() + "\n"}
+		}
+		return checkDoneMsg{run: run, report: findings.CheckReport(res.Events, res.Checked)}
+	}
 }
 
 func (m *reviewModel) dispatchLoadingMsg() tea.Cmd {

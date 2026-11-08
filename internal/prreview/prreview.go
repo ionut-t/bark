@@ -8,6 +8,7 @@ package prreview
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -53,7 +54,12 @@ func Build(events []findings.Event, diff string) Review {
 
 	var comments []Comment
 	var rest []findings.Event
+	var doubted []findings.Finding
 	for _, e := range events {
+		if e.Finding != nil && e.Finding.Doubt != "" {
+			doubted = append(doubted, *e.Finding)
+			continue
+		}
 		if e.Finding != nil {
 			if c, ok := comment(*e.Finding, lines[e.Finding.File]); ok {
 				comments = append(comments, c)
@@ -65,6 +71,7 @@ func Build(events []findings.Event, diff string) Review {
 		}
 		rest = append(rest, e)
 	}
+	rest = withDoubted(rest, doubted)
 
 	body := Marker + "\n## Bark AI Code Review\n\n" + strings.TrimSpace(findings.Markdown(rest))
 	return Review{
@@ -72,6 +79,24 @@ func Build(events []findings.Event, diff string) Review {
 		Event:    "COMMENT",
 		Comments: comments,
 	}
+}
+
+// withDoubted puts the findings Bark's check doubted in a collapsed block
+// before the verdict (or at the end), so they don't get inline comments but
+// can still be read if the check was wrong.
+func withDoubted(events []findings.Event, doubted []findings.Finding) []findings.Event {
+	if len(doubted) == 0 {
+		return events
+	}
+	block := findings.Event{Text: fmt.Sprintf("<details>\n<summary>Bark's check doubted %d finding(s)</summary>\n\n"+
+		"A second pass checked these against the full files and doubts them.\n\n%s</details>\n",
+		len(doubted), findings.DoubtedList(doubted))}
+
+	i := slices.IndexFunc(events, func(e findings.Event) bool { return e.Verdict != "" })
+	if i < 0 {
+		return append(events, block)
+	}
+	return slices.Insert(events, i, block)
 }
 
 // folded wraps a line that looks like a finding but isn't valid JSON

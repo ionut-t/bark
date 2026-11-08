@@ -418,3 +418,37 @@ func TestBuildNoSuggestionBlockForRepairedFindings(t *testing.T) {
 	assert.Equal(t, 2, got.Comments[0].Line)
 	assert.NotContains(t, got.Comments[0].Body, "```suggestion")
 }
+
+// Findings Bark's check doubted never become inline comments; they are
+// listed in a collapsed block before the verdict.
+func TestBuildPutsDoubtedFindingsInCollapsedBlock(t *testing.T) {
+	t.Parallel()
+
+	events := []findings.Event{
+		{Intro: "Hello."},
+		{Finding: &findings.Finding{File: "a.go", Line: 2, Severity: findings.High, Title: "Kept", Body: "b"}},
+		{Finding: &findings.Finding{File: "a.go", Line: 3, Severity: findings.Low, Category: "design", Title: "Doubted",
+			Body: "b", Suggestion: "x", Original: "var y = 3", Doubt: "A preference."}},
+		{Verdict: "Bye."},
+	}
+
+	review := Build(events, diff)
+
+	require.Len(t, review.Comments, 1)
+	assert.Equal(t, 2, review.Comments[0].Line)
+	assert.Contains(t, review.Body, "Hello.\n\n<details>\n<summary>Bark's check doubted 1 finding(s)</summary>\n\n"+
+		"A second pass checked these against the full files and doubts them.\n\n"+
+		"- **[LOW · design] Doubted** `a.go:3`\n  A preference.\n\n</details>\n\n## Verdict\n\nBye.")
+	assert.NotContains(t, review.Body, "suggestion")
+}
+
+func TestBuildDoubtedFindingsWithoutVerdict(t *testing.T) {
+	t.Parallel()
+
+	review := Build([]findings.Event{
+		{Finding: &findings.Finding{File: "a.go", Line: 2, Severity: findings.Low, Title: "Doubted", Doubt: "No."}},
+	}, diff)
+
+	assert.Empty(t, review.Comments)
+	assert.True(t, strings.HasSuffix(review.Body, "\n  No.\n\n</details>\n"), review.Body)
+}

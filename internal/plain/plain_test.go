@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,11 +68,67 @@ func TestReviewOutput(t *testing.T) {
 			if tt.stream {
 				raw, err = streamResponse(context.Background(), client, "", "", &out, tt.structured, nil)
 			} else {
-				raw, err = fullResponse(context.Background(), client, "", "", &out, tt.structured, nil)
+				raw, err = fullResponse(context.Background(), client, "", "", nil)
 			}
 			require.NoError(t, err)
+			finishReview(&out, raw, tt.stream, tt.structured, nil)
 			assert.Equal(t, tt.want, out.String())
 			assert.Equal(t, structuredOutput, raw)
 		})
 	}
+}
+
+// With the check, a whole review shows the doubted findings in their own
+// section; a streamed one, already on screen, gets the check's report
+// appended.
+func TestFinishReviewWithCheck(t *testing.T) {
+	t.Parallel()
+
+	doubtAll := func(events []findings.Event) ([]findings.Event, int) {
+		out := make([]findings.Event, len(events))
+		for i, e := range events {
+			if e.Finding != nil {
+				f := *e.Finding
+				f.Doubt = "m is never nil."
+				e.Finding = &f
+			}
+			out[i] = e
+		}
+		return out, 1
+	}
+	doubted := "- **[HIGH · bug] Nil map** `a.go:2`\n  m is never nil.\n\n"
+
+	t.Run("whole", func(t *testing.T) {
+		t.Parallel()
+
+		var out strings.Builder
+		events := finishReview(&out, structuredOutput, false, true, doubtAll)
+
+		assert.Equal(t, "## Doubted by Bark's check\n\n"+
+			"A second pass checked these findings against the full files and doubts them. They are listed in case it's wrong.\n\n"+
+			doubted+"## Verdict\n\nFix the map.\n\n\n", out.String())
+		require.Len(t, events, 2)
+		assert.Equal(t, "m is never nil.", events[0].Finding.Doubt)
+	})
+
+	t.Run("streamed", func(t *testing.T) {
+		t.Parallel()
+
+		var out strings.Builder
+		finishReview(&out, structuredOutput, true, true, doubtAll)
+
+		assert.Equal(t, "## Bark's check\n\nA second pass checked 1 finding against the full files and doubts 1:\n\n"+doubted, out.String())
+	})
+
+	t.Run("free text is never checked", func(t *testing.T) {
+		t.Parallel()
+
+		var out strings.Builder
+		events := finishReview(&out, "plain text", false, false, func([]findings.Event) ([]findings.Event, int) {
+			t.Fatal("free text has no findings to check")
+			return nil, 0
+		})
+		assert.Nil(t, events)
+		assert.Equal(t, "plain text\n", out.String())
+	})
 }
