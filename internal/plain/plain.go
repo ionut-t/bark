@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ionut-t/bark/v2/internal/config"
@@ -17,6 +18,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/llm/llm_factory"
 	"github.com/ionut-t/bark/v2/internal/prompt"
+	"github.com/ionut-t/bark/v2/internal/prreview"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
 )
@@ -33,6 +35,9 @@ type ReviewOptions struct {
 	Config            config.Config
 	Stream            bool
 	WithPRDescription bool
+	// Comment posts the review to PR, with inline comments on the lines its
+	// findings are about. It needs PR and a structured review.
+	Comment bool
 
 	// Diff source flags (used when Diff is empty)
 	Staged bool
@@ -61,6 +66,10 @@ type PROptions struct {
 
 // RunReview runs a code review and writes the output to stdout.
 func RunReview(opts ReviewOptions) error {
+	if opts.Comment && (opts.PR == "" || opts.Diff != nil) {
+		return fmt.Errorf("posting the review needs a pull request diff (--pr), not a diff from stdin")
+	}
+
 	var reviewDiff git.ReviewDiff
 
 	if opts.Diff == nil {
@@ -109,7 +118,7 @@ func RunReview(opts ReviewOptions) error {
 			return err
 		}
 	}
-	structured := opts.Config.GetStructuredFindings()
+	structured := opts.Config.GetStructuredFindings() || opts.Comment
 	system := prompt.FormatReviewSystem(reviewer.Prompt, reviewInstructions)
 	if structured {
 		system = prompt.FormatStructuredReviewSystem(reviewer.Prompt, reviewInstructions)
@@ -160,11 +169,27 @@ func RunReview(opts ReviewOptions) error {
 	}
 
 	out := io.Writer(os.Stdout)
+	var output string
 	if opts.Stream {
-		return streamResponse(llmCtx, client, system, promptText, out, structured, debugLog)
+		output, err = streamResponse(llmCtx, client, system, promptText, out, structured, debugLog)
+	} else {
+		output, err = fullResponse(llmCtx, client, system, promptText, out, structured, debugLog)
+	}
+	if err != nil || !opts.Comment {
+		return err
 	}
 
-	return fullResponse(llmCtx, client, system, promptText, out, structured, debugLog)
+	postCtx, postCancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer postCancel()
+	result, err := prreview.Post(postCtx, opts.PR, findings.Parse(output), reviewDiff.Diff)
+	if err != nil {
+		return err
+	}
+	if result.Fallback {
+		fmt.Fprintln(os.Stderr, "bark: GitHub rejected the inline comments; posted every finding in the review body instead")
+	}
+	fmt.Fprintf(os.Stderr, "bark: posted review with %d inline comment(s): %s\n", result.Inline, result.URL)
+	return nil
 }
 
 // RunCommit generates a commit message and writes it to stdout.
@@ -265,13 +290,15 @@ func RunPR(opts PROptions) error {
 	return nil
 }
 
-// streamResponse streams the review to out. A structured review is rendered
-// to Markdown as it arrives.
-func streamResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool, debugLog *debuglog.Log) error {
+// streamResponse streams the review to out and returns the raw model output.
+// A structured review is rendered to Markdown as it arrives.
+func streamResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool, debugLog *debuglog.Log) (string, error) {
 	responseChan, errChan := client.Stream(ctx, system, promptText)
 
 	var renderer findings.Renderer
+	var output strings.Builder
 	for chunk := range responseChan {
+		output.WriteString(chunk.Content)
 		debugLog.Write(chunk.Content, chunk.Usage)
 		if structured {
 			_, _ = fmt.Fprint(out, renderer.Write(chunk.Content))
@@ -287,18 +314,20 @@ func streamResponse(ctx context.Context, client llm.LLM, system, promptText stri
 	err := <-errChan
 	debugLog.Finish(err)
 	if err != nil {
-		return fmt.Errorf("error during review: %w", err)
+		return "", fmt.Errorf("error during review: %w", err)
 	}
 
-	return nil
+	return output.String(), nil
 }
 
-func fullResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool, debugLog *debuglog.Log) error {
+// fullResponse writes the whole review to out once it is complete. Like
+// streamResponse, it returns the raw model output.
+func fullResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool, debugLog *debuglog.Log) (string, error) {
 	response, err := client.Generate(ctx, system, promptText)
 	debugLog.Write(response.Content, response.Usage)
 	debugLog.Finish(err)
 	if err != nil {
-		return fmt.Errorf("error during review: %w", err)
+		return "", fmt.Errorf("error during review: %w", err)
 	}
 
 	content := response.Content
@@ -309,7 +338,7 @@ func fullResponse(ctx context.Context, client llm.LLM, system, promptText string
 	_, _ = fmt.Fprint(out, content)
 	_, _ = fmt.Fprintln(out)
 
-	return nil
+	return response.Content, nil
 }
 
 // resolveReviewer loads a reviewer from a file path, by name, or from .bark/reviewer.md.

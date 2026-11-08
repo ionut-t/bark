@@ -41,6 +41,13 @@ inputs:
     description: Include enclosing declarations (functions, structs, classes) as context for review.
     required: false
     default: "false"
+  inline-comments:
+    description: |
+      Post the review as a pull request review, with findings as inline
+      comments on the changed lines and fixes as suggestion blocks. Turns on
+      structured findings. When false, the review is posted as one comment.
+    required: false
+    default: "false"
   github-token:
     description: GitHub token for posting PR comments
     required: false
@@ -129,6 +136,7 @@ runs:
         [ -n "${{ inputs.max-diff-lines }}" ] && ARGS+=(--max-diff-lines "${{ inputs.max-diff-lines }}")
         [ "${{ inputs.with-context }}" = "true" ] && ARGS+=(--with-context)
         [ "${{ inputs.with-description }}" = "true" ] && ARGS+=(--with-description)
+        [ "${{ inputs.inline-comments }}" = "true" ] && ARGS+=(--comment)
 
         bark "${ARGS[@]}" > /tmp/bark-review.txt
 
@@ -138,6 +146,7 @@ runs:
         fi
 
     - name: Post or update PR comment
+      if: inputs.inline-comments != 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}

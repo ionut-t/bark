@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -373,4 +374,39 @@ func TestCommitParsing_PipeInFields(t *testing.T) {
 		assert.Equal(t, "add feature.txt", commits[1].Message)
 		assert.Empty(t, commits[1].Body)
 	})
+}
+
+func TestFormatGoVersionHeader(t *testing.T) {
+	t.Parallel()
+
+	goMod := []byte("module example.com/m\n\ngo 1.27.3 // pinned\n\ntoolchain go1.28.0\n")
+	goDiff := "diff --git a/cmd/main.go b/cmd/main.go\n--- a/cmd/main.go\n+++ b/cmd/main.go\n"
+	mdDiff := "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n"
+
+	tests := []struct {
+		name  string
+		goMod []byte
+		diff  string
+		want  string
+	}{
+		{"go diff", goMod, goDiff, "go.mod targets Go 1.27.3, a released version that may be newer than your training data."},
+		{"tells the model not to question the version", goMod, goDiff, "Don't comment on the Go version itself."},
+		{"no go files in diff", goMod, mdDiff, ""},
+		{"no go directive", []byte("module example.com/m\n"), goDiff, ""},
+		{"no go.mod", nil, goDiff, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := FormatGoVersionHeader(tt.goMod, tt.diff)
+			if tt.want == "" {
+				assert.Empty(t, got)
+				return
+			}
+			assert.True(t, strings.HasPrefix(got, "## Go version\n\n"), got)
+			assert.Contains(t, got, tt.want)
+		})
+	}
 }
