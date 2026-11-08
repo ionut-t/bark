@@ -124,7 +124,7 @@ func TestReviewStructuredRunsCheck(t *testing.T) {
 
 	assert.False(t, m.checking)
 	assert.Contains(t, m.response, "## Verdict\n\nFix it.\n\n## Bark's check\n\n"+
-		"A second pass checked 1 finding against the full files and doubts 1:\n\n"+
+		"A second pass checked 1 finding against the code and doubts 1:\n\n"+
 		"- **[HIGH] Nil map** `a.go:2`\n  m is never nil.\n")
 	assert.Contains(t, m.editor.GetCurrentContent(), "m is never nil.", "the report is shown, not only stored")
 }

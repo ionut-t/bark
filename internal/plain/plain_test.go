@@ -105,7 +105,7 @@ func TestFinishReviewWithCheck(t *testing.T) {
 		events := finishReview(&out, structuredOutput, false, true, doubtAll)
 
 		assert.Equal(t, "## Doubted by Bark's check\n\n"+
-			"A second pass checked these findings against the full files and doubts them. They are listed in case it's wrong.\n\n"+
+			"A second pass checked these findings against the code and doubts them. They are listed in case it's wrong.\n\n"+
 			doubted+"## Verdict\n\nFix the map.\n\n\n", out.String())
 		require.Len(t, events, 2)
 		assert.Equal(t, "m is never nil.", events[0].Finding.Doubt)
@@ -117,7 +117,7 @@ func TestFinishReviewWithCheck(t *testing.T) {
 		var out strings.Builder
 		finishReview(&out, structuredOutput, true, true, doubtAll)
 
-		assert.Equal(t, "## Bark's check\n\nA second pass checked 1 finding against the full files and doubts 1:\n\n"+doubted, out.String())
+		assert.Equal(t, "## Bark's check\n\nA second pass checked 1 finding against the code and doubts 1:\n\n"+doubted, out.String())
 	})
 
 	t.Run("free text is never checked", func(t *testing.T) {

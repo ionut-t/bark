@@ -213,7 +213,7 @@ func TestMarkdownMovesDoubtedFindingsBeforeVerdict(t *testing.T) {
 	want := "i\n\n" +
 		"### [HIGH · bug] Kept\n\n`a.go:1`\n\n" +
 		"## Doubted by Bark's check\n\n" +
-		"A second pass checked these findings against the full files and doubts them. They are listed in case it's wrong.\n\n" +
+		"A second pass checked these findings against the code and doubts them. They are listed in case it's wrong.\n\n" +
 		"- **[LOW · design] Doubted** `b.go:2-3`\n  A preference, not a defect.\n" +
 		"- **[MEDIUM] Nowhere**\n  Can't happen.\n\n" +
 		"## Verdict\n\nv\n\n"
@@ -242,11 +242,11 @@ func TestCheckReport(t *testing.T) {
 	}{
 		{name: "nothing checked", events: []Event{kept}, checked: 0, want: ""},
 		{name: "one kept", events: []Event{kept}, checked: 1,
-			want: "## Bark's check\n\nA second pass checked 1 finding against the full files and kept it.\n\n"},
+			want: "## Bark's check\n\nA second pass checked 1 finding against the code and kept it.\n\n"},
 		{name: "all kept", events: []Event{kept, kept}, checked: 2,
-			want: "## Bark's check\n\nA second pass checked 2 findings against the full files and kept them all.\n\n"},
+			want: "## Bark's check\n\nA second pass checked 2 findings against the code and kept them all.\n\n"},
 		{name: "some doubted", events: []Event{{Intro: "i"}, kept, doubted, {Verdict: "v"}}, checked: 2,
-			want: "## Bark's check\n\nA second pass checked 2 findings against the full files and doubts 1:\n\n" +
+			want: "## Bark's check\n\nA second pass checked 2 findings against the code and doubts 1:\n\n" +
 				"- **[LOW] Doubted** `b.go:2`\n  No.\n\n"},
 	}
 

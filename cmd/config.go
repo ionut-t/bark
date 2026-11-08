@@ -98,7 +98,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 	flags.Uint32VarP(&maxDiffLines, "max-diff-lines", "d", 0, fmt.Sprintf("Set the maximum number of diff lines to include in the prompt (default: %d)", config.DEFAULT_MAX_DIFF_LINES))
 	flags.BoolVar(&contextEnrichment, "context-enrichment", false, "Enable or disable enclosing-declaration context for reviews (default: false)")
 	flags.BoolVar(&structured, "structured-findings", false, "Enable or disable structured findings for reviews (default: false)")
-	flags.BoolVar(&checkFindings, "check-findings", true, "Enable or disable the second model call that checks structured findings against the full files (default: true)")
+	flags.BoolVar(&checkFindings, "check-findings", true, "Enable or disable the second model call that checks structured findings against the code (default: true)")
 
 	// Old names, matching the config file keys. Kept so existing scripts keep
 	// working; hidden from help, and pflag prints a deprecation notice.

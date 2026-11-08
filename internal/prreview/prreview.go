@@ -89,7 +89,7 @@ func withDoubted(events []findings.Event, doubted []findings.Finding) []findings
 		return events
 	}
 	block := findings.Event{Text: fmt.Sprintf("<details>\n<summary>Bark's check doubted %d finding(s)</summary>\n\n"+
-		"A second pass checked these against the full files and doubts them.\n\n%s</details>\n",
+		"A second pass checked these against the code and doubts them.\n\n%s</details>\n",
 		len(doubted), findings.DoubtedList(doubted))}
 
 	i := slices.IndexFunc(events, func(e findings.Event) bool { return e.Verdict != "" })

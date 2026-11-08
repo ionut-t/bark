@@ -1,9 +1,10 @@
 // Package check runs a second model call over the findings of a structured
 // review and marks the ones that don't hold up against the code as doubted.
-// The first pass only sees the diff; the check also sees the full new
-// version of every file a finding points to, and must quote the code a kept
-// finding rests on. Doubted findings are set aside, not hidden, in case the
-// check is wrong.
+// The first pass only sees the diff; the check also sees the new version
+// of every file a finding points to (whole, or the lines around each
+// finding for a long file), and must quote the code a kept finding rests
+// on. Doubted findings are set aside, not hidden, in case the check is
+// wrong.
 package check
 
 import (

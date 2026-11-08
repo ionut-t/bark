@@ -19,7 +19,7 @@ func Markdown(events []Event) string {
 	writeDoubted := func() {
 		if len(doubted) > 0 {
 			b.WriteString("## Doubted by Bark's check\n\n" +
-				"A second pass checked these findings against the full files and doubts them. " +
+				"A second pass checked these findings against the code and doubts them. " +
 				"They are listed in case it's wrong.\n\n")
 			b.WriteString(DoubtedList(doubted))
 			doubted = nil
@@ -76,10 +76,10 @@ func CheckReport(events []Event, checked int) string {
 		return ""
 	}
 	if len(doubted) == 0 {
-		return fmt.Sprintf("## Bark's check\n\nA second pass checked %s against the full files and kept %s.\n\n",
+		return fmt.Sprintf("## Bark's check\n\nA second pass checked %s against the code and kept %s.\n\n",
 			plural(checked, "finding"), them(checked))
 	}
-	return fmt.Sprintf("## Bark's check\n\nA second pass checked %s against the full files and doubts %d:\n\n%s",
+	return fmt.Sprintf("## Bark's check\n\nA second pass checked %s against the code and doubts %d:\n\n%s",
 		plural(checked, "finding"), len(doubted), DoubtedList(doubted))
 }
 

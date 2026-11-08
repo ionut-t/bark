@@ -437,7 +437,7 @@ func TestBuildPutsDoubtedFindingsInCollapsedBlock(t *testing.T) {
 	require.Len(t, review.Comments, 1)
 	assert.Equal(t, 2, review.Comments[0].Line)
 	assert.Contains(t, review.Body, "Hello.\n\n<details>\n<summary>Bark's check doubted 1 finding(s)</summary>\n\n"+
-		"A second pass checked these against the full files and doubts them.\n\n"+
+		"A second pass checked these against the code and doubts them.\n\n"+
 		"- **[LOW · design] Doubted** `a.go:3`\n  A preference.\n\n</details>\n\n## Verdict\n\nBye.")
 	assert.NotContains(t, review.Body, "suggestion")
 }

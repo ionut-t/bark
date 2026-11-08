@@ -46,7 +46,7 @@ inputs:
       Post the review as a pull request review, with findings as inline
       comments on the changed lines and fixes as suggestion blocks. Turns on
       structured findings. Findings are first checked with a second model
-      call that reads the full files; those that don't hold up are listed in
+      call that reads the code around them; those that don't hold up are listed in
       a collapsed block instead of inline. When false, the review is posted
       as one comment.
     required: false

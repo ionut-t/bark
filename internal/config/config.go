@@ -71,7 +71,7 @@ type Data struct {
 	RelativeNumber     bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
 	ContextEnrichment  bool   `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) as context for review (default: false)"`
 	StructuredFindings bool   `toml:"structured_findings" comment:"Whether reviews ask the model for structured findings (file, line, severity, ...) instead of free text (default: false)"`
-	CheckFindings      bool   `toml:"check_findings" comment:"Whether structured reviews make a second model call that checks each finding against the full files and sets aside the ones that don't hold up (default: true)"`
+	CheckFindings      bool   `toml:"check_findings" comment:"Whether structured reviews make a second model call that checks each finding against the code and sets aside the ones that don't hold up (default: true)"`
 }
 
 // config is safe for concurrent use: the TUI saves relative_number from a tea.Cmd

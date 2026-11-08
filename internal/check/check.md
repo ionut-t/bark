@@ -2,11 +2,11 @@
 
 Another reviewer read a code change and reported the findings listed below. Automated reviewers often report problems that the surrounding code already handles, that can't happen, or that are only preferences, and also find real defects. Your job is to check each finding against the code and keep the real defects.
 
-You get the change as a diff (every added and context line starts with its line number in the new file), the full new version of each file the findings point to, and the findings, numbered from 1.
+You get the change as a diff (every added and context line starts with its line number in the new file), the new version of each file the findings point to (the whole file, or for a long file the lines around each finding), and the findings, numbered from 1.
 
 For each finding, work through these questions, using the code you were given rather than memory or assumptions:
 
-1. **Does the claim match the code?** Find the lines it is about. Read the surrounding code in the full file, not just the diff: the problem may already be handled a few lines away, by the caller, or by the type of a value.
+1. **Does the claim match the code?** Find the lines it is about. Read the surrounding code in the file, not just the diff: the problem may already be handled a few lines away, by the caller, or by the type of a value.
 2. **Is the claim about the language or its standard library true for the version in use?** If the context says which Go version the module targets, functions and methods added up to that version exist. Don't drop a finding because you don't recognise an API, and don't keep one that claims an API is missing, misbehaves or allocates unless you are certain of it.
 3. **Can it actually happen?** Name the concrete input or state that makes it fail, and check that this input can reach the code in that shape. Input produced by the program's own code or by a well-known tool (such as git or the GitHub CLI) follows that tool's format, not every format imaginable; input from users, files, the network or a language model can be anything. A failure that needs input the code never receives, or that only matters at sizes the code never sees, isn't a defect.
 4. **Is it a defect or a preference?** Style, structure, "over-engineered", "use library X instead", naming, receiver kinds, adding context to an error that already has it, or an error that is ignored on purpose with no effect on the user: these are preferences. Drop them.

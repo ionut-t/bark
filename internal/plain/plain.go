@@ -380,7 +380,7 @@ func checkFindings(r check.Review, events []findings.Event) ([]findings.Event, i
 	if n == 0 {
 		return events, 0
 	}
-	fmt.Fprintf(os.Stderr, "bark: checking %d finding(s) against the full files...\n", n)
+	fmt.Fprintf(os.Stderr, "bark: checking %d finding(s) against the code...\n", n)
 
 	r.OnLog = func(path string, err error) {
 		if err != nil {
