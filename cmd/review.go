@@ -35,6 +35,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
 	cmd.Flags().Bool("with-description", false, "Include the PR description in the review context (only applies with --pr)")
 	cmd.Flags().Bool("with-context", false, "Include enclosing declarations (functions, structs, classes) as context for review")
+	cmd.Flags().Bool("structured", false, "Ask for structured findings (file, line, severity, suggestion); the reviewer persona voices the intro, remarks and verdict")
 
 	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged", "hash", "pr")
 
@@ -84,6 +85,11 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	if cmd.Flags().Changed("with-context") {
 		contextEnrich, _ := cmd.Flags().GetBool("with-context")
 		cfg.OverrideContextEnrichment(contextEnrich)
+	}
+
+	if cmd.Flags().Changed("structured") {
+		structured, _ := cmd.Flags().GetBool("structured")
+		cfg.OverrideStructuredFindings(structured)
 	}
 
 	if stdinDiff != nil || isPlainMode(cmd) {

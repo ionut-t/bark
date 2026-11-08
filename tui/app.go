@@ -827,9 +827,17 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	if msg.instruction != "" {
 		m.selectedInstruction = msg.instruction
 	}
+	structured := m.config.GetStructuredFindings()
 	system := prompt.FormatReviewSystem(m.selectedReviewer.Prompt, msg.instruction)
+	if structured {
+		system = prompt.FormatStructuredReviewSystem(m.selectedReviewer.Prompt, msg.instruction)
+	}
 
-	reviewPrompt := prompt.FormatReviewContent(msg.contextHeader, msg.stat, msg.commits, msg.diff, msg.enclosingContext)
+	diff := msg.diff
+	if structured {
+		diff = prompt.NumberDiffLines(diff)
+	}
+	reviewPrompt := prompt.FormatReviewContent(msg.contextHeader, msg.stat, msg.commits, diff, msg.enclosingContext)
 
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
 
@@ -842,6 +850,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	m.review.setStyles(m.styles, m.isDarkMode)
 	m.review.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.review.setUsedModel(m.getLlmModelName())
+	m.review.setStructured(structured)
 	m.currentView = viewReview
 
 	return m, m.review.startReview(ctx)

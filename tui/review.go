@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
@@ -125,12 +126,16 @@ type reviewLoadingMsg struct {
 }
 
 type reviewModel struct {
-	width, height    int
-	editor           editor.Model
-	llm              llm.LLM
-	respChan         <-chan llm.Response
-	errChan          <-chan error
-	contentBuilder   *strings.Builder
+	width, height  int
+	editor         editor.Model
+	llm            llm.LLM
+	respChan       <-chan llm.Response
+	errChan        <-chan error
+	contentBuilder *strings.Builder
+	// structured means the model returns findings as JSON Lines; renderer
+	// turns them into Markdown as they stream.
+	structured       bool
+	renderer         *findings.Renderer
 	reviewer         reviewers.Reviewer
 	system           string
 	prompt           string
@@ -173,6 +178,10 @@ func newReviewModel(reviewer reviewers.Reviewer, system, prompt string, width, h
 	m.loadingMsg = m.getLoadingMessage()
 
 	return m
+}
+
+func (m *reviewModel) setStructured(structured bool) {
+	m.structured = structured
 }
 
 func (m *reviewModel) setUsedModel(model string) {
@@ -226,16 +235,25 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		return m, watchStreamCmd(m.respChan, m.errChan)
 
 	case streamChunkMsg:
+		content := msg.content
+		if m.renderer != nil {
+			content = m.renderer.Write(content)
+		}
+
+		// A structured review may have nothing to show yet; keep the
+		// loading screen until it does.
+		if content == "" && m.loading {
+			return m, watchStreamCmd(m.respChan, m.errChan)
+		}
+
 		if m.loading {
 			m.spinner.Spinner = spinner.Points
 		}
 
 		m.loading = false
 
-		m.contentBuilder.WriteString(msg.content)
-		content := utils.NormaliseCodeFences(m.contentBuilder.String())
-
-		m.editor.SetContent(content)
+		m.contentBuilder.WriteString(content)
+		m.editor.SetContent(utils.NormaliseCodeFences(m.contentBuilder.String()))
 		_ = m.editor.SetCursorPositionEnd()
 
 		m.setStreamingStatusLine()
@@ -255,6 +273,11 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		return m, nil
 
 	case streamCompleteMsg:
+		if m.renderer != nil {
+			m.contentBuilder.WriteString(m.renderer.Close())
+			m.editor.SetContent(utils.NormaliseCodeFences(m.contentBuilder.String()))
+		}
+		m.loading = false
 		m.loadingChunks = false
 		m.editor.SetExtraHighlightedContextLines(finalHighlightContextLines)
 		m.response = m.editor.GetCurrentContent() + "\n\n"
@@ -399,6 +422,10 @@ func (m reviewModel) View() string {
 
 func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	m.contentBuilder = &strings.Builder{}
+	m.renderer = nil
+	if m.structured {
+		m.renderer = &findings.Renderer{}
+	}
 	m.loading = true
 	m.error = nil
 	m.spinner.Spinner = spinner.Dot
