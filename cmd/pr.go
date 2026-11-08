@@ -11,12 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func prCmd(cfg config.Config) *cobra.Command {
+func prCmd(getCfg configFunc) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pr",
 		Short: "Generate a pull request description",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPRCmd(cmd, cfg)
+			return runPRCmd(cmd, getCfg())
 		},
 	}
 

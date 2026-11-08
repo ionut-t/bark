@@ -19,10 +19,10 @@ func TestProviderFlagHelpListsSupportedProviders(t *testing.T) {
 		cmd  *cobra.Command
 		flag string
 	}{
-		{name: "review", cmd: reviewCmd(cfg), flag: "provider"},
-		{name: "commit", cmd: commitCmd(cfg), flag: "provider"},
-		{name: "pr", cmd: prCmd(cfg), flag: "provider"},
-		{name: "config", cmd: configCmd(cfg), flag: "provider"},
+		{name: "review", cmd: reviewCmd(staticConfig(cfg)), flag: "provider"},
+		{name: "commit", cmd: commitCmd(staticConfig(cfg)), flag: "provider"},
+		{name: "pr", cmd: prCmd(staticConfig(cfg)), flag: "provider"},
+		{name: "config", cmd: configCmd(staticConfig(cfg)), flag: "provider"},
 	}
 
 	for _, tt := range tests {

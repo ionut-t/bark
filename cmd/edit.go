@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func editCmd(cfg config.Config) *cobra.Command {
+func editCmd(getCfg configFunc) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit",
 		Short: "Edit an instruction or a reviewer",
@@ -30,7 +30,7 @@ func editCmd(cfg config.Config) *cobra.Command {
 				name = args[0]
 			}
 
-			return handleEditCmd(cmd, cfg, name)
+			return handleEditCmd(cmd, getCfg(), name)
 		},
 	}
 

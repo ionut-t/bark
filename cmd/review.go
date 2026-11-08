@@ -11,12 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func reviewCmd(cfg config.Config) *cobra.Command {
+func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "review",
 		Short: "Review code changes",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runReviewCmd(cmd, cfg)
+			return runReviewCmd(cmd, getCfg())
 		},
 	}
 

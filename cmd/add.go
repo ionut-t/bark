@@ -8,14 +8,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func addCmd(cfg config.Config) *cobra.Command {
+func addCmd(getCfg configFunc) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "add",
 		Short:   "Add a new instruction",
 		Args:    cobra.ExactArgs(1),
 		Example: `bark add "my-instruction"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := handleAddCmd(cfg, args[0]); err != nil {
+			if err := handleAddCmd(getCfg(), args[0]); err != nil {
 				return err
 			}
 

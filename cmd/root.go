@@ -8,7 +8,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fang/v2"
-	"github.com/charmbracelet/colorprofile"
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/version"
 	"github.com/ionut-t/bark/v2/tui"
@@ -25,14 +24,57 @@ __________               __
         \/      \/           \/
 `
 
-func newRootCmd(cfg config.Config) *cobra.Command {
-	return &cobra.Command{
+// configFunc returns the loaded config. Commands call it from RunE: the
+// config is loaded in the root's PersistentPreRunE, after cobra has parsed
+// --config.
+type configFunc func() config.Config
+
+// configLoader loads the config file at path, or the default file when path
+// is empty.
+type configLoader func(path string) (config.Config, error)
+
+const configFlag = "config"
+
+// newRootCmd builds the bark command tree. load runs once flags are parsed,
+// before any command's RunE, so --config works before or after a subcommand.
+func newRootCmd(load configLoader) *cobra.Command {
+	var cfg config.Config
+	getCfg := func() config.Config { return cfg }
+
+	rootCmd := &cobra.Command{
 		Use:  "bark",
 		Long: "Get your code reviewed by legends, generate commit messages and PR descriptions",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			path, err := cmd.Flags().GetString(configFlag)
+			if err != nil {
+				return err
+			}
+
+			cfg, err = load(path)
+			return err
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleRootCmd(cfg)
+			return handleRootCmd(getCfg())
 		},
 	}
+
+	rootCmd.SetVersionTemplate(versionTemplate())
+
+	rootCmd.AddCommand(configCmd(getCfg))
+	rootCmd.AddCommand(reviewCmd(getCfg))
+	rootCmd.AddCommand(commitCmd(getCfg))
+	rootCmd.AddCommand(prCmd(getCfg))
+	rootCmd.AddCommand(resetCmd())
+	rootCmd.AddCommand(addCmd(getCfg))
+	rootCmd.AddCommand(deleteCmd(getCfg))
+	rootCmd.AddCommand(editCmd(getCfg))
+	rootCmd.AddCommand(actionsCmd(getCfg))
+
+	rootCmd.PersistentFlags().Bool("plain", false, "Output plain text instead of TUI (auto-detected when stdout is piped)")
+	// No -c shorthand: review (--changes) and edit (--commit) already use it.
+	rootCmd.PersistentFlags().String(configFlag, "", "Config file (default is $HOME/.bark/.config.toml)")
+
+	return rootCmd
 }
 
 func handleRootCmd(cfg config.Config) error {
@@ -58,32 +100,9 @@ func handleRootCmd(cfg config.Config) error {
 // Execute runs the CLI. Any returned error has already been printed to
 // stderr; the caller only needs to set the exit status.
 func Execute() error {
-	cfg, err := initConfig()
-	if err != nil {
-		printError(colorprofile.NewWriter(os.Stderr, os.Environ()), err)
-		return err
-	}
-
-	rootCmd := newRootCmd(cfg)
-
-	rootCmd.SetVersionTemplate(versionTemplate())
-
-	rootCmd.AddCommand(configCmd(cfg))
-	rootCmd.AddCommand(reviewCmd(cfg))
-	rootCmd.AddCommand(commitCmd(cfg))
-	rootCmd.AddCommand(prCmd(cfg))
-	rootCmd.AddCommand(resetCmd())
-	rootCmd.AddCommand(addCmd(cfg))
-	rootCmd.AddCommand(deleteCmd(cfg))
-	rootCmd.AddCommand(editCmd(cfg))
-	rootCmd.AddCommand(actionsCmd(cfg))
-
-	rootCmd.PersistentFlags().Bool("plain", false, "Output plain text instead of TUI (auto-detected when stdout is piped)")
-	rootCmd.Flags().StringP("config", "c", "", "config file (default is $HOME/.bark/.config.toml)")
-
 	return fang.Execute(
 		context.Background(),
-		rootCmd,
+		newRootCmd(initConfig),
 		fang.WithNotifySignal(os.Interrupt, os.Kill),
 		fang.WithColorSchemeFunc(styles.FangColorScheme),
 		fang.WithoutCompletions(),

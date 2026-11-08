@@ -13,8 +13,8 @@ import (
 var errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000")).Bold(true)
 
 // printError writes err to w as a red "Error: <message>" line. w should be
-// a [colorprofile.Writer], which strips the styling when the output isn't a
-// terminal or NO_COLOR is set, so scripts get plain text.
+// a colorprofile writer (fang passes one), which strips the styling when the
+// output isn't a terminal or NO_COLOR is set, so scripts get plain text.
 func printError(w io.Writer, err error) {
 	_, _ = fmt.Fprintln(w, errorStyle.Render("Error: "+err.Error()))
 }

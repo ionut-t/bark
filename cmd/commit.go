@@ -11,12 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func commitCmd(cfg config.Config) *cobra.Command {
+func commitCmd(getCfg configFunc) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "commit",
 		Short: "Generate a commit message and optionally create the commit",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCommitCmd(cmd, cfg)
+			return runCommitCmd(cmd, getCfg())
 		},
 	}
 

@@ -92,6 +92,12 @@ bark config --provider gemini         # `bark config --help` lists the providers
 bark config --model gemini-2.5-pro
 ```
 
+To use a different config file, pass `--config <path>` to any command. The file must already exist; `bark config --config <path>` reads and saves that file instead of the default:
+
+```bash
+bark review --config ~/work/bark.toml
+```
+
 ## Reset
 
 To reset the reviewers and instructions to their default state use the `reset` command.
