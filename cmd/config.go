@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -10,9 +11,9 @@ import (
 	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
+	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 )
 
 func configCmd(getCfg configFunc) *cobra.Command {
@@ -173,20 +174,23 @@ func loadConfig(path string) (config.Config, error) {
 	return config.New(path, data), nil
 }
 
-// readConfigData reads the config file at path. Keys missing from the file
-// keep their default values. It uses its own viper instance, so reading
-// doesn't touch global state.
+// readConfigData reads the TOML config file at path. Keys missing from the
+// file keep their default values.
 func readConfigData(path string) (config.Data, error) {
-	v := viper.New()
-	v.SetConfigFile(path)
-	if err := v.ReadInConfig(); err != nil {
+	contents, err := os.ReadFile(path)
+	if err != nil {
 		return config.Data{}, err
 	}
 
 	// Unmarshal only sets the keys present in the file.
 	data := config.DefaultData()
-	if err := v.Unmarshal(&data); err != nil {
-		return config.Data{}, fmt.Errorf("error reading config: %w", err)
+	if err := toml.Unmarshal(contents, &data); err != nil {
+		var decodeErr *toml.DecodeError
+		if errors.As(err, &decodeErr) {
+			row, col := decodeErr.Position()
+			return config.Data{}, fmt.Errorf("%s:%d:%d: %w", path, row, col, err)
+		}
+		return config.Data{}, fmt.Errorf("%s: %w", path, err)
 	}
 
 	return data, nil

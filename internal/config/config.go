@@ -53,15 +53,15 @@ type Config interface {
 	OverrideContextEnrichment(enrich bool)
 }
 
-// Data is the contents of the config file. The toml tags name the keys when
-// saving and the mapstructure tags when loading (viper); keep them the same.
+// Data is the contents of the config file. The toml tags name the keys both
+// when saving and when loading.
 type Data struct {
-	Editor            string `toml:"editor" mapstructure:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
-	LLMProvider       string `toml:"llm_provider" mapstructure:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark will try to auto-detect the provider based on available credentials."`
-	LLMModel          string `toml:"llm_model" mapstructure:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
-	MaxDiffLines      uint32 `toml:"max_diff_lines" mapstructure:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt (0 disables the limit)"`
-	RelativeNumber    bool   `toml:"relative_number" mapstructure:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
-	ContextEnrichment bool   `toml:"context_enrichment" mapstructure:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) as context for review (default: false)"`
+	Editor            string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
+	LLMProvider       string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark will try to auto-detect the provider based on available credentials."`
+	LLMModel          string `toml:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
+	MaxDiffLines      uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt (0 disables the limit)"`
+	RelativeNumber    bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
+	ContextEnrichment bool   `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) as context for review (default: false)"`
 }
 
 // config is safe for concurrent use: the TUI saves relative_number from a tea.Cmd
