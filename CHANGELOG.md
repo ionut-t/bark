@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.26.0](https://github.com/ionut-t/bark/compare/v2.25.1...v2.26.0) (2026-11-08)
+
+
+### Features
+
+* **config:** improve command flags for consistency ([#94](https://github.com/ionut-t/bark/issues/94)) ([692efde](https://github.com/ionut-t/bark/commit/692efde45920292b5798427b4b718d95b9fa2316))
+
+
+### Bug Fixes
+
+* **cli:** ensure non-zero exit code on command failure ([#90](https://github.com/ionut-t/bark/issues/90)) ([3dff236](https://github.com/ionut-t/bark/commit/3dff236bd80ce328e1d636654f3e319f5a3f2880))
+* **config:** load default values for missing config keys ([#99](https://github.com/ionut-t/bark/issues/99)) ([1a1c50e](https://github.com/ionut-t/bark/commit/1a1c50ee93cf4f399faee2e3bcf94ac51c2514a1))
+* **config:** make --config load the given config file ([#97](https://github.com/ionut-t/bark/issues/97)) ([fdc46a1](https://github.com/ionut-t/bark/commit/fdc46a1392913bad08df441abad5cfec337d3ec5))
+* **config:** never save one-run overrides to the config file ([#96](https://github.com/ionut-t/bark/issues/96)) ([89323aa](https://github.com/ionut-t/bark/commit/89323aa1d466a457b5c42c5d51794965f65e11d4))
+* **config:** prevent data race on config access ([#98](https://github.com/ionut-t/bark/issues/98)) ([326fee0](https://github.com/ionut-t/bark/commit/326fee02f9e73807407d2214b81a5d0a45c64208))
+* **git:** handle base branch names containing slashes ([#101](https://github.com/ionut-t/bark/issues/101)) ([3473345](https://github.com/ionut-t/bark/commit/34733453f56c45f35b1855c111e0b9e98c5cdcab))
+* **llm:** prevent deadlock when stream and close both error ([#92](https://github.com/ionut-t/bark/issues/92)) ([df8ed33](https://github.com/ionut-t/bark/commit/df8ed33f0f8adf7344d116a824a59f7a44fbb8bc))
+
 ## [2.25.1](https://github.com/ionut-t/bark/compare/v2.25.0...v2.25.1) (2026-11-07)
 
 
