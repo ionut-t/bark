@@ -242,7 +242,11 @@ func windows(fs []findings.Finding, path string, n int) [][2]int {
 		}
 		start, end := 1, 2*windowLines
 		if f.Line > 0 {
-			start, end = f.Line-windowLines, max(f.Line, f.EndLine)+windowLines
+			// A line past the end of the file (the model got it wrong, or
+			// the file changed) gets the end of the file. Unclamped, start
+			// would pass end and slicing the range would panic.
+			first, last := min(f.Line, n), min(max(f.Line, f.EndLine), n)
+			start, end = first-windowLines, last+windowLines
 		}
 		rs = append(rs, [2]int{max(start, 1), min(end, n)})
 	}

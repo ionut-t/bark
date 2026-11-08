@@ -376,3 +376,24 @@ func TestApplyEvidenceOnlyFromSentLines(t *testing.T) {
 	assert.True(t, inside[0].Kept)
 	assert.False(t, outside[0].Kept)
 }
+
+// A finding's line can be past the end of the file (a line number the model
+// got wrong, or a file that changed). Its window is the end of the file,
+// and nothing panics.
+func TestExcerptsLinePastEndOfFile(t *testing.T) {
+	t.Parallel()
+
+	n := wholeFileLines + 1000
+	in := Input{Diff: diff, Files: map[string]string{"big.go": longFile(n)}}
+	fs := []findings.Finding{{File: "big.go", Line: n + 5000, EndLine: n + 5010, Title: "t"}}
+
+	var ex []excerpt
+	require.NotPanics(t, func() { ex = excerpts(in.Files, fs) })
+	require.Len(t, ex, 1)
+	assert.Equal(t, [][2]int{{n - windowLines, n}}, ex[0].ranges)
+
+	require.NotPanics(t, func() { _ = Prompt(in, fs) })
+	require.NotPanics(t, func() {
+		Apply(in, fs, map[int]Verdict{1: {Verdict: "keep", Evidence: fmt.Sprintf("line %d", n), Reason: "r"}})
+	})
+}
