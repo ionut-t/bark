@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func deleteCmd() *cobra.Command {
+func deleteCmd(cfg config.Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete",
 		Short: "Delete an instruction or a reviewer",
@@ -26,7 +26,7 @@ func deleteCmd() *cobra.Command {
 				name = args[0]
 			}
 
-			return handleDeleteCmd(cmd, name)
+			return handleDeleteCmd(cmd, cfg, name)
 		},
 	}
 
@@ -35,7 +35,7 @@ func deleteCmd() *cobra.Command {
 	return cmd
 }
 
-func handleDeleteCmd(cmd *cobra.Command, name string) error {
+func handleDeleteCmd(cmd *cobra.Command, cfg config.Config, name string) error {
 	reviewer, _ := cmd.Flags().GetBool("reviewer")
 	instruction, _ := cmd.Flags().GetBool("instruction")
 
@@ -72,7 +72,7 @@ func handleDeleteCmd(cmd *cobra.Command, name string) error {
 		}
 	}
 
-	p := tea.NewProgram(tui.NewAssetsModel(storage, assetType, tui.AssetActionDelete))
+	p := tea.NewProgram(tui.NewAssetsModel(storage, assetType, tui.AssetActionDelete, cfg.GetEditor()))
 
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("error running UI: %w", err)

@@ -102,7 +102,8 @@ func RemoveAssetDir(storage string, assetDirName string) error {
 	return os.RemoveAll(filepath.Join(storage, assetDirName))
 }
 
-func Add(storage string, assetDirName string, name string) error {
+// Add opens editor on a new file and saves its contents as asset name.
+func Add(storage, assetDirName, name, editor string) error {
 	assetsDir := filepath.Join(storage, assetDirName)
 
 	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
@@ -131,7 +132,7 @@ func Add(storage string, assetDirName string, name string) error {
 		}
 	}()
 
-	if err := utils.OpenEditor(tmpPath); err != nil {
+	if err := utils.OpenEditor(editor, tmpPath); err != nil {
 		return fmt.Errorf("error opening editor: %w", err)
 	}
 

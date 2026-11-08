@@ -8,14 +8,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func addCmd() *cobra.Command {
+func addCmd(cfg config.Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "add",
 		Short:   "Add a new instruction",
 		Args:    cobra.ExactArgs(1),
 		Example: `bark add "my-instruction"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := handleAddCmd(args[0]); err != nil {
+			if err := handleAddCmd(cfg, args[0]); err != nil {
 				return err
 			}
 
@@ -27,11 +27,11 @@ func addCmd() *cobra.Command {
 	return cmd
 }
 
-func handleAddCmd(name string) error {
+func handleAddCmd(cfg config.Config, name string) error {
 	storage, err := config.GetStorage()
 	if err != nil {
 		return fmt.Errorf("error getting storage path: %w", err)
 	}
 
-	return instructions.Add(storage, name)
+	return instructions.Add(storage, name, cfg.GetEditor())
 }

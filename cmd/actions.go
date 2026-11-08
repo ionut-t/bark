@@ -9,21 +9,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func actionsCmd() *cobra.Command {
+func actionsCmd(cfg config.Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "actions",
 		Short: "Scaffold GitHub Actions workflows",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runActionsCmd()
+			return runActionsCmd(cfg)
 		},
 	}
 
 	return cmd
 }
 
-func runActionsCmd() error {
-	cfg := config.New()
-
+func runActionsCmd(cfg config.Config) error {
 	m := tui.NewActionsModel(cfg)
 
 	p := tea.NewProgram(m)

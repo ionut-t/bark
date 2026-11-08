@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/config"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,11 +14,8 @@ import (
 func TestNewUsesConfiguredProviderWithoutFlag(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "fake")
 	t.Setenv("ANTHROPIC_API_KEY", "fake")
-	viper.Set(config.LLMProviderKey, "anthropic")
-	viper.Set(config.LLMModelKey, "claude-sonnet-5-5")
-	t.Cleanup(viper.Reset)
 
-	cfg := config.New()
+	cfg := config.New("", config.Data{LLMProvider: "anthropic", LLMModel: "claude-sonnet-5-5"})
 	require.NoError(t, cfg.OverrideProvider("")) // what the commands do when -P is not passed
 
 	_, provider, err := New(context.Background(), cfg)

@@ -8,39 +8,20 @@ import (
 
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/pelletier/go-toml/v2"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type savedConfig struct {
+	Editor            string `toml:"editor"`
 	LLMProvider       string `toml:"llm_provider"`
 	LLMModel          string `toml:"llm_model"`
 	MaxDiffLines      uint32 `toml:"max_diff_lines"`
 	ContextEnrichment bool   `toml:"context_enrichment"`
 }
 
-// runConfigCmd runs `bark config <args>` against a config file in a temp dir
-// that starts with the given contents, and returns what was saved. The config
-// package reads global viper (R1), so these tests can't run in parallel.
-func runConfigCmd(t *testing.T, existing string, args ...string) savedConfig {
+func readSavedConfig(t *testing.T, path string) savedConfig {
 	t.Helper()
-
-	// If no flag counts as set, the command opens the editor instead; make
-	// that a no-op so the test fails on the saved values rather than hanging.
-	t.Setenv("EDITOR", "true")
-
-	path := filepath.Join(t.TempDir(), "config.toml")
-	require.NoError(t, os.WriteFile(path, []byte(existing), 0o644))
-	viper.SetConfigFile(path)
-	require.NoError(t, viper.ReadInConfig())
-	t.Cleanup(viper.Reset)
-
-	cmd := configCmd()
-	cmd.SetArgs(args)
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
-	require.NoError(t, cmd.Execute())
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -50,7 +31,34 @@ func runConfigCmd(t *testing.T, existing string, args ...string) savedConfig {
 	return saved
 }
 
+// runConfigCmd runs `bark config <args>` against a config file in a temp dir
+// that starts with the given contents, and returns what was saved, without
+// the editor. Each call loads its own Config, so tests can run in parallel.
+func runConfigCmd(t *testing.T, existing string, args ...string) savedConfig {
+	t.Helper()
+
+	// If no flag counts as set, the command opens the editor instead; make
+	// that a no-op so the test fails on the saved values rather than hanging.
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("editor = 'true'\n"+existing), 0o644))
+
+	cfg, err := loadConfig(path)
+	require.NoError(t, err)
+
+	cmd := configCmd(cfg)
+	cmd.SetArgs(args)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	require.NoError(t, cmd.Execute())
+
+	saved := readSavedConfig(t, path)
+	saved.Editor = ""
+	return saved
+}
+
 func TestConfigCmd_SetsValues(t *testing.T) {
+	t.Parallel()
+
 	want := savedConfig{
 		LLMProvider:       "anthropic",
 		LLMModel:          "claude-sonnet-5-5",
@@ -78,6 +86,8 @@ func TestConfigCmd_SetsValues(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			assert.Equal(t, want, runConfigCmd(t, "", tt.args...))
 		})
 	}
@@ -86,6 +96,8 @@ func TestConfigCmd_SetsValues(t *testing.T) {
 // Zero and false are real settings (0 disables the diff limit), so passing
 // them must save them rather than be treated as "flag not given".
 func TestConfigCmd_SetsZeroValues(t *testing.T) {
+	t.Parallel()
+
 	const existing = "max_diff_lines = 300\ncontext_enrichment = true\n"
 
 	tests := []struct {
@@ -102,6 +114,8 @@ func TestConfigCmd_SetsZeroValues(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := runConfigCmd(t, existing, tt.args...)
 			assert.Equal(t, tt.want.MaxDiffLines, got.MaxDiffLines)
 			assert.Equal(t, tt.want.ContextEnrichment, got.ContextEnrichment)
@@ -111,6 +125,8 @@ func TestConfigCmd_SetsZeroValues(t *testing.T) {
 
 // Setting one value must keep the others already in the file.
 func TestConfigCmd_KeepsOtherValues(t *testing.T) {
+	t.Parallel()
+
 	const existing = "llm_provider = 'openai'\nllm_model = 'gpt-x'\nmax_diff_lines = 300\ncontext_enrichment = true\n"
 
 	got := runConfigCmd(t, existing, "-e", "nano")
@@ -127,7 +143,7 @@ func TestConfigCmd_OldFlagNamesAreHiddenAndDeprecated(t *testing.T) {
 		config.ContextEnrichmentKey: "context-enrichment",
 	}
 
-	flags := configCmd().Flags()
+	flags := configCmd(config.New("", config.Data{})).Flags()
 	for oldName, newName := range renamed {
 		old := flags.Lookup(oldName)
 		require.NotNil(t, old, oldName)
@@ -137,4 +153,79 @@ func TestConfigCmd_OldFlagNamesAreHiddenAndDeprecated(t *testing.T) {
 
 		require.NotNil(t, flags.Lookup(newName), newName)
 	}
+}
+
+// Setting the editor saves it alongside the other values.
+func TestConfigCmd_SetsEditor(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("editor = 'vi'\nllm_model = 'gpt-x'\n"), 0o644))
+
+	cfg, err := loadConfig(path)
+	require.NoError(t, err)
+
+	cmd := configCmd(cfg)
+	cmd.SetArgs([]string{"-e", "nano"})
+	require.NoError(t, cmd.Execute())
+
+	assert.Equal(t, savedConfig{Editor: "nano", LLMModel: "gpt-x"}, readSavedConfig(t, path))
+}
+
+func TestLoadConfig_ReadsFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	const contents = `editor = 'nano'
+llm_provider = 'anthropic'
+llm_model = 'claude-sonnet-5-5'
+max_diff_lines = 300
+relative_number = true
+context_enrichment = true
+`
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o644))
+
+	cfg, err := loadConfig(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, path, cfg.Path())
+	assert.Equal(t, "nano", cfg.GetEditor())
+	provider, err := cfg.GetLLMProvider()
+	require.NoError(t, err)
+	assert.Equal(t, "anthropic", provider)
+	model, err := cfg.GetLLMModel()
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet-5-5", model)
+	assert.Equal(t, uint32(300), cfg.GetMaxDiffLines())
+	assert.True(t, cfg.GetRelativeNumber())
+	assert.True(t, cfg.GetContextEnrichment())
+}
+
+func TestLoadConfig_CreatesMissingFileWithDefaults(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+
+	cfg, err := loadConfig(path)
+	require.NoError(t, err)
+
+	model, err := cfg.GetLLMModel()
+	require.NoError(t, err)
+	assert.Equal(t, "gemini-2.5-pro", model)
+	_, err = cfg.GetLLMProvider()
+	assert.Error(t, err, "provider should be unset so it is auto-detected")
+
+	saved := readSavedConfig(t, path)
+	assert.Equal(t, "gemini-2.5-pro", saved.LLMModel)
+	assert.NotEmpty(t, saved.Editor)
+}
+
+func TestLoadConfig_InvalidFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("not = = toml"), 0o644))
+
+	_, err := loadConfig(path)
+	assert.Error(t, err)
 }

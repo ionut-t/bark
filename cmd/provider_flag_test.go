@@ -12,15 +12,17 @@ import (
 func TestProviderFlagHelpListsSupportedProviders(t *testing.T) {
 	t.Parallel()
 
+	cfg := config.New("", config.Data{})
+
 	tests := []struct {
 		name string
 		cmd  *cobra.Command
 		flag string
 	}{
-		{name: "review", cmd: reviewCmd(), flag: "provider"},
-		{name: "commit", cmd: commitCmd(), flag: "provider"},
-		{name: "pr", cmd: prCmd(), flag: "provider"},
-		{name: "config", cmd: configCmd(), flag: "provider"},
+		{name: "review", cmd: reviewCmd(cfg), flag: "provider"},
+		{name: "commit", cmd: commitCmd(cfg), flag: "provider"},
+		{name: "pr", cmd: prCmd(cfg), flag: "provider"},
+		{name: "config", cmd: configCmd(cfg), flag: "provider"},
 	}
 
 	for _, tt := range tests {

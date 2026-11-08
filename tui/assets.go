@@ -6,7 +6,6 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
@@ -29,6 +28,7 @@ const (
 
 type AssetsModel struct {
 	storage   string
+	editor    string
 	list      list.Model
 	assetType AssetType
 	action    AssetAction
@@ -37,7 +37,7 @@ type AssetsModel struct {
 	styles    styles.Styles
 }
 
-func NewAssetsModel(storagePath string, assetType AssetType, action AssetAction) AssetsModel {
+func NewAssetsModel(storagePath string, assetType AssetType, action AssetAction, editor string) AssetsModel {
 	isDarkMode := styles.IsDark()
 	appStyles := styles.New(isDarkMode)
 
@@ -81,6 +81,7 @@ func NewAssetsModel(storagePath string, assetType AssetType, action AssetAction)
 
 	return AssetsModel{
 		storage:   storagePath,
+		editor:    editor,
 		assetType: assetType,
 		action:    action,
 		list:      ls,
@@ -222,7 +223,7 @@ func (m AssetsModel) edit(name string) (string, error) {
 }
 
 func (m AssetsModel) openInEditor(path string) (tea.Cmd, error) {
-	cmd, err := utils.OpenInEditorCmd(config.GetEditor(), path)
+	cmd, err := utils.OpenInEditorCmd(m.editor, path)
 	if err != nil {
 		return nil, err
 	}
