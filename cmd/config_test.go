@@ -203,6 +203,74 @@ func TestReadConfigData_ReadsEveryField(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
+// Keys missing from the file load as defaults, not Go zero values; keys
+// present in the file win, even when they hold the zero value.
+func TestReadConfigData_MissingKeysUseDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		contents string
+		want     config.Data
+	}{
+		{
+			name:     "only editor",
+			contents: "editor = 'nano'\n",
+			want:     withDefaults(func(d *config.Data) { d.Editor = "nano" }),
+		},
+		{
+			name:     "only provider and model",
+			contents: "llm_provider = 'anthropic'\nllm_model = 'custom-model'\n",
+			want: withDefaults(func(d *config.Data) {
+				d.LLMProvider = "anthropic"
+				d.LLMModel = "custom-model"
+			}),
+		},
+		{
+			name:     "empty file",
+			contents: "",
+			want:     withDefaults(func(*config.Data) {}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "config.toml")
+			require.NoError(t, os.WriteFile(path, []byte(tt.contents), 0o644))
+
+			got, err := readConfigData(path)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Saving one setting to a partial file must write defaults for the missing
+// keys, not zeros.
+func TestConfigCmd_PartialFileSavesDefaults(t *testing.T) {
+	t.Parallel()
+
+	want := withDefaults(func(d *config.Data) { d.LLMProvider = "anthropic" })
+
+	got := runConfigCmd(t, "", "-p", "anthropic")
+	assert.Equal(t, savedConfig{
+		LLMProvider:       want.LLMProvider,
+		LLMModel:          want.LLMModel,
+		MaxDiffLines:      want.MaxDiffLines,
+		ContextEnrichment: want.ContextEnrichment,
+	}, got)
+}
+
+// withDefaults returns the default config data with change applied, so a
+// test lists only the fields that differ from the defaults.
+func withDefaults(change func(*config.Data)) config.Data {
+	d := config.DefaultData()
+	change(&d)
+	return d
+}
+
 func TestLoadConfig_ReadsFile(t *testing.T) {
 	t.Parallel()
 
