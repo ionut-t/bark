@@ -217,6 +217,17 @@ func TestGetBaseBranch(t *testing.T) {
 			want: "release/2.x",
 		},
 		{
+			name: "origin/HEAD read even when a local branch has the same name as its target",
+			setup: func(t *testing.T, dir string) {
+				runGit(t, dir, "update-ref", "refs/remotes/origin/release/2.x", "main")
+				runGit(t, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/release/2.x")
+				// Makes "origin/release/2.x" ambiguous, so symbolic-ref --short
+				// prints "remotes/origin/release/2.x".
+				runGit(t, dir, "branch", "origin/release/2.x", "main")
+			},
+			want: "release/2.x",
+		},
+		{
 			name:  "no origin/HEAD falls back to main",
 			setup: func(t *testing.T, dir string) {},
 			want:  "main",
