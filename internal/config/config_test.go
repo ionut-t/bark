@@ -1,10 +1,12 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/pelletier/go-toml/v2"
@@ -357,4 +359,33 @@ func TestNew_SetterReplacesOverride(t *testing.T) {
 			assert.Equal(t, tt.saved(data), readSaved(t, path))
 		})
 	}
+}
+
+// The TUI saves relative_number from a tea.Cmd goroutine while Update reads it, so a
+// Config must be safe for concurrent use. Run with -race.
+func TestConfig_ConcurrentUse(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), configFileName)
+	cfg := New(path, Data{Editor: "nano", LLMProvider: "openai", LLMModel: "gpt-x", MaxDiffLines: 300})
+
+	const n = 50
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() { assert.NoError(t, cfg.SetRelativeNumber(i%2 == 0)) })
+		wg.Go(func() { _ = cfg.GetRelativeNumber() })
+		wg.Go(func() { assert.NoError(t, cfg.SetLLMModel(fmt.Sprintf("model-%d", i))) })
+		wg.Go(func() { _, _ = cfg.GetLLMModel() })
+		wg.Go(func() { assert.NoError(t, cfg.SetMaxDiffLines(uint32(i))) })
+		wg.Go(func() { cfg.OverrideMaxDiffLines(uint32(i)) })
+		wg.Go(func() { _ = cfg.GetMaxDiffLines() })
+	}
+	wg.Wait()
+
+	// The file holds the last save, which is the current saved state.
+	saved := readSaved(t, path)
+	model, err := cfg.GetLLMModel()
+	require.NoError(t, err)
+	assert.Equal(t, cfg.GetRelativeNumber(), saved.RelativeNumber)
+	assert.Equal(t, model, saved.LLMModel)
 }
