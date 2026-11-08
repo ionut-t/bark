@@ -263,12 +263,12 @@ func TestPostReportsBothErrors(t *testing.T) {
 	assert.ErrorContains(t, err, "second")
 }
 
-// A finding the model wrote as invalid JSON (here, unescaped quotes in
-// original) is shown in the body folded away as code, not as a raw line.
+// A finding that isn't valid JSON even after repair (here, cut off before
+// its end) is shown in the body folded away as code, not as a raw line.
 func TestBuildFoldsUnreadableFindings(t *testing.T) {
 	t.Parallel()
 
-	bad := `{"file":"a.go","line":2,"title":"T","original":"if msg != "" {"}`
+	bad := `{"file":"a.go","line":2,"title":"T","original":"if msg != \"\" {`
 	events := findings.Parse("{\"type\":\"intro\",\"text\":\"Hi.\"}\n" + bad + "\nsome prose\n{\"type\":\"verdict\",\"text\":\"Bye.\"}\n")
 
 	got := Build(events, diff)

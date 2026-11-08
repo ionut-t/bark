@@ -113,8 +113,16 @@ func parseLine(raw string) (Event, bool) {
 	}
 
 	var l line
-	if !strings.HasPrefix(s, "{") || json.Unmarshal([]byte(s), &l) != nil {
+	if !strings.HasPrefix(s, "{") {
 		return Event{Text: strings.TrimRight(raw, "\r")}, true
+	}
+	if json.Unmarshal([]byte(s), &l) != nil {
+		// Models often leave code in a string half-escaped; try to fix it
+		// before showing the line as text.
+		l = line{}
+		if json.Unmarshal([]byte(repair(s)), &l) != nil {
+			return Event{Text: strings.TrimRight(raw, "\r")}, true
+		}
 	}
 
 	switch l.Type {
