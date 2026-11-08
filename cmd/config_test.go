@@ -203,6 +203,60 @@ func TestReadConfigData_ReadsEveryField(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
+// Keys missing from the file load as defaults, not Go zero values; keys
+// present in the file win, even when they hold the zero value.
+func TestReadConfigData_MissingKeysUseDefaults(t *testing.T) {
+	t.Parallel()
+
+	defaults := config.DefaultData()
+
+	tests := []struct {
+		name     string
+		contents string
+		want     config.Data
+	}{
+		{
+			name:     "only editor",
+			contents: "editor = 'nano'\n",
+			want:     config.Data{Editor: "nano", LLMModel: defaults.LLMModel, MaxDiffLines: defaults.MaxDiffLines},
+		},
+		{
+			name:     "only provider and model",
+			contents: "llm_provider = 'anthropic'\nllm_model = 'custom-model'\n",
+			want:     config.Data{Editor: defaults.Editor, LLMProvider: "anthropic", LLMModel: "custom-model", MaxDiffLines: defaults.MaxDiffLines},
+		},
+		{
+			name:     "empty file",
+			contents: "",
+			want:     defaults,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "config.toml")
+			require.NoError(t, os.WriteFile(path, []byte(tt.contents), 0o644))
+
+			got, err := readConfigData(path)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Saving one setting to a partial file must write defaults for the missing
+// keys, not zeros.
+func TestConfigCmd_PartialFileSavesDefaults(t *testing.T) {
+	t.Parallel()
+
+	defaults := config.DefaultData()
+
+	got := runConfigCmd(t, "", "-p", "anthropic")
+	assert.Equal(t, savedConfig{LLMProvider: "anthropic", LLMModel: defaults.LLMModel, MaxDiffLines: defaults.MaxDiffLines}, got)
+}
+
 func TestLoadConfig_ReadsFile(t *testing.T) {
 	t.Parallel()
 

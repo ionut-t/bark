@@ -173,8 +173,9 @@ func loadConfig(path string) (config.Config, error) {
 	return config.New(path, data), nil
 }
 
-// readConfigData reads the config file at path. It uses its own viper
-// instance, so reading doesn't touch global state.
+// readConfigData reads the config file at path. Keys missing from the file
+// keep their default values. It uses its own viper instance, so reading
+// doesn't touch global state.
 func readConfigData(path string) (config.Data, error) {
 	v := viper.New()
 	v.SetConfigFile(path)
@@ -182,7 +183,8 @@ func readConfigData(path string) (config.Data, error) {
 		return config.Data{}, err
 	}
 
-	var data config.Data
+	// Unmarshal only sets the keys present in the file.
+	data := config.DefaultData()
 	if err := v.Unmarshal(&data); err != nil {
 		return config.Data{}, fmt.Errorf("error reading config: %w", err)
 	}
