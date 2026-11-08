@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/ionut-t/bark/v2/internal/debuglog"
+	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
@@ -125,12 +128,20 @@ type reviewLoadingMsg struct {
 }
 
 type reviewModel struct {
-	width, height    int
-	editor           editor.Model
-	llm              llm.LLM
-	respChan         <-chan llm.Response
-	errChan          <-chan error
-	contentBuilder   *strings.Builder
+	width, height  int
+	editor         editor.Model
+	llm            llm.LLM
+	respChan       <-chan llm.Response
+	errChan        <-chan error
+	contentBuilder *strings.Builder
+	// structured means the model returns findings as JSON Lines; renderer
+	// turns them into Markdown as they stream.
+	structured bool
+	renderer   *findings.Renderer
+	// debugLog is the BARK_DEBUG log of the running review, or nil.
+	debugLog         *debuglog.Log
+	logDir           string
+	provider         string
 	reviewer         reviewers.Reviewer
 	system           string
 	prompt           string
@@ -173,6 +184,16 @@ func newReviewModel(reviewer reviewers.Reviewer, system, prompt string, width, h
 	m.loadingMsg = m.getLoadingMessage()
 
 	return m
+}
+
+func (m *reviewModel) setStructured(structured bool) {
+	m.structured = structured
+}
+
+// setLogInfo sets what the BARK_DEBUG log needs beyond the review itself.
+func (m *reviewModel) setLogInfo(storage, provider string) {
+	m.logDir = storage
+	m.provider = provider
 }
 
 func (m *reviewModel) setUsedModel(model string) {
@@ -226,16 +247,31 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		return m, watchStreamCmd(m.respChan, m.errChan)
 
 	case streamChunkMsg:
+		if msg.hasUsage {
+			m.debugLog.Write(msg.content, &msg.usage)
+		} else {
+			m.debugLog.Write(msg.content, nil)
+		}
+
+		content := msg.content
+		if m.renderer != nil {
+			content = m.renderer.Write(content)
+		}
+
+		// A structured review may have nothing to show yet; keep the
+		// loading screen until it does.
+		if content == "" && m.loading {
+			return m, watchStreamCmd(m.respChan, m.errChan)
+		}
+
 		if m.loading {
 			m.spinner.Spinner = spinner.Points
 		}
 
 		m.loading = false
 
-		m.contentBuilder.WriteString(msg.content)
-		content := utils.NormaliseCodeFences(m.contentBuilder.String())
-
-		m.editor.SetContent(content)
+		m.contentBuilder.WriteString(content)
+		m.editor.SetContent(utils.NormaliseCodeFences(m.contentBuilder.String()))
 		_ = m.editor.SetCursorPositionEnd()
 
 		m.setStreamingStatusLine()
@@ -249,12 +285,22 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		)
 
 	case streamErrorMsg:
+		m.finishLog(msg.error)
 		m.loading = false
 		m.loadingChunks = false
 		m.error = msg.error
 		return m, nil
 
 	case streamCompleteMsg:
+		if msg.hasUsage {
+			m.debugLog.Write("", &msg.usage)
+		}
+		m.finishLog(nil)
+		if m.renderer != nil {
+			m.contentBuilder.WriteString(m.renderer.Close())
+			m.editor.SetContent(utils.NormaliseCodeFences(m.contentBuilder.String()))
+		}
+		m.loading = false
 		m.loadingChunks = false
 		m.editor.SetExtraHighlightedContextLines(finalHighlightContextLines)
 		m.response = m.editor.GetCurrentContent() + "\n\n"
@@ -399,6 +445,24 @@ func (m reviewModel) View() string {
 
 func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	m.contentBuilder = &strings.Builder{}
+	m.renderer = nil
+	if m.structured {
+		m.renderer = &findings.Renderer{}
+	}
+
+	m.finishLog(errors.New("review restarted"))
+	// A failed log must not stop the review; the TUI has nowhere to report
+	// it without covering the review.
+	m.debugLog, _ = debuglog.Start(m.logDir, "review", debuglog.Meta{
+		Fields: []debuglog.Field{
+			{Key: "provider", Value: m.provider},
+			{Key: "model", Value: m.llmModel},
+			{Key: "reviewer", Value: m.reviewer.Name},
+			{Key: "structured", Value: strconv.FormatBool(m.structured)},
+		},
+		System: m.system,
+		Prompt: m.prompt,
+	})
 	m.loading = true
 	m.error = nil
 	m.spinner.Spinner = spinner.Dot
@@ -410,6 +474,11 @@ func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 		m.dispatchLoadingMsg(),
 		startStreamCmd(m.llm, ctx, m.system, m.prompt),
 	)
+}
+
+func (m *reviewModel) finishLog(err error) {
+	m.debugLog.Finish(err)
+	m.debugLog = nil
 }
 
 // setStreamingStatusLine bakes the current spinner frame into the editor's

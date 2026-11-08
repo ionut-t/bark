@@ -150,12 +150,13 @@ func TestNew_SettersWriteEveryValueToItsOwnPath(t *testing.T) {
 	t.Parallel()
 
 	data := Data{
-		Editor:            "nano",
-		LLMProvider:       "openai",
-		LLMModel:          "gpt-x",
-		MaxDiffLines:      300,
-		RelativeNumber:    true,
-		ContextEnrichment: true,
+		Editor:             "nano",
+		LLMProvider:        "openai",
+		LLMModel:           "gpt-x",
+		MaxDiffLines:       300,
+		RelativeNumber:     true,
+		ContextEnrichment:  true,
+		StructuredFindings: true,
 	}
 
 	tests := []struct {
@@ -192,6 +193,11 @@ func TestNew_SettersWriteEveryValueToItsOwnPath(t *testing.T) {
 			name: "context enrichment",
 			set:  func(c Config) error { return c.SetContextEnrichment(false) },
 			want: func(d Data) Data { d.ContextEnrichment = false; return d },
+		},
+		{
+			name: "structured findings",
+			set:  func(c Config) error { return c.SetStructuredFindings(false) },
+			want: func(d Data) Data { d.StructuredFindings = false; return d },
 		},
 	}
 
@@ -255,6 +261,7 @@ func TestNew_OverridesAreNotSaved(t *testing.T) {
 	require.NoError(t, cfg.OverrideProvider("anthropic"))
 	cfg.OverrideMaxDiffLines(10)
 	cfg.OverrideContextEnrichment(true)
+	cfg.OverrideStructuredFindings(true)
 	require.NoError(t, cfg.SetRelativeNumber(true))
 
 	data.RelativeNumber = true
@@ -272,6 +279,7 @@ func TestNew_OverridesSurviveSetters(t *testing.T) {
 	require.NoError(t, cfg.OverrideProvider("anthropic"))
 	cfg.OverrideMaxDiffLines(10)
 	cfg.OverrideContextEnrichment(true)
+	cfg.OverrideStructuredFindings(true)
 	require.NoError(t, cfg.SetRelativeNumber(true))
 
 	model, err := cfg.GetLLMModel()
@@ -284,6 +292,7 @@ func TestNew_OverridesSurviveSetters(t *testing.T) {
 
 	assert.Equal(t, uint32(10), cfg.GetMaxDiffLines())
 	assert.True(t, cfg.GetContextEnrichment())
+	assert.True(t, cfg.GetStructuredFindings())
 	assert.True(t, cfg.GetRelativeNumber())
 }
 
@@ -339,6 +348,14 @@ func TestNew_SetterReplacesOverride(t *testing.T) {
 			override: func(c Config) error { c.OverrideContextEnrichment(true); return nil },
 			set:      func(c Config) error { return c.SetContextEnrichment(false) },
 			get:      func(c Config) any { return c.GetContextEnrichment() },
+			want:     false,
+			saved:    func(d Data) Data { return d },
+		},
+		{
+			name:     "structured findings",
+			override: func(c Config) error { c.OverrideStructuredFindings(true); return nil },
+			set:      func(c Config) error { return c.SetStructuredFindings(false) },
+			get:      func(c Config) any { return c.GetStructuredFindings() },
 			want:     false,
 			saved:    func(d Data) Data { return d },
 		},

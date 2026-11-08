@@ -10,9 +10,22 @@ import (
 //go:embed format.md
 var formattingRequirements string
 
+//go:embed structured.md
+var structuredRequirements string
+
 // FormatReviewSystem builds the system prompt for a code review.
 func FormatReviewSystem(reviewerPrompt, instructions string) string {
-	system := reviewerPrompt + "\n" + formattingRequirements
+	return withInstructions(reviewerPrompt+"\n"+formattingRequirements, instructions)
+}
+
+// FormatStructuredReviewSystem builds the system prompt for a review that
+// returns findings as JSON Lines (see the findings package). The persona
+// voices the intro, the remarks and the verdict; the findings stay neutral.
+func FormatStructuredReviewSystem(reviewerPrompt, instructions string) string {
+	return withInstructions("# Persona\n\n"+reviewerPrompt+"\n\n"+structuredRequirements, instructions)
+}
+
+func withInstructions(system, instructions string) string {
 	if instructions != "" {
 		system += fmt.Sprintf("\nFollow the instructions below when analysing code:\n\n%s", instructions)
 	}

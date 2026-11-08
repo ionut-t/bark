@@ -14,11 +14,12 @@ import (
 )
 
 type savedConfig struct {
-	Editor            string `toml:"editor"`
-	LLMProvider       string `toml:"llm_provider"`
-	LLMModel          string `toml:"llm_model"`
-	MaxDiffLines      uint32 `toml:"max_diff_lines"`
-	ContextEnrichment bool   `toml:"context_enrichment"`
+	Editor             string `toml:"editor"`
+	LLMProvider        string `toml:"llm_provider"`
+	LLMModel           string `toml:"llm_model"`
+	MaxDiffLines       uint32 `toml:"max_diff_lines"`
+	ContextEnrichment  bool   `toml:"context_enrichment"`
+	StructuredFindings bool   `toml:"structured_findings"`
 }
 
 func readSavedConfig(t *testing.T, path string) savedConfig {
@@ -61,10 +62,11 @@ func TestConfigCmd_SetsValues(t *testing.T) {
 	t.Parallel()
 
 	want := savedConfig{
-		LLMProvider:       "anthropic",
-		LLMModel:          "claude-sonnet-5-5",
-		MaxDiffLines:      500,
-		ContextEnrichment: true,
+		LLMProvider:        "anthropic",
+		LLMModel:           "claude-sonnet-5-5",
+		MaxDiffLines:       500,
+		ContextEnrichment:  true,
+		StructuredFindings: true,
 	}
 
 	tests := []struct {
@@ -73,15 +75,15 @@ func TestConfigCmd_SetsValues(t *testing.T) {
 	}{
 		{
 			name: "long flags",
-			args: []string{"--provider", "anthropic", "--model", "claude-sonnet-5-5", "--max-diff-lines", "500", "--context-enrichment"},
+			args: []string{"--provider", "anthropic", "--model", "claude-sonnet-5-5", "--max-diff-lines", "500", "--context-enrichment", "--structured-findings"},
 		},
 		{
 			name: "short flags",
-			args: []string{"-p", "anthropic", "-m", "claude-sonnet-5-5", "-d", "500", "--context-enrichment"},
+			args: []string{"-p", "anthropic", "-m", "claude-sonnet-5-5", "-d", "500", "--context-enrichment", "--structured-findings"},
 		},
 		{
 			name: "deprecated flags still work",
-			args: []string{"--llm_provider", "anthropic", "--llm_model", "claude-sonnet-5-5", "--max_diff_lines", "500", "--context_enrichment"},
+			args: []string{"--llm_provider", "anthropic", "--llm_model", "claude-sonnet-5-5", "--max_diff_lines", "500", "--context_enrichment", "--structured-findings"},
 		},
 	}
 
@@ -99,18 +101,19 @@ func TestConfigCmd_SetsValues(t *testing.T) {
 func TestConfigCmd_SetsZeroValues(t *testing.T) {
 	t.Parallel()
 
-	const existing = "max_diff_lines = 300\ncontext_enrichment = true\n"
+	const existing = "max_diff_lines = 300\ncontext_enrichment = true\nstructured_findings = true\n"
 
 	tests := []struct {
 		name string
 		args []string
 		want savedConfig
 	}{
-		{name: "-d 0", args: []string{"-d", "0"}, want: savedConfig{MaxDiffLines: 0, ContextEnrichment: true}},
-		{name: "--max-diff-lines 0", args: []string{"--max-diff-lines", "0"}, want: savedConfig{MaxDiffLines: 0, ContextEnrichment: true}},
-		{name: "--max_diff_lines 0", args: []string{"--max_diff_lines", "0"}, want: savedConfig{MaxDiffLines: 0, ContextEnrichment: true}},
-		{name: "--context-enrichment=false", args: []string{"--context-enrichment=false"}, want: savedConfig{MaxDiffLines: 300, ContextEnrichment: false}},
-		{name: "--context_enrichment=false", args: []string{"--context_enrichment=false"}, want: savedConfig{MaxDiffLines: 300, ContextEnrichment: false}},
+		{name: "-d 0", args: []string{"-d", "0"}, want: savedConfig{MaxDiffLines: 0, ContextEnrichment: true, StructuredFindings: true}},
+		{name: "--max-diff-lines 0", args: []string{"--max-diff-lines", "0"}, want: savedConfig{MaxDiffLines: 0, ContextEnrichment: true, StructuredFindings: true}},
+		{name: "--max_diff_lines 0", args: []string{"--max_diff_lines", "0"}, want: savedConfig{MaxDiffLines: 0, ContextEnrichment: true, StructuredFindings: true}},
+		{name: "--context-enrichment=false", args: []string{"--context-enrichment=false"}, want: savedConfig{MaxDiffLines: 300, ContextEnrichment: false, StructuredFindings: true}},
+		{name: "--context_enrichment=false", args: []string{"--context_enrichment=false"}, want: savedConfig{MaxDiffLines: 300, ContextEnrichment: false, StructuredFindings: true}},
+		{name: "--structured-findings=false", args: []string{"--structured-findings=false"}, want: savedConfig{MaxDiffLines: 300, ContextEnrichment: true, StructuredFindings: false}},
 	}
 
 	for _, tt := range tests {
@@ -120,6 +123,7 @@ func TestConfigCmd_SetsZeroValues(t *testing.T) {
 			got := runConfigCmd(t, existing, tt.args...)
 			assert.Equal(t, tt.want.MaxDiffLines, got.MaxDiffLines)
 			assert.Equal(t, tt.want.ContextEnrichment, got.ContextEnrichment)
+			assert.Equal(t, tt.want.StructuredFindings, got.StructuredFindings)
 		})
 	}
 }
@@ -179,12 +183,13 @@ func TestReadConfigData_ReadsEveryField(t *testing.T) {
 	t.Parallel()
 
 	want := config.Data{
-		Editor:            "nano",
-		LLMProvider:       "anthropic",
-		LLMModel:          "claude-sonnet-5-5",
-		MaxDiffLines:      300,
-		RelativeNumber:    true,
-		ContextEnrichment: true,
+		Editor:             "nano",
+		LLMProvider:        "anthropic",
+		LLMModel:           "claude-sonnet-5-5",
+		MaxDiffLines:       300,
+		RelativeNumber:     true,
+		ContextEnrichment:  true,
+		StructuredFindings: true,
 	}
 
 	// A field left at its zero value here would pass even if it isn't read.
@@ -281,6 +286,7 @@ llm_model = 'claude-sonnet-5-5'
 max_diff_lines = 300
 relative_number = true
 context_enrichment = true
+structured_findings = true
 `
 	require.NoError(t, os.WriteFile(path, []byte(contents), 0o644))
 
@@ -297,6 +303,7 @@ context_enrichment = true
 	assert.Equal(t, "claude-sonnet-5-5", model)
 	assert.Equal(t, uint32(300), cfg.GetMaxDiffLines())
 	assert.True(t, cfg.GetRelativeNumber())
+	assert.True(t, cfg.GetStructuredFindings())
 	assert.True(t, cfg.GetContextEnrichment())
 }
 

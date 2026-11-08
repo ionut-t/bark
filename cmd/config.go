@@ -23,6 +23,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 		model             string
 		maxDiffLines      uint32
 		contextEnrichment bool
+		structured        bool
 	)
 
 	cmd := &cobra.Command{
@@ -67,6 +68,13 @@ func configCmd(getCfg configFunc) *cobra.Command {
 				flagsSet = true
 			}
 
+			if cmd.Flags().Changed("structured-findings") {
+				if err := cfg.SetStructuredFindings(structured); err != nil {
+					return err
+				}
+				flagsSet = true
+			}
+
 			if !flagsSet {
 				return utils.OpenEditor(cfg.GetEditor(), cfg.Path())
 			}
@@ -81,6 +89,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 	flags.StringVarP(&model, "model", "m", "", "Set the LLM model")
 	flags.Uint32VarP(&maxDiffLines, "max-diff-lines", "d", 0, fmt.Sprintf("Set the maximum number of diff lines to include in the prompt (default: %d)", config.DEFAULT_MAX_DIFF_LINES))
 	flags.BoolVar(&contextEnrichment, "context-enrichment", false, "Enable or disable enclosing-declaration context for reviews (default: false)")
+	flags.BoolVar(&structured, "structured-findings", false, "Enable or disable structured findings for reviews (default: false)")
 
 	// Old names, matching the config file keys. Kept so existing scripts keep
 	// working; hidden from help, and pflag prints a deprecation notice.
@@ -185,8 +194,7 @@ func readConfigData(path string) (config.Data, error) {
 	// Unmarshal only sets the keys present in the file.
 	data := config.DefaultData()
 	if err := toml.Unmarshal(contents, &data); err != nil {
-		var decodeErr *toml.DecodeError
-		if errors.As(err, &decodeErr) {
+		if decodeErr, ok := errors.AsType[*toml.DecodeError](err); ok {
 			row, col := decodeErr.Position()
 			return config.Data{}, fmt.Errorf("%s:%d:%d: %w", path, row, col, err)
 		}

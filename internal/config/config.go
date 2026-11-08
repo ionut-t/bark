@@ -13,12 +13,13 @@ import (
 )
 
 const (
-	EditorKey            = "editor"
-	LLMProviderKey       = "llm_provider"
-	LLMModelKey          = "llm_model"
-	MaxDiffLinesKey      = "max_diff_lines"
-	RelativeNumberKey    = "relative_number"
-	ContextEnrichmentKey = "context_enrichment"
+	EditorKey             = "editor"
+	LLMProviderKey        = "llm_provider"
+	LLMModelKey           = "llm_model"
+	MaxDiffLinesKey       = "max_diff_lines"
+	RelativeNumberKey     = "relative_number"
+	ContextEnrichmentKey  = "context_enrichment"
+	StructuredFindingsKey = "structured_findings"
 
 	rootDir                    = ".bark"
 	configFileName             = ".config.toml"
@@ -51,17 +52,21 @@ type Config interface {
 	SetContextEnrichment(enrich bool) error
 	GetContextEnrichment() bool
 	OverrideContextEnrichment(enrich bool)
+	SetStructuredFindings(structured bool) error
+	GetStructuredFindings() bool
+	OverrideStructuredFindings(structured bool)
 }
 
 // Data is the contents of the config file. The toml tags name the keys both
 // when saving and when loading.
 type Data struct {
-	Editor            string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
-	LLMProvider       string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark will try to auto-detect the provider based on available credentials."`
-	LLMModel          string `toml:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
-	MaxDiffLines      uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt (0 disables the limit)"`
-	RelativeNumber    bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
-	ContextEnrichment bool   `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) as context for review (default: false)"`
+	Editor             string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
+	LLMProvider        string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark will try to auto-detect the provider based on available credentials."`
+	LLMModel           string `toml:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
+	MaxDiffLines       uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt (0 disables the limit)"`
+	RelativeNumber     bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
+	ContextEnrichment  bool   `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) as context for review (default: false)"`
+	StructuredFindings bool   `toml:"structured_findings" comment:"Whether reviews ask the model for structured findings (file, line, severity, ...) instead of free text (default: false)"`
 }
 
 // config is safe for concurrent use: the TUI saves relative_number from a tea.Cmd
@@ -84,6 +89,7 @@ type overrides struct {
 	llmModel          *string
 	maxDiffLines      *uint32
 	contextEnrichment *bool
+	structured        *bool
 }
 
 // valueOr returns the override if set, otherwise the saved value.
@@ -310,6 +316,35 @@ func (c *config) OverrideContextEnrichment(enrich bool) {
 	defer c.mu.Unlock()
 
 	c.overrides.contextEnrichment = &enrich
+}
+
+func (c *config) SetStructuredFindings(structured bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.structured = nil
+
+	if structured == c.data.StructuredFindings {
+		return nil
+	}
+
+	c.data.StructuredFindings = structured
+
+	return writeConfig(c.path, c.data)
+}
+
+func (c *config) GetStructuredFindings() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return valueOr(c.overrides.structured, c.data.StructuredFindings)
+}
+
+func (c *config) OverrideStructuredFindings(structured bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.structured = &structured
 }
 
 func writeConfig(path string, data Data) error {
