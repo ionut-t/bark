@@ -133,9 +133,9 @@ func initConfig(path string) (config.Config, error) {
 	return cfg, nil
 }
 
-// loadConfigFrom loads the config file at path, which must exist, or the
-// default file (created if missing) when path is empty. A file passed with
-// --config is never created, so a mistyped path fails instead of silently
+// loadConfigFrom loads the config file at path, or the default file (created
+// if missing) when path is empty. A file passed with --config is read
+// directly and never created, so a mistyped path fails instead of silently
 // running with defaults.
 func loadConfigFrom(path string) (config.Config, error) {
 	if path == "" {
@@ -146,11 +146,12 @@ func loadConfigFrom(path string) (config.Config, error) {
 		return loadConfig(defaultPath)
 	}
 
-	if _, err := os.Stat(path); err != nil {
+	data, err := readConfigData(path)
+	if err != nil {
 		return nil, err
 	}
 
-	return loadConfig(path)
+	return config.New(path, data), nil
 }
 
 // loadConfig reads the config file at path, first creating it with default
