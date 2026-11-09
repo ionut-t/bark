@@ -326,3 +326,20 @@ func TestParseSortsTiersOfAnySize(t *testing.T) {
 	require.Len(t, tiers, 2)
 	assert.Equal(t, []int64{100_000, 3_000_000_000}, []int64{tiers[0].Over, tiers[1].Over})
 }
+
+// Models that can't review code (embeddings, speech, images, music) are
+// left out: models.dev gives them a type, or output other than text.
+func TestParseLeavesOutModelsThatDontWriteText(t *testing.T) {
+	t.Parallel()
+
+	f, err := Parse(sample(t), SourceURL, today)
+	require.NoError(t, err)
+
+	for _, name := range []string{"gemini-embedding-2", "gemini-3.1-flash-tts-preview", "lyria-3-pro-preview"} {
+		assert.NotContains(t, f.Providers["google"], name)
+	}
+	assert.NotContains(t, f.Providers["openai"], "gpt-image-2")
+	assert.Contains(t, f.Providers["google"], "gemini-3.6-flash", "a model listing its text output is kept")
+	assert.Contains(t, f.Providers["google"], "gemini-3.1-pro-preview", "a model without modalities is kept")
+	assert.Equal(t, 7, f.Models())
+}

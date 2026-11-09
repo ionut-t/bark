@@ -50,8 +50,9 @@ func Fetch(ctx context.Context, client *http.Client, url string, today time.Time
 }
 
 // Parse keeps the prices of Bark's providers' models from a models.dev
-// catalogue. Models without input and output prices are left out. It fails
-// if no model is left.
+// catalogue. Models without input and output prices are left out, and so
+// are models that can't review code (see writesText). It fails if no model
+// is left.
 //
 // Prices models.dev leaves out are filled in: cache reads and writes at the
 // input price, reasoning at the output price, and a tier's missing prices
@@ -75,6 +76,9 @@ func Parse(data []byte, source string, today time.Time) (File, error) {
 		}
 		models := map[string]Price{}
 		for name, m := range p.Models {
+			if !m.writesText() {
+				continue
+			}
 			if price, ok := m.Cost.price(); ok {
 				models[name] = price
 			}
@@ -134,9 +138,34 @@ func Save(path string, f File) error {
 
 // mdProvider is the part of a models.dev provider Bark reads.
 type mdProvider struct {
-	Models map[string]struct {
-		Cost *mdCost `json:"cost"`
-	} `json:"models"`
+	Models map[string]mdModel `json:"models"`
+}
+
+// mdModel is the part of a models.dev model Bark reads.
+type mdModel struct {
+	// Type is set for specialised models: embedding, image, speech,
+	// realtime, video, ...
+	Type       string `json:"type"`
+	Modalities struct {
+		Output []string `json:"output"`
+	} `json:"modalities"`
+	Cost *mdCost `json:"cost"`
+}
+
+// writesText reports whether m is a general model that answers in text
+// only, as a review needs. Embedding, speech, image and music models have a
+// type or other output (November 2026: 29 of 162 priced models of Bark's
+// providers). A model that doesn't list its output is kept.
+func (m mdModel) writesText() bool {
+	if m.Type != "" {
+		return false
+	}
+	for _, out := range m.Modalities.Output {
+		if out != "text" {
+			return false
+		}
+	}
+	return true
 }
 
 // mdRates are models.dev prices in USD per million tokens.
