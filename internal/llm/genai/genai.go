@@ -67,11 +67,7 @@ func (g *GenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.R
 			}
 
 			if resp.UsageMetadata != nil {
-				usage = &llm.Usage{
-					InputTokens:  int64(resp.UsageMetadata.PromptTokenCount),
-					OutputTokens: int64(resp.UsageMetadata.CandidatesTokenCount),
-					TotalTokens:  int64(resp.UsageMetadata.TotalTokenCount),
-				}
+				usage = usageOf(resp.UsageMetadata)
 			}
 
 			if len(resp.Candidates) > 0 {
@@ -119,18 +115,23 @@ func (g *GenAI) Generate(ctx context.Context, system, prompt string) (llm.Respon
 		return llm.Response{}, fmt.Errorf("no response from LLM")
 	}
 
-	var usage *llm.Usage
-	if result.UsageMetadata != nil {
-		usage = &llm.Usage{
-			InputTokens:  int64(result.UsageMetadata.PromptTokenCount),
-			OutputTokens: int64(result.UsageMetadata.CandidatesTokenCount),
-			TotalTokens:  int64(result.UsageMetadata.TotalTokenCount),
-		}
-	}
-
 	return llm.Response{
 		Content: result.Text(),
 		Time:    time.Now(),
-		Usage:   usage,
+		Usage:   usageOf(result.UsageMetadata),
 	}, nil
+}
+
+// usageOf converts Gemini's usage, or returns nil without one. The prompt
+// count includes cached tokens; thinking is in the total, not the output.
+func usageOf(md *genai.GenerateContentResponseUsageMetadata) *llm.Usage {
+	if md == nil {
+		return nil
+	}
+	return &llm.Usage{
+		InputTokens:       int64(md.PromptTokenCount),
+		OutputTokens:      int64(md.CandidatesTokenCount),
+		TotalTokens:       int64(md.TotalTokenCount),
+		CachedInputTokens: int64(md.CachedContentTokenCount),
+	}
 }

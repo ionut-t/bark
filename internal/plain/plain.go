@@ -18,6 +18,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/llm/llm_factory"
+	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/ionut-t/bark/v2/internal/prompt"
 	"github.com/ionut-t/bark/v2/internal/prreview"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
@@ -152,6 +153,9 @@ func RunReview(opts ReviewOptions) error {
 	defer llmCancel()
 
 	model, _ := opts.Config.GetLLMModel()
+	client, meter := meterCalls(client, opts.Storage, provider, model)
+	defer printCost(meter)
+
 	debugLog, err := debuglog.Start(opts.Storage, "review", debuglog.Meta{
 		Fields: []debuglog.Field{
 			{Key: "provider", Value: provider},
@@ -159,8 +163,9 @@ func RunReview(opts ReviewOptions) error {
 			{Key: "reviewer", Value: reviewer.Name},
 			{Key: "structured", Value: strconv.FormatBool(structured)},
 		},
-		System: system,
-		Prompt: promptText,
+		System:  system,
+		Prompt:  promptText,
+		Pricing: meter.Pricing(),
 	})
 	// Stderr, so the review on stdout stays clean for pipes.
 	if err != nil {
@@ -176,13 +181,14 @@ func RunReview(opts ReviewOptions) error {
 	} else {
 		output, err = fullResponse(llmCtx, client, system, promptText, debugLog)
 	}
+	meter.Mark("review")
 	if err != nil {
 		return err
 	}
 
 	var checkFn func([]findings.Event) ([]findings.Event, int)
 	if structured && opts.Config.GetCheckFindings() {
-		r := check.Review{Client: client, ReviewDiff: reviewDiff, Diff: diff, LogDir: opts.Storage, Provider: provider, Model: model}
+		r := check.Review{Client: client, ReviewDiff: reviewDiff, Diff: diff, LogDir: opts.Storage, Provider: provider, Model: model, Pricing: meter.Pricing()}
 		if !opts.Stream {
 			// Nothing is shown before the check, so the intro and verdict
 			// can still be rewritten to match it.
@@ -192,7 +198,7 @@ func RunReview(opts ReviewOptions) error {
 			r.Prior = earlierFindings(opts.PR)
 		}
 		checkFn = func(events []findings.Event) ([]findings.Event, int) {
-			return checkFindings(r, events)
+			return checkFindings(r, events, meter)
 		}
 	}
 	events := finishReview(out, output, opts.Stream, structured, checkFn)
@@ -240,10 +246,11 @@ func RunCommit(opts CommitOptions) error {
 	}
 	commitSystem := prompt.FormatCommitSystem(commitInstructions, opts.Hint)
 
-	client, _, err := llm_factory.New(context.Background(), opts.Config)
+	client, meter, err := newMeteredClient(opts.Config)
 	if err != nil {
-		return fmt.Errorf("error creating LLM client: %w", err)
+		return err
 	}
+	defer printCost(meter)
 
 	llmCtx, llmCancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer llmCancel()
@@ -292,10 +299,11 @@ func RunPR(opts PROptions) error {
 
 	prSystem := prompt.FormatPRSystem(prInstructions)
 
-	client, _, err := llm_factory.New(context.Background(), opts.Config)
+	client, meter, err := newMeteredClient(opts.Config)
 	if err != nil {
-		return fmt.Errorf("error creating LLM client: %w", err)
+		return err
 	}
+	defer printCost(meter)
 
 	llmCtx, llmCancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer llmCancel()
@@ -383,7 +391,7 @@ func fullResponse(ctx context.Context, client llm.LLM, system, promptText string
 // events with the doubted findings marked, and how many findings were
 // checked. Progress and errors go to stderr; if the check fails, events are
 // returned unchanged.
-func checkFindings(r check.Review, events []findings.Event) ([]findings.Event, int) {
+func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter) ([]findings.Event, int) {
 	n := check.Count(events)
 	if n == 0 {
 		return events, 0
@@ -400,6 +408,7 @@ func checkFindings(r check.Review, events []findings.Event) ([]findings.Event, i
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	res, err := r.Run(ctx, events)
+	meter.Mark("check")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bark: %v; the findings are unchecked\n", err)
 		return events, 0
@@ -414,6 +423,7 @@ func checkFindings(r check.Review, events []findings.Event) ([]findings.Event, i
 	// The intro and verdict were written before the check; rewrite them so
 	// they don't demand fixes for doubted findings.
 	revised, ok, err := r.Revise(ctx, res.Events)
+	meter.Mark("verdict rewrite")
 	switch {
 	case err != nil:
 		fmt.Fprintf(os.Stderr, "bark: %v; keeping the original\n", err)
@@ -500,4 +510,44 @@ func resolvePRInstructions(instruction string, cfg config.Config) (string, error
 	}
 
 	return utils.GetInstructions(".bark/pr.md", cfg.GetPRInstructions())
+}
+
+// newMeteredClient creates the configured model's client, counting what its
+// calls cost when there are prices for the model (see meterCalls).
+func newMeteredClient(cfg config.Config) (llm.LLM, *prices.Meter, error) {
+	client, provider, err := llm_factory.New(context.Background(), cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating LLM client: %w", err)
+	}
+	storage, err := config.GetStorage()
+	if err != nil {
+		return client, nil, nil
+	}
+	model, _ := cfg.GetLLMModel()
+	client, meter := meterCalls(client, storage, provider, model)
+	return client, meter, nil
+}
+
+// meterCalls wraps client to count what its calls cost, if the repo's or
+// storage's prices file lists the model. Otherwise it returns client and a
+// nil Meter (which does nothing). A prices file that can't be read, or
+// doesn't list the model, is a warning: the command goes on without costs.
+func meterCalls(client llm.LLM, storage, provider, model string) (llm.LLM, *prices.Meter) {
+	pricing, err := prices.For(storage, provider, model)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bark: %v; costs won't be shown\n", err)
+		return client, nil
+	}
+	if pricing == nil {
+		return client, nil
+	}
+	meter := prices.NewMeter(client, pricing)
+	return meter, meter
+}
+
+// printCost writes what the calls cost to stderr, if they were priced.
+func printCost(meter *prices.Meter) {
+	if s := meter.Summary(); s != "" {
+		fmt.Fprintf(os.Stderr, "bark: %s\n", s)
+	}
 }

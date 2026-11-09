@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ionut-t/bark/v2/internal/llm"
+	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,4 +86,35 @@ func TestStartIsOffByDefault(t *testing.T) {
 	require.NotNil(t, l)
 	l.Finish(nil)
 	assert.FileExists(t, l.Path())
+}
+
+func TestLogShowsCachedTokensAndCost(t *testing.T) {
+	t.Parallel()
+
+	pricing := &prices.Pricing{Price: prices.Price{Input: 1, Output: 2, CacheRead: 0.1}, Date: "2026-11-09", Path: ".bark/prices.json"}
+	l, err := start(t.TempDir(), "check", Meta{Pricing: pricing}, time.Now())
+	require.NoError(t, err)
+	l.Write("x", &llm.Usage{InputTokens: 10_000, CachedInputTokens: 8_000, OutputTokens: 1_000, TotalTokens: 11_000})
+	l.Finish(nil)
+
+	content, err := os.ReadFile(l.Path())
+	require.NoError(t, err)
+	got := string(content)
+	assert.Contains(t, got, "              8000 input read from the cache, 0 written to it\n")
+	// 2,000 uncached at $1, 8,000 cached at $0.10, 1,000 output at $2.
+	assert.Contains(t, got, "cost:         $0.0048 (prices from 2026-11-09, .bark/prices.json)\n")
+}
+
+func TestLogWithoutPricingShowsNoCost(t *testing.T) {
+	t.Parallel()
+
+	l, err := start(t.TempDir(), "check", Meta{}, time.Now())
+	require.NoError(t, err)
+	l.Write("x", &llm.Usage{InputTokens: 10, OutputTokens: 1, TotalTokens: 11})
+	l.Finish(nil)
+
+	content, err := os.ReadFile(l.Path())
+	require.NoError(t, err)
+	assert.NotContains(t, string(content), "cost:")
+	assert.NotContains(t, string(content), "cache")
 }

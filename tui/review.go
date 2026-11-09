@@ -15,6 +15,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/debuglog"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/llm"
+	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
 	"github.com/ionut-t/coffee/help"
@@ -129,6 +130,8 @@ type streamCompleteMsg struct {
 type checkDoneMsg struct {
 	run    int
 	report string
+	// usage is the check call's token usage, or nil.
+	usage *llm.Usage
 }
 
 type reviewLoadingMsg struct {
@@ -159,6 +162,7 @@ type reviewModel struct {
 	debugLog         *debuglog.Log
 	logDir           string
 	provider         string
+	pricing          *prices.Pricing
 	reviewer         reviewers.Reviewer
 	system           string
 	prompt           string
@@ -215,6 +219,11 @@ func (m *reviewModel) setCheck(r check.Review) {
 func (m *reviewModel) setLogInfo(storage, provider string) {
 	m.logDir = storage
 	m.provider = provider
+}
+
+// setPricing makes the BARK_DEBUG log show the review's cost; nil shows none.
+func (m *reviewModel) setPricing(p *prices.Pricing) {
+	m.pricing = p
 }
 
 func (m *reviewModel) setUsedModel(model string) {
@@ -341,7 +350,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		m.setDoneStatusLine()
 
 	case checkDoneMsg:
-		if msg.run != m.run || !m.checking {
+		if !m.awaitsCheck(msg) {
 			return m, nil
 		}
 		m.checking = false
@@ -508,8 +517,9 @@ func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 			{Key: "reviewer", Value: m.reviewer.Name},
 			{Key: "structured", Value: strconv.FormatBool(m.structured)},
 		},
-		System: m.system,
-		Prompt: m.prompt,
+		System:  m.system,
+		Prompt:  m.prompt,
+		Pricing: m.pricing,
 	})
 	m.loading = true
 	m.error = nil
@@ -551,6 +561,12 @@ func (m *reviewModel) setDoneStatusLine() {
 	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
 }
 
+// awaitsCheck reports whether msg is the result of the check the review is
+// waiting for, not one for a review that was restarted.
+func (m *reviewModel) awaitsCheck(msg checkDoneMsg) bool {
+	return msg.run == m.run && m.checking
+}
+
 // runCheckCmd runs Bark's check on the findings of review number run.
 func runCheckCmd(r check.Review, run int, events []findings.Event) tea.Cmd {
 	return func() tea.Msg {
@@ -558,9 +574,9 @@ func runCheckCmd(r check.Review, run int, events []findings.Event) tea.Cmd {
 		defer cancel()
 		res, err := r.Run(ctx, events)
 		if err != nil {
-			return checkDoneMsg{run: run, report: "## Bark's check\n\nThe check failed, so the findings above are unchecked: " + err.Error() + "\n"}
+			return checkDoneMsg{run: run, usage: res.Usage, report: "## Bark's check\n\nThe check failed, so the findings above are unchecked: " + err.Error() + "\n"}
 		}
-		return checkDoneMsg{run: run, report: findings.CheckReport(res.Events, res.Checked)}
+		return checkDoneMsg{run: run, usage: res.Usage, report: findings.CheckReport(res.Events, res.Checked)}
 	}
 }
 

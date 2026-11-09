@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ionut-t/bark/v2/internal/llm"
+	"github.com/ionut-t/bark/v2/internal/prices"
 )
 
 // EnvVar turns logging on when set to a true value ("1", "true", ...).
@@ -28,12 +29,15 @@ type Meta struct {
 	Fields []Field
 	System string
 	Prompt string
+	// Pricing, if not nil, prices the call; the log then shows its cost.
+	Pricing *prices.Pricing
 }
 
 // Log is one call's log file. A nil *Log is valid and does nothing, so
 // callers don't need to check whether logging is on.
 type Log struct {
 	file    *os.File
+	pricing *prices.Pricing
 	start   time.Time
 	first   time.Duration
 	usage   *llm.Usage
@@ -69,7 +73,7 @@ func start(dir, kind string, meta Meta, now time.Time) (*Log, error) {
 		return nil, fmt.Errorf("creating log file: %w", err)
 	}
 
-	l := &Log{file: file, start: now}
+	l := &Log{file: file, pricing: meta.Pricing, start: now}
 	l.header(append([]Field{{"kind", kind}, {"time", now.Format(time.RFC3339)}}, meta.Fields...))
 	l.section("system")
 	l.printf("%s\n", meta.System)
@@ -123,8 +127,14 @@ func (l *Log) Finish(err error) {
 	if u := l.usage; u != nil {
 		l.printf("tokens:       %d input, %d output, %d total\n", u.InputTokens, u.OutputTokens, u.TotalTokens)
 		// Gemini counts thinking in the total but not in the output.
-		if other := u.TotalTokens - u.InputTokens - u.OutputTokens; other > 0 {
+		if other := u.ThinkingTokens(); other > 0 {
 			l.printf("              %d other (thinking)\n", other)
+		}
+		if u.CachedInputTokens > 0 || u.CacheWriteTokens > 0 {
+			l.printf("              %d input read from the cache, %d written to it\n", u.CachedInputTokens, u.CacheWriteTokens)
+		}
+		if l.pricing != nil {
+			l.printf("cost:         %s (prices from %s, %s)\n", prices.FormatUSD(l.pricing.Cost(*u)), l.pricing.Date, l.pricing.Path)
 		}
 	}
 	if err != nil {

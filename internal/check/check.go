@@ -23,6 +23,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/bark/v2/internal/llm"
+	"github.com/ionut-t/bark/v2/internal/prices"
 )
 
 //go:embed check.md
@@ -42,6 +43,9 @@ type Result struct {
 	// found repeat a point raised before on the pull request (these have
 	// RaisedBefore set instead of Doubt).
 	Checked, Doubted, RaisedBefore int
+	// Usage is the check call's token usage, if the provider reported it
+	// (also on a failed call, which may still be billed).
+	Usage *llm.Usage
 }
 
 // Run checks the findings in events with one call to client. Without
@@ -68,11 +72,11 @@ func Run(ctx context.Context, client llm.LLM, in Input, events []findings.Event,
 	log.Write(resp.Content, resp.Usage)
 	log.Finish(err)
 	if err != nil {
-		return Result{}, fmt.Errorf("error checking findings: %w", err)
+		return Result{Usage: resp.Usage}, fmt.Errorf("error checking findings: %w", err)
 	}
 
 	outcomes := Apply(in, fs, ParseVerdicts(resp.Content))
-	res := Result{Events: make([]findings.Event, len(events))}
+	res := Result{Events: make([]findings.Event, len(events)), Usage: resp.Usage}
 	i := 0
 	for j, e := range events {
 		if e.Finding != nil {
@@ -610,6 +614,8 @@ type Review struct {
 	// nil, is told where the log is, or why it couldn't be started.
 	LogDir, Provider, Model string
 	OnLog                   func(path string, err error)
+	// Pricing, if not nil, puts each call's cost in its BARK_DEBUG log.
+	Pricing *prices.Pricing
 }
 
 // Run reads the files the findings in events point to and checks them (see
@@ -673,8 +679,9 @@ func (r Review) startLog(kind string) func(system, prompt string) *debuglog.Log 
 				{Key: "provider", Value: r.Provider},
 				{Key: "model", Value: r.Model},
 			},
-			System: system,
-			Prompt: prompt,
+			System:  system,
+			Prompt:  prompt,
+			Pricing: r.Pricing,
 		})
 		if r.OnLog != nil && (err != nil || log != nil) {
 			r.OnLog(log.Path(), err)
