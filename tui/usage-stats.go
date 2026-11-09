@@ -8,6 +8,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/v2/internal/llm"
+	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/ionut-t/coffee/styles"
 )
 
@@ -16,6 +17,10 @@ type usageStats struct {
 	provider string
 	model    string
 	duration time.Duration
+	// check is the usage of the check that followed a review, or nil.
+	check *llm.Usage
+	// pricing, if not nil, adds the calls' cost.
+	pricing *prices.Pricing
 }
 
 func overlayCenter(base, modal string, width, height int) string {
@@ -56,25 +61,47 @@ func renderUsageStats(stats *usageStats, s styles.Styles) string {
 		return lipgloss.JoinHorizontal(lipgloss.Top, labelStyle.Render(label), valueStyle.Render(value))
 	}
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
+	rows := []string{
 		title,
 		"",
 		row("Provider:", stats.provider),
 		row("Model:", stats.model),
 		row("Input:", formatTokens(stats.usage.InputTokens)+" tokens"),
+	}
+	if cached := stats.usage.CachedInputTokens; cached > 0 {
+		rows = append(rows, row("Cached:", formatTokens(cached)+" tokens"))
+	}
+	rows = append(rows,
 		row("Output:", formatTokens(stats.usage.OutputTokens)+" tokens"),
 		row("Total:", formatTokens(stats.usage.TotalTokens)+" tokens"),
 		row("Duration:", formatDuration(d)),
-		"",
-		s.Subtext0.Render("esc/ctrl+t to close"),
 	)
+	if c := stats.check; c != nil {
+		rows = append(rows, row("Check:", formatTokens(c.InputTokens)+" input, "+formatTokens(c.OutputTokens)+" output tokens"))
+	}
+	if p := stats.pricing; p != nil {
+		rows = append(rows, row("Cost:", costSummary(stats, p)))
+	}
+	rows = append(rows, "", s.Subtext0.Render("esc/ctrl+t to close"))
+	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
 
 	return lipgloss.NewStyle().
 		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(s.Primary.GetForeground()).
 		Render(content)
+}
+
+// costSummary is the cost of the call, or of a review and its check with
+// each part.
+func costSummary(stats *usageStats, p *prices.Pricing) string {
+	from := " (prices from " + p.Date + ")"
+	review := p.Cost(stats.usage)
+	if stats.check == nil {
+		return prices.FormatUSD(review) + from
+	}
+	check := p.Cost(*stats.check)
+	return prices.FormatUSD(review+check) + ": review " + prices.FormatUSD(review) + ", check " + prices.FormatUSD(check) + from
 }
 
 func formatTokens(n int64) string {

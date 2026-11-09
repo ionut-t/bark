@@ -16,6 +16,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/llm/llm_factory"
+	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/ionut-t/bark/v2/internal/prompt"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
@@ -106,7 +107,10 @@ type Model struct {
 	isDarkMode bool
 	pendingCmd tea.Cmd
 
-	llmProvider  string
+	llmProvider string
+	// pricing prices the calls, or is nil without a prices file listing
+	// the model.
+	pricing      *prices.Pricing
 	lastUsage    *usageStats
 	genStartedAt time.Time
 	showStats    bool
@@ -140,6 +144,11 @@ func New(options Options) *Model {
 		}
 	}
 
+	// The TUI has nowhere to warn about a prices file it can't use; it just
+	// shows no cost.
+	model, _ := options.Config.GetLLMModel()
+	pricing, _ := prices.For(options.Storage, provider, model)
+
 	if !git.IsGitRepo() {
 		return &Model{
 			error: git.ErrNotAGitRepository,
@@ -164,6 +173,7 @@ func New(options Options) *Model {
 		currentView:          currentView,
 		llm:                  llm,
 		llmProvider:          provider,
+		pricing:              pricing,
 		config:               options.Config,
 		storage:              options.Storage,
 		selectCommit:         options.SelectCommit,
@@ -203,7 +213,18 @@ func (m *Model) recordUsage(usage llm.Usage, duration time.Duration) {
 		provider: m.llmProvider,
 		model:    m.getLlmModelName(),
 		duration: duration,
+		pricing:  m.pricing,
 	}
+}
+
+// recordCheckUsage adds the usage of the check that followed the last
+// review to its stats, unless the check is for a review that was restarted.
+func (m *Model) recordCheckUsage(msg checkDoneMsg) {
+	if msg.usage == nil || m.lastUsage == nil || !m.review.awaitsCheck(msg) {
+		return
+	}
+	u := *msg.usage
+	m.lastUsage.check = &u
 }
 
 func (m Model) Init() tea.Cmd {
@@ -230,6 +251,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.hasUsage {
 			m.recordUsage(msg.usage, msg.duration)
 		}
+	case checkDoneMsg:
+		// Before the review model takes the message and stops waiting
+		// for it.
+		m.recordCheckUsage(msg)
 	}
 
 	switch msg := msg.(type) {
@@ -853,6 +878,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	m.review.setUsedModel(m.getLlmModelName())
 	m.review.setStructured(structured)
 	m.review.setLogInfo(m.storage, m.llmProvider)
+	m.review.setPricing(m.pricing)
 	if structured && m.config.GetCheckFindings() {
 		m.review.setCheck(check.Review{
 			Client:     m.llm,
@@ -861,6 +887,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 			LogDir:     m.storage,
 			Provider:   m.llmProvider,
 			Model:      m.getLlmModelName(),
+			Pricing:    m.pricing,
 		})
 	}
 	m.currentView = viewReview

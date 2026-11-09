@@ -108,6 +108,30 @@ To use a different config file, pass `--config <path>` to any command. The file 
 bark review --config ~/work/bark.toml
 ```
 
+## Costs
+
+Bark can show what each run's model calls cost. It needs a prices file, which `bark prices` downloads from [models.dev](https://models.dev) and saves to `$HOME/.bark/prices.json`:
+
+```bash
+bark prices
+```
+
+With it, `review`, `commit` and `pr` in plain mode (`--plain`, or when the output is piped, as in CI) print the cost on stderr. A review that checks its findings shows each call's part: the review, the check and, when the check sets findings aside (without `--stream`), the rewritten verdict:
+
+```text
+bark: cost $0.0234: review $0.0123, check $0.0101, verdict rewrite $0.0010 (prices from 2026-11-09)
+```
+
+In the TUI, the usage overlay (`ctrl+t`) shows the cost of the last task: for a review, the review and its check with each part (the TUI doesn't rewrite the verdict). `BARK_DEBUG=1` logs show each call's cost. Prices are in USD, for the standard paid tier: cached input, thinking and long-prompt prices are counted, but not batch, regional or free-tier pricing. Bark never downloads prices by itself; run `bark prices` again to update them, as providers change their prices. Without a prices file, for a model it doesn't list, and for Ollama, no cost is shown.
+
+Bark reads the repo's `.bark/prices.json` before `$HOME/.bark/prices.json`. To show costs in CI, save the prices to the repo from its top-level directory and commit them:
+
+```bash
+bark prices --repo
+```
+
+`--output <path>` saves them anywhere else.
+
 ## Reset
 
 To reset the reviewers and instructions to their default state use the `reset` command.

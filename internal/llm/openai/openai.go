@@ -72,12 +72,7 @@ func (o *OpenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 
 			event := stream.Current()
 			if event.Type == "response.completed" {
-				respUsage := event.AsResponseCompleted().Response.Usage
-				usage = &llm.Usage{
-					InputTokens:  respUsage.InputTokens,
-					OutputTokens: respUsage.OutputTokens,
-					TotalTokens:  respUsage.TotalTokens,
-				}
+				usage = usageOf(event.AsResponseCompleted().Response.Usage)
 				continue
 			}
 
@@ -137,15 +132,21 @@ func (o *OpenAI) Generate(ctx context.Context, system, prompt string) (llm.Respo
 		return llm.Response{}, fmt.Errorf("no response from LLM")
 	}
 
-	usage := &llm.Usage{
-		InputTokens:  resp.Usage.InputTokens,
-		OutputTokens: resp.Usage.OutputTokens,
-		TotalTokens:  resp.Usage.TotalTokens,
-	}
-
 	return llm.Response{
 		Content: text,
 		Time:    time.Now(),
-		Usage:   usage,
+		Usage:   usageOf(resp.Usage),
 	}, nil
+}
+
+// usageOf converts OpenAI's usage. Its input count includes cached tokens,
+// and its output count includes reasoning.
+func usageOf(u responses.ResponseUsage) *llm.Usage {
+	return &llm.Usage{
+		InputTokens:       u.InputTokens,
+		OutputTokens:      u.OutputTokens,
+		TotalTokens:       u.TotalTokens,
+		CachedInputTokens: u.InputTokensDetails.CachedTokens,
+		CacheWriteTokens:  u.InputTokensDetails.CacheWriteTokens,
+	}
 }

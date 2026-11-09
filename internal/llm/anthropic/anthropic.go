@@ -67,6 +67,7 @@ func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan l
 		}()
 
 		var usage *llm.Usage
+		var counts usageCounts
 		for stream.Next() {
 			select {
 			case <-ctx.Done():
@@ -78,22 +79,23 @@ func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan l
 			event := stream.Current()
 			switch ev := event.AsAny().(type) {
 			case anthropic.MessageStartEvent:
-				if usage == nil {
-					usage = &llm.Usage{}
-				}
-				usage.InputTokens = ev.Message.Usage.InputTokens
-				usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+				u := ev.Message.Usage
+				counts.input, counts.cacheRead, counts.cacheWrite = u.InputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens
+				usage = counts.usage()
 			case anthropic.MessageDeltaEvent:
-				if usage == nil {
-					usage = &llm.Usage{}
-				}
-				usage.OutputTokens = ev.Usage.OutputTokens
-				// The delta carries the up-to-date cumulative input count when
-				// the API sends it; otherwise keep the message_start value.
+				counts.output = ev.Usage.OutputTokens
+				// The delta carries up-to-date cumulative input counts when
+				// the API sends them; otherwise keep the message_start values.
 				if ev.Usage.InputTokens > 0 {
-					usage.InputTokens = ev.Usage.InputTokens
+					counts.input = ev.Usage.InputTokens
 				}
-				usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+				if ev.Usage.CacheReadInputTokens > 0 {
+					counts.cacheRead = ev.Usage.CacheReadInputTokens
+				}
+				if ev.Usage.CacheCreationInputTokens > 0 {
+					counts.cacheWrite = ev.Usage.CacheCreationInputTokens
+				}
+				usage = counts.usage()
 			case anthropic.ContentBlockDeltaEvent:
 				textDelta, ok := ev.Delta.AsAny().(anthropic.TextDelta)
 				if !ok || textDelta.Text == "" {
@@ -155,10 +157,28 @@ func (a *Anthropic) Generate(ctx context.Context, system, prompt string) (llm.Re
 	return llm.Response{
 		Content: text.Text,
 		Time:    time.Now(),
-		Usage: &llm.Usage{
-			InputTokens:  resp.Usage.InputTokens,
-			OutputTokens: resp.Usage.OutputTokens,
-			TotalTokens:  resp.Usage.InputTokens + resp.Usage.OutputTokens,
-		},
+		Usage: usageCounts{
+			input:      resp.Usage.InputTokens,
+			cacheRead:  resp.Usage.CacheReadInputTokens,
+			cacheWrite: resp.Usage.CacheCreationInputTokens,
+			output:     resp.Usage.OutputTokens,
+		}.usage(),
 	}, nil
+}
+
+// usageCounts are Anthropic's token counts. Its input count leaves out the
+// tokens read from and written to the cache; output includes thinking.
+type usageCounts struct {
+	input, cacheRead, cacheWrite, output int64
+}
+
+func (c usageCounts) usage() *llm.Usage {
+	in := c.input + c.cacheRead + c.cacheWrite
+	return &llm.Usage{
+		InputTokens:       in,
+		OutputTokens:      c.output,
+		TotalTokens:       in + c.output,
+		CachedInputTokens: c.cacheRead,
+		CacheWriteTokens:  c.cacheWrite,
+	}
 }
