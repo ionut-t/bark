@@ -138,3 +138,17 @@ func TestEarlierError(t *testing.T) {
 	_, err := earlier(context.Background(), gh.run, "7")
 	assert.ErrorContains(t, err, "HTTP 404")
 }
+
+// The hidden block keeps a short body, so it stays small however long the
+// findings are.
+func TestRecordCutsLongBodies(t *testing.T) {
+	t.Parallel()
+
+	body := Build([]findings.Event{
+		{Finding: &findings.Finding{File: "a.go", Line: 2, Title: "t", Body: strings.Repeat("word ", 500)}},
+	}, diff).Body
+	got := Recorded(body)
+	require.Len(t, got, 1)
+	assert.Equal(t, findings.FirstSentence(strings.Repeat("word ", 500)), got[0].Body)
+	assert.Less(t, len(got[0].Body), 300)
+}

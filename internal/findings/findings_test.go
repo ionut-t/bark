@@ -308,3 +308,25 @@ func TestFindingSetAside(t *testing.T) {
 	assert.True(t, Finding{Doubt: "no"}.SetAside())
 	assert.True(t, Finding{RaisedBefore: "earlier"}.SetAside())
 }
+
+func TestFirstSentence(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("a", 300)
+	tests := []struct {
+		name, in, want string
+	}{
+		{name: "first of several", in: "m may be nil. It panics.", want: "m may be nil."},
+		{name: "one sentence", in: "m may be nil.", want: "m may be nil."},
+		{name: "joined onto one line", in: "m may\n  be nil.\nIt panics.", want: "m may be nil."},
+		{name: "empty", in: "", want: ""},
+		{name: "cut when long", in: long, want: strings.Repeat("a", maxSentence) + "…"},
+		{name: "cut on a rune boundary", in: strings.Repeat("a", maxSentence-1) + "é and more", want: strings.Repeat("a", maxSentence-1) + "…"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, FirstSentence(tt.in))
+		})
+	}
+}

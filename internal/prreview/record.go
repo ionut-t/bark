@@ -37,7 +37,7 @@ func record(events []findings.Event) string {
 		}
 		// json.Marshal escapes < and >, so no title or body can end the
 		// comment early.
-		line, err := json.Marshal(recorded{File: f.File, Line: f.Line, EndLine: f.EndLine, Title: f.Title, Body: firstSentence(f.Body)})
+		line, err := json.Marshal(recorded{File: f.File, Line: f.Line, EndLine: f.EndLine, Title: f.Title, Body: findings.FirstSentence(f.Body)})
 		if err != nil {
 			continue
 		}
@@ -71,13 +71,4 @@ func Recorded(body string) []findings.Finding {
 		out = append(out, findings.Finding{File: r.File, Line: r.Line, EndLine: r.EndLine, Title: r.Title, Body: r.Body})
 	}
 	return out
-}
-
-// firstSentence is the first sentence of s on one line.
-func firstSentence(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if i := strings.Index(s, ". "); i > 0 {
-		s = s[:i+1]
-	}
-	return s
 }

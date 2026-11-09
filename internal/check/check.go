@@ -166,7 +166,7 @@ func Prompt(in Input, fs []findings.Finding) string {
 		b.WriteString("\n## Raised before on this pull request\n\n" +
 			"Earlier reviews of this pull request already reported these points. Line numbers are from earlier commits.\n\n")
 		for i, p := range points {
-			fmt.Fprintf(&b, "%d. `%s` %s: %s\n", i+1, location(p), oneLine(p.Title), firstSentence(p.Body))
+			fmt.Fprintf(&b, "%d. `%s` %s: %s\n", i+1, location(p), oneLine(p.Title), findings.FirstSentence(p.Body))
 		}
 	}
 
@@ -229,18 +229,6 @@ func location(f findings.Finding) string {
 		return fmt.Sprintf("%s:%d-%d", f.File, f.Line, f.EndLine)
 	}
 	return fmt.Sprintf("%s:%d", f.File, f.Line)
-}
-
-// firstSentence is the first sentence of s on one line, cut at 240 bytes.
-func firstSentence(s string) string {
-	s = oneLine(s)
-	if i := strings.Index(s, ". "); i > 0 {
-		s = s[:i+1]
-	}
-	if len(s) > 240 {
-		s = strings.ToValidUTF8(s[:240], "") + "…"
-	}
-	return s
 }
 
 func referencedFiles(fs []findings.Finding) []string {
