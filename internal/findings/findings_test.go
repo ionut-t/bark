@@ -257,3 +257,54 @@ func TestCheckReport(t *testing.T) {
 		})
 	}
 }
+
+func TestMarkdownMovesRaisedBeforeFindingsBeforeVerdict(t *testing.T) {
+	t.Parallel()
+
+	events := []Event{
+		{Intro: "i"},
+		{Finding: &Finding{File: "a.go", Line: 1, Severity: High, Category: "bug", Title: "Kept"}},
+		{Finding: &Finding{File: "b.go", Line: 2, Severity: Low, Title: "Doubted", Doubt: "No."}},
+		{Finding: &Finding{File: "c.go", Line: 89, Severity: Medium, Category: "error-handling", Title: "Ignored error",
+			RaisedBefore: "Ignored JSON unmarshal error (`c.go:88`)"}},
+		{Verdict: "v"},
+	}
+
+	want := "i\n\n" +
+		"### [HIGH · bug] Kept\n\n`a.go:1`\n\n" +
+		"## Doubted by Bark's check\n\n" +
+		"A second pass checked these findings against the code and doubts them. They are listed in case it's wrong.\n\n" +
+		"- **[LOW] Doubted** `b.go:2`\n  No.\n\n" +
+		"## Raised before on this pull request\n\n" +
+		"An earlier review of this pull request already raised these, so they aren't repeated as findings.\n\n" +
+		"- **[MEDIUM · error-handling] Ignored error** `c.go:89`\n  Same point as: Ignored JSON unmarshal error (`c.go:88`)\n\n" +
+		"## Verdict\n\nv\n\n"
+	assert.Equal(t, want, Markdown(events))
+}
+
+func TestCheckReportWithRaisedBefore(t *testing.T) {
+	t.Parallel()
+
+	kept := Event{Finding: &Finding{File: "a.go", Line: 1, Severity: High, Title: "Kept"}}
+	doubted := Event{Finding: &Finding{File: "b.go", Line: 2, Severity: Low, Title: "Doubted", Doubt: "No."}}
+	repeat := Event{Finding: &Finding{File: "c.go", Line: 3, Severity: Low, Title: "Again", RaisedBefore: "Earlier (`c.go:3`)"}}
+
+	assert.Equal(t, "## Bark's check\n\nA second pass checked 2 findings against the code. "+
+		"1 was raised before on this pull request:\n\n"+
+		"- **[LOW] Again** `c.go:3`\n  Same point as: Earlier (`c.go:3`)\n\n",
+		CheckReport([]Event{kept, repeat}, 2))
+
+	assert.Equal(t, "## Bark's check\n\nA second pass checked 3 findings against the code and doubts 1:\n\n"+
+		"- **[LOW] Doubted** `b.go:2`\n  No.\n\n"+
+		"1 was raised before on this pull request:\n\n"+
+		"- **[LOW] Again** `c.go:3`\n  Same point as: Earlier (`c.go:3`)\n\n",
+		CheckReport([]Event{kept, doubted, repeat}, 3))
+}
+
+func TestFindingSetAside(t *testing.T) {
+	t.Parallel()
+
+	assert.False(t, Finding{Title: "t"}.SetAside())
+	assert.True(t, Finding{Doubt: "no"}.SetAside())
+	assert.True(t, Finding{RaisedBefore: "earlier"}.SetAside())
+}

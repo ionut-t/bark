@@ -12,7 +12,10 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/debuglog"
@@ -34,9 +37,11 @@ type Result struct {
 	// check didn't keep. A kept finding may have a new severity, or have
 	// lost a suggestion the check found broken.
 	Events []findings.Event
-	// Checked is the number of findings the check gave a verdict on, and
-	// Doubted how many of those it didn't keep.
-	Checked, Doubted int
+	// Checked is the number of findings the check gave a verdict on,
+	// Doubted how many of those it doubted, and RaisedBefore how many it
+	// found repeat a point raised before on the pull request (these have
+	// RaisedBefore set instead of Doubt).
+	Checked, Doubted, RaisedBefore int
 }
 
 // Run checks the findings in events with one call to client. Without
@@ -77,7 +82,11 @@ func Run(ctx context.Context, client llm.LLM, in Input, events []findings.Event,
 			if !o.Unchecked {
 				res.Checked++
 			}
-			if !o.Kept {
+			switch {
+			case o.RaisedBefore != "":
+				res.RaisedBefore++
+				f.RaisedBefore = o.RaisedBefore
+			case !o.Kept:
 				res.Doubted++
 				f.Doubt = o.Reason
 				if f.Doubt == "" {
@@ -121,6 +130,10 @@ type Input struct {
 	// what the findings' functions use, and their callers (see
 	// enclosing.Related).
 	Related []enclosing.Piece
+	// Prior is what earlier reviews of the same pull request raised, oldest
+	// first. The check drops a finding that repeats one of these points
+	// (see priorPoints for what it's shown).
+	Prior []findings.Finding
 }
 
 // Prompt builds the user prompt for checking fs.
@@ -149,11 +162,85 @@ func Prompt(in Input, fs []findings.Finding) string {
 		b.WriteString(rel)
 	}
 
+	if points := priorPoints(in.Prior); len(points) > 0 {
+		b.WriteString("\n## Raised before on this pull request\n\n" +
+			"Earlier reviews of this pull request already reported these points. Line numbers are from earlier commits.\n\n")
+		for i, p := range points {
+			fmt.Fprintf(&b, "%d. `%s` %s: %s\n", i+1, location(p), oneLine(p.Title), firstSentence(p.Body))
+		}
+	}
+
 	b.WriteString("\n## Findings\n\n")
 	for i, f := range fs {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, findingJSON(f))
 	}
 	return b.String()
+}
+
+// maxPriorPoints caps the points raised before that the check is shown, so
+// a pull request with many review rounds doesn't make the prompt long.
+const maxPriorPoints = 40
+
+// priorPoints returns the points raised before that the check is shown and
+// numbered by: each point once (the same file and title, in any case, is
+// one point; its most recent copy is kept), the most recent maxPriorPoints.
+func priorPoints(prior []findings.Finding) []findings.Finding {
+	seen := map[string]bool{}
+	var out []findings.Finding
+	for _, p := range slices.Backward(prior) {
+		key := p.File + "\x00" + strings.ToLower(oneLine(p.Title))
+		if p.File == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, p)
+		if len(out) == maxPriorPoints {
+			break
+		}
+	}
+	slices.Reverse(out)
+	return out
+}
+
+// raisedBeforeRe matches the start of a drop reason that names the point
+// raised before which the finding repeats (see check.md).
+var raisedBeforeRe = regexp.MustCompile(`(?i)^\s*raised before\s*\((\d+)\)`)
+
+// raisedBefore returns the point raised before that a drop reason names, if
+// it's one of points and about the same file as f.
+func raisedBefore(reason string, f findings.Finding, points []findings.Finding) (findings.Finding, bool) {
+	m := raisedBeforeRe.FindStringSubmatch(reason)
+	if m == nil {
+		return findings.Finding{}, false
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n < 1 || n > len(points) || points[n-1].File != f.File {
+		return findings.Finding{}, false
+	}
+	return points[n-1], true
+}
+
+// location is "file:line" or "file:line-end" for a point raised before.
+func location(f findings.Finding) string {
+	switch {
+	case f.Line <= 0:
+		return f.File
+	case f.EndLine > f.Line:
+		return fmt.Sprintf("%s:%d-%d", f.File, f.Line, f.EndLine)
+	}
+	return fmt.Sprintf("%s:%d", f.File, f.Line)
+}
+
+// firstSentence is the first sentence of s on one line, cut at 240 bytes.
+func firstSentence(s string) string {
+	s = oneLine(s)
+	if i := strings.Index(s, ". "); i > 0 {
+		s = s[:i+1]
+	}
+	if len(s) > 240 {
+		s = strings.ToValidUTF8(s[:240], "") + "…"
+	}
+	return s
 }
 
 func referencedFiles(fs []findings.Finding) []string {
@@ -359,6 +446,9 @@ type Outcome struct {
 	Unchecked bool
 	// Reason says why the finding was kept or dropped.
 	Reason string
+	// RaisedBefore is set when the finding was dropped as a repeat of a
+	// point raised before: that point's title and location.
+	RaisedBefore string
 }
 
 // Apply decides each finding from the verdicts. A kept finding must come
@@ -367,6 +457,7 @@ type Outcome struct {
 // suggestion if the check found it broken.
 func Apply(in Input, fs []findings.Finding, verdicts map[int]Verdict) []Outcome {
 	code := newCorpus(in.Diff, excerpts(in.Files, fs), in.Related)
+	points := priorPoints(in.Prior)
 	out := make([]Outcome, len(fs))
 	for i, f := range fs {
 		v, ok := verdicts[i+1]
@@ -375,6 +466,9 @@ func Apply(in Input, fs []findings.Finding, verdicts map[int]Verdict) []Outcome 
 			out[i] = Outcome{Finding: f, Kept: true, Unchecked: true, Reason: "not checked"}
 		case v.Verdict != "keep":
 			out[i] = Outcome{Finding: f, Reason: v.Reason}
+			if p, ok := raisedBefore(v.Reason, f, points); ok {
+				out[i].RaisedBefore = fmt.Sprintf("%s (`%s`)", oneLine(p.Title), location(p))
+			}
 		case !code.contains(v.Evidence):
 			out[i] = Outcome{Finding: f, Reason: "the check couldn't quote code that backs it"}
 		default:
@@ -521,6 +615,9 @@ type Review struct {
 	// intro and verdict in its voice. Leave it empty when the review's own
 	// intro and verdict have already been shown (streamed output).
 	Persona string
+	// Prior is what earlier reviews of the same pull request raised (see
+	// Input.Prior); nil outside a pull request.
+	Prior []findings.Finding
 	// LogDir, Provider and Model are for the BARK_DEBUG log. OnLog, if not
 	// nil, is told where the log is, or why it couldn't be started.
 	LogDir, Provider, Model string
@@ -538,6 +635,7 @@ func (r Review) Run(ctx context.Context, events []findings.Event) (Result, error
 		Diff:    r.Diff,
 		Files:   files,
 		Related: related(ctx, r.ReviewDiff, r.ReviewDiff.Diff, findingsIn(events), files),
+		Prior:   r.Prior,
 	}
 	return Run(ctx, r.Client, in, events, r.startLog("check"))
 }

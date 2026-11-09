@@ -188,6 +188,9 @@ func RunReview(opts ReviewOptions) error {
 			// can still be rewritten to match it.
 			r.Persona = reviewer.Prompt
 		}
+		if opts.PR != "" {
+			r.Prior = earlierFindings(opts.PR)
+		}
 		checkFn = func(events []findings.Event) ([]findings.Event, int) {
 			return checkFindings(r, events)
 		}
@@ -401,7 +404,12 @@ func checkFindings(r check.Review, events []findings.Event) ([]findings.Event, i
 		fmt.Fprintf(os.Stderr, "bark: %v; the findings are unchecked\n", err)
 		return events, 0
 	}
-	fmt.Fprintf(os.Stderr, "bark: the check kept %d of %d finding(s)\n", res.Checked-res.Doubted, res.Checked)
+	kept := res.Checked - res.Doubted - res.RaisedBefore
+	if res.RaisedBefore > 0 {
+		fmt.Fprintf(os.Stderr, "bark: the check kept %d of %d finding(s); %d raised before on this pull request\n", kept, res.Checked, res.RaisedBefore)
+	} else {
+		fmt.Fprintf(os.Stderr, "bark: the check kept %d of %d finding(s)\n", kept, res.Checked)
+	}
 
 	// The intro and verdict were written before the check; rewrite them so
 	// they don't demand fixes for doubted findings.
@@ -413,6 +421,23 @@ func checkFindings(r check.Review, events []findings.Event) ([]findings.Event, i
 		fmt.Fprintln(os.Stderr, "bark: rewrote the intro and verdict to match the checked findings")
 	}
 	return revised, res.Checked
+}
+
+// earlierFindings returns what Bark's earlier reviews of pull request pr
+// raised, for the check to drop repeats of. If they can't be read, the
+// review goes on without them.
+func earlierFindings(pr string) []findings.Finding {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	prior, err := prreview.Earlier(ctx, pr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bark: %v; repeats of earlier findings won't be set aside\n", err)
+		return nil
+	}
+	if len(prior) > 0 {
+		fmt.Fprintf(os.Stderr, "bark: earlier reviews of this pull request raised %d finding(s)\n", len(prior))
+	}
+	return prior
 }
 
 // resolveReviewer loads a reviewer from a file path, by name, or from .bark/reviewer.md.
