@@ -71,7 +71,6 @@ func newRootCmd(load configLoader) *cobra.Command {
 	rootCmd.AddCommand(actionsCmd(getCfg))
 	rootCmd.AddCommand(pricesCmd())
 
-	rootCmd.PersistentFlags().Bool("plain", false, "Output plain text instead of TUI (auto-detected when stdout is piped)")
 	// No -c shorthand: review (--changes) and edit (--commit) already use it.
 	rootCmd.PersistentFlags().String(configFlag, "", "Config file (default is $HOME/.bark/.config.toml)")
 

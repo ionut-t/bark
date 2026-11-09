@@ -26,6 +26,7 @@ func prCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config): "+strings.Join(config.SupportedProviders(), ", "))
 	cmd.Flags().StringP("instructions", "i", "", "Custom instructions (file path or raw text, overrides default PR instructions)")
 	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
+	addPlainFlag(cmd)
 
 	cmd.MarkFlagsMutuallyExclusive("branch", "pr")
 

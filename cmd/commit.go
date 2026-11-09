@@ -24,6 +24,7 @@ func commitCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().StringP("hint", "i", "", "Provide a hint for the commit message generation (e.g., 'feature/fix/docs')")
 	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
 	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config): "+strings.Join(config.SupportedProviders(), ", "))
+	addPlainFlag(cmd)
 
 	return cmd
 }

@@ -111,3 +111,59 @@ func TestRootCmd_ConfigFlagIsInheritedBySubcommands(t *testing.T) {
 		})
 	}
 }
+
+func TestPlainFlag_OnlyOnCommandsThatReadIt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		command   string
+		wantPlain bool
+	}{
+		{command: "review", wantPlain: true},
+		{command: "commit", wantPlain: true},
+		{command: "pr", wantPlain: true},
+		// The root command opens the TUI and never reads --plain.
+		{command: "", wantPlain: false},
+		{command: "config", wantPlain: false},
+		{command: "reset", wantPlain: false},
+		{command: "add", wantPlain: false},
+		{command: "delete", wantPlain: false},
+		{command: "edit", wantPlain: false},
+		{command: "actions", wantPlain: false},
+		{command: "prices", wantPlain: false},
+	}
+
+	for _, tt := range tests {
+		name := tt.command
+		if name == "" {
+			name = "root"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			root := newRootCmd(loadConfig)
+			cmd := root
+			if tt.command != "" {
+				var err error
+				cmd, _, err = root.Find([]string{tt.command})
+				require.NoError(t, err)
+				require.Equal(t, tt.command, cmd.Name())
+			}
+
+			// ParseFlags merges inherited persistent flags, as Execute does.
+			err := cmd.ParseFlags([]string{"--plain"})
+			if !tt.wantPlain {
+				require.ErrorContains(t, err, "unknown flag: --plain")
+				assert.NotContains(t, cmd.UsageString(), "--plain")
+				return
+			}
+
+			require.NoError(t, err)
+			plain, err := cmd.Flags().GetBool(plainFlag)
+			require.NoError(t, err)
+			assert.True(t, plain)
+			assert.Contains(t, cmd.UsageString(), "--plain")
+		})
+	}
+}
