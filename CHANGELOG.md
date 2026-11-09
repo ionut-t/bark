@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.27.0](https://github.com/ionut-t/bark/compare/v2.26.0...v2.27.0) (2026-11-09)
+
+
+### Features
+
+* **check:** set aside findings raised before on pull requests ([#108](https://github.com/ionut-t/bark/issues/108)) ([1d02521](https://github.com/ionut-t/bark/commit/1d02521e2f9f489afdcfd15a5e7d5b9cfec7a3d6))
+* **costs:** add model pricing and cost tracking ([#109](https://github.com/ionut-t/bark/issues/109)) ([f0782b9](https://github.com/ionut-t/bark/commit/f0782b9c98e1efcd15f15b06091788302cdfd4f8))
+* **review:** add support for posting inline PR comments ([#104](https://github.com/ionut-t/bark/issues/104)) ([11b4b9a](https://github.com/ionut-t/bark/commit/11b4b9adcc75c8b09839a3c482b807a7e8a44945))
+* **review:** add support for structured findings ([#102](https://github.com/ionut-t/bark/issues/102)) ([91a1ddd](https://github.com/ionut-t/bark/commit/91a1ddd39da5db11af7960589c7b47d678ca67cb))
+* **review:** check structured findings against the changed files ([#105](https://github.com/ionut-t/bark/issues/105)) ([beb0b20](https://github.com/ionut-t/bark/commit/beb0b204b2a72070c2c465d92a42ddc861491369))
+* **review:** include related code context in review context ([#107](https://github.com/ionut-t/bark/issues/107)) ([67134d0](https://github.com/ionut-t/bark/commit/67134d0826b1b8905de6d27e6171295f35f39a90))
+
+
+### Bug Fixes
+
+* **cmd:** restrict --plain flag to relevant subcommands ([#110](https://github.com/ionut-t/bark/issues/110)) ([9144737](https://github.com/ionut-t/bark/commit/914473751ec38aba9f5f04d18ec26f58ad500010))
+
 ## [2.26.0](https://github.com/ionut-t/bark/compare/v2.25.1...v2.26.0) (2026-11-08)
 
 
