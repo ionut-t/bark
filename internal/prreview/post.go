@@ -73,6 +73,48 @@ func post(ctx context.Context, run gh, pr string, events []findings.Event, diff 
 	return result, nil
 }
 
+// Earlier returns the findings that reviews Bark posted earlier on pull
+// request pr (a number, URL or branch, as gh accepts) recorded, oldest
+// first: the points already raised there. Reviews posted before Bark
+// recorded findings add none.
+func Earlier(ctx context.Context, pr string) ([]findings.Finding, error) {
+	return earlier(ctx, runGH, pr)
+}
+
+// earlierReviewsQuery picks the bodies of Bark's reviews, each as a JSON
+// string on a line of its own.
+const earlierReviewsQuery = `.[] | select(.body | startswith("` + Marker + `")) | .body | @json`
+
+func earlier(ctx context.Context, run gh, pr string) ([]findings.Finding, error) {
+	out, err := run(ctx, nil, "pr", "view", pr, "--json", "url")
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up pull request %s: %w", pr, err)
+	}
+	var meta struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(out, &meta); err != nil {
+		return nil, fmt.Errorf("failed to parse pull request %s: %w", pr, err)
+	}
+	endpoint, err := reviewsEndpoint(meta.URL)
+	if err != nil {
+		return nil, err
+	}
+
+	out, err = run(ctx, nil, "api", "--paginate", endpoint, "--jq", earlierReviewsQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read earlier reviews: %w", err)
+	}
+	var fs []findings.Finding
+	for line := range strings.SplitSeq(string(out), "\n") {
+		var body string
+		if json.Unmarshal([]byte(line), &body) == nil {
+			fs = append(fs, Recorded(body)...)
+		}
+	}
+	return fs, nil
+}
+
 func send(ctx context.Context, run gh, endpoint string, review Review) (Result, error) {
 	payload, err := json.Marshal(review)
 	if err != nil {

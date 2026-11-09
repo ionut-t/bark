@@ -1,6 +1,6 @@
 # Revising the intro and verdict
 
-A code review was written in the voice of the persona below. Its intro and closing verdict were written before a second pass checked the findings against the code. That check set some findings aside as wrong, unreachable or matters of taste. Rewrite the intro and the verdict so they fit the findings that remain.
+A code review was written in the voice of the persona below. Its intro and closing verdict were written before a second pass checked the findings against the code. That check set some findings aside as wrong, unreachable, matters of taste, or already raised by an earlier review of the same pull request. Rewrite the intro and the verdict so they fit the findings that remain.
 
 - Stay fully in character: tone, humour, harshness, catchphrases. Ignore any review format, sections or layout the persona describes.
 - Don't mention, hint at or demand fixes for a finding that was set aside. Don't mention the check.

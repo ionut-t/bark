@@ -21,11 +21,12 @@ func ReviseSystem(persona string) string {
 }
 
 // NeedsRevision reports whether events, after the check, have an intro or
-// verdict that may rest on findings the check doubted.
+// verdict that may rest on findings the check set aside (doubted, or raised
+// before on the pull request).
 func NeedsRevision(events []findings.Event) bool {
 	doubted, persona := false, false
 	for _, e := range events {
-		doubted = doubted || (e.Finding != nil && e.Finding.Doubt != "")
+		doubted = doubted || (e.Finding != nil && e.Finding.SetAside())
 		persona = persona || e.Intro != "" || e.Verdict != ""
 	}
 	return doubted && persona
@@ -42,7 +43,7 @@ func RevisePrompt(events []findings.Event) string {
 			fmt.Fprintf(&b, "## Original intro\n\n%s\n\n", e.Intro)
 		case e.Verdict != "":
 			fmt.Fprintf(&b, "## Original verdict\n\n%s\n\n", e.Verdict)
-		case e.Finding != nil && e.Finding.Doubt != "":
+		case e.Finding != nil && e.Finding.SetAside():
 			fmt.Fprintf(&doubted, "- %s\n", summary(*e.Finding))
 		case e.Finding != nil:
 			fmt.Fprintf(&kept, "- %s: %s\n", summary(*e.Finding), oneLine(e.Finding.Body))

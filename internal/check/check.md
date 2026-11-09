@@ -2,7 +2,7 @@
 
 Another reviewer read a code change and reported the findings listed below. Automated reviewers often report problems that the surrounding code already handles, that can't happen, or that are only preferences, and also find real defects. Your job is to check each finding against the code and keep the real defects.
 
-You get the change as a diff (every added and context line starts with its line number in the new file), the new version of each file the findings point to (the whole file, or for a long file the lines around each finding), sometimes related code from other files (definitions of what the findings' code uses, and code that calls it), and the findings, numbered from 1.
+You get the change as a diff (every added and context line starts with its line number in the new file), the new version of each file the findings point to (the whole file, or for a long file the lines around each finding), sometimes related code from other files (definitions of what the findings' code uses, and code that calls it), sometimes the points earlier reviews of this pull request raised, and the findings, numbered from 1.
 
 For each finding, work through these questions, using the code you were given rather than memory or assumptions:
 
@@ -11,6 +11,7 @@ For each finding, work through these questions, using the code you were given ra
 3. **Can it actually happen?** Name the concrete input or state that makes it fail, and check that this input can reach the code in that shape. Input produced by the program's own code or by a well-known tool (such as git or the GitHub CLI) follows that tool's format, not every format imaginable; input from users, files, the network or a language model can be anything. A failure that needs input the code never receives, or that only matters at sizes the code never sees, isn't a defect.
 4. **Is it a defect or a preference?** Style, structure, "over-engineered", "use library X instead", naming, receiver kinds, adding context to an error that already has it, or an error that is ignored on purpose with no effect on the user: these are preferences. Drop them.
 5. **If it has a suggestion, would the suggestion compile and work where it goes?** Every name it uses must be in scope at that line. It must not break the code around it.
+6. **Was it raised before?** If the context lists points raised before on this pull request, compare the finding with each. If it makes the same point about the same code (in other words, at another severity or on a moved line also counts), drop it with a reason that starts with "Raised before (N):", N being the point's number. A finding about different code, or a different problem in the same code, wasn't raised before.
 
 Keep a finding if it describes a real defect: a realistic input or state on which the code produces a wrong result, loses data, crashes or misleads the user. Calling the code a heuristic, best effort or a deliberate trade-off doesn't excuse a wrong result that is then used; check where the result goes. The finding's explanation or suggested fix may be off while the problem it points at is real: judge the problem. Drop a finding when the code shows the claim is wrong, the failure can't happen, or it is only a preference.
 

@@ -51,6 +51,34 @@ type Finding struct {
 	// Doubt is why Bark's check (a second model call that reads the full
 	// files) didn't keep the finding. Empty if it was kept or not checked.
 	Doubt string `json:"-"`
+	// RaisedBefore names the point an earlier review of the same pull
+	// request raised that this finding repeats, as Bark's check found. Empty
+	// if it isn't a repeat.
+	RaisedBefore string `json:"-"`
+}
+
+// maxSentence is the most bytes FirstSentence returns, before the ellipsis.
+const maxSentence = 240
+
+// FirstSentence returns the first sentence of s on one line, cut at
+// maxSentence bytes (on a rune boundary, with "…" added). It's how a finding
+// is summed up where only a line fits: the points raised before that Bark's
+// check is shown, and the findings a posted review records.
+func FirstSentence(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if i := strings.Index(s, ". "); i > 0 {
+		s = s[:i+1]
+	}
+	if len(s) > maxSentence {
+		s = strings.ToValidUTF8(s[:maxSentence], "") + "…"
+	}
+	return s
+}
+
+// SetAside reports whether Bark's check set f aside: doubted, or a repeat
+// of a point raised before.
+func (f Finding) SetAside() bool {
+	return f.Doubt != "" || f.RaisedBefore != ""
 }
 
 // Event is one parsed line of output. Exactly one field is set: the

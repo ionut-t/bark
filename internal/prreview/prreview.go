@@ -56,8 +56,12 @@ func Build(events []findings.Event, diff string) Review {
 	// a review can have no inline comments (no findings, or all doubted).
 	comments := []Comment{}
 	var rest []findings.Event
-	var doubted []findings.Finding
+	var doubted, repeats []findings.Finding
 	for _, e := range events {
+		if e.Finding != nil && e.Finding.RaisedBefore != "" {
+			repeats = append(repeats, *e.Finding)
+			continue
+		}
 		if e.Finding != nil && e.Finding.Doubt != "" {
 			doubted = append(doubted, *e.Finding)
 			continue
@@ -73,32 +77,42 @@ func Build(events []findings.Event, diff string) Review {
 		}
 		rest = append(rest, e)
 	}
-	rest = withDoubted(rest, doubted)
+	rest = beforeVerdict(rest, setAsideBlock(doubted, "Bark's check doubted %d finding(s)",
+		"A second pass checked these against the code and doubts them.", findings.DoubtedList))
+	rest = beforeVerdict(rest, setAsideBlock(repeats, "Raised before on this pull request: %d finding(s)",
+		"An earlier review of this pull request already raised these, so they aren't posted again.", findings.RaisedBeforeList))
 
 	body := Marker + "\n## Bark AI Code Review\n\n" + strings.TrimSpace(findings.Markdown(rest))
+	body = strings.TrimSpace(body) + "\n" + record(events)
 	return Review{
-		Body:     strings.TrimSpace(body) + "\n",
+		Body:     body,
 		Event:    "COMMENT",
 		Comments: comments,
 	}
 }
 
-// withDoubted puts the findings Bark's check doubted in a collapsed block
-// before the verdict (or at the end), so they don't get inline comments but
-// can still be read if the check was wrong.
-func withDoubted(events []findings.Event, doubted []findings.Finding) []findings.Event {
-	if len(doubted) == 0 {
+// setAsideBlock renders findings Bark's check set aside as a collapsed
+// block, so they don't get inline comments but can still be read in case
+// the check was wrong. It returns nil without findings.
+func setAsideBlock(fs []findings.Finding, summary, intro string, list func([]findings.Finding) string) *findings.Event {
+	if len(fs) == 0 {
+		return nil
+	}
+	return &findings.Event{Text: fmt.Sprintf("<details>\n<summary>"+summary+"</summary>\n\n%s\n\n%s</details>\n",
+		len(fs), intro, list(fs))}
+}
+
+// beforeVerdict inserts block, if not nil, before the verdict in events (or
+// at the end).
+func beforeVerdict(events []findings.Event, block *findings.Event) []findings.Event {
+	if block == nil {
 		return events
 	}
-	block := findings.Event{Text: fmt.Sprintf("<details>\n<summary>Bark's check doubted %d finding(s)</summary>\n\n"+
-		"A second pass checked these against the code and doubts them.\n\n%s</details>\n",
-		len(doubted), findings.DoubtedList(doubted))}
-
 	i := slices.IndexFunc(events, func(e findings.Event) bool { return e.Verdict != "" })
 	if i < 0 {
-		return append(events, block)
+		return append(events, *block)
 	}
-	return slices.Insert(events, i, block)
+	return slices.Insert(events, i, *block)
 }
 
 // folded wraps a line that looks like a finding but isn't valid JSON

@@ -170,7 +170,7 @@ func TestBuild(t *testing.T) {
 			}
 			assert.Equal(t, want, got.Comments)
 			assert.True(t, strings.HasPrefix(got.Body, Marker+"\n## Bark AI Code Review\n\nHello.\n\n"), got.Body)
-			assert.True(t, strings.HasSuffix(got.Body, "## Verdict\n\nBye.\n"), got.Body)
+			assert.True(t, strings.HasSuffix(visible(got.Body), "## Verdict\n\nBye.\n"), got.Body)
 			if tt.inBody != "" {
 				assert.Contains(t, got.Body, tt.inBody)
 			} else {
@@ -454,7 +454,7 @@ func TestBuildDoubtedFindingsWithoutVerdict(t *testing.T) {
 	}, diff)
 
 	assert.Empty(t, review.Comments)
-	assert.True(t, strings.HasSuffix(review.Body, "\n  No.\n\n</details>\n"), review.Body)
+	assert.True(t, strings.HasSuffix(visible(review.Body), "\n  No.\n\n</details>\n"), review.Body)
 }
 
 // GitHub rejects a review whose comments are null ("nil is not an array"),
@@ -488,4 +488,12 @@ func TestBuildWithoutInlineCommentsSendsEmptyList(t *testing.T) {
 			assert.Contains(t, string(payload), `"comments":[]`)
 		})
 	}
+}
+
+// visible is a review body without the hidden block of recorded findings.
+func visible(body string) string {
+	if i := strings.LastIndex(body, recordStart); i >= 0 {
+		return body[:i]
+	}
+	return body
 }
