@@ -36,14 +36,14 @@ func TestParseKeepsBarkProvidersPrices(t *testing.T) {
 
 	google := f.Providers["google"]
 	assert.NotContains(t, google, "gemini-embedding", "a model without prices is left out")
-	assert.Equal(t, Price{Input: 0.75, Output: 3.75, CacheRead: 0.075}, google["gemini-3.6-flash"])
+	assert.Equal(t, Price{Input: 0.75, Output: 3.75, Reasoning: 3.75, CacheRead: 0.075, CacheWrite: 0.75}, google["gemini-3.6-flash"])
 	assert.Equal(t, Price{
-		Input: 2, Output: 12, CacheRead: 0.2,
-		Tiers: []Tier{{Over: 200_000, Input: 4, Output: 18, CacheRead: 0.4}},
+		Input: 2, Output: 12, Reasoning: 12, CacheRead: 0.2, CacheWrite: 2,
+		Tiers: []Tier{{Over: 200_000, Input: 4, Output: 18, Reasoning: 18, CacheRead: 0.4, CacheWrite: 4}},
 	}, google["gemini-3.1-pro-preview"])
-	assert.Equal(t, []Tier{{Over: 200_000, Input: 2.5, Output: 15}}, google["gemini-old-pro"].Tiers,
+	assert.Equal(t, []Tier{{Over: 200_000, Input: 2.5, Output: 15, Reasoning: 15, CacheRead: 2.5, CacheWrite: 2.5}}, google["gemini-old-pro"].Tiers,
 		"context_over_200k is used when there are no tiers")
-	assert.Equal(t, []Tier{{Over: 272_000, Input: 10, Output: 45, CacheRead: 1}}, f.Providers["openai"]["gpt-5.5"].Tiers,
+	assert.Equal(t, []Tier{{Over: 272_000, Input: 10, Output: 45, Reasoning: 45, CacheRead: 1, CacheWrite: 10}}, f.Providers["openai"]["gpt-5.5"].Tiers,
 		"tiers win over context_over_200k")
 }
 
@@ -108,14 +108,15 @@ func TestLoadWithoutFiles(t *testing.T) {
 func TestCost(t *testing.T) {
 	t.Parallel()
 
-	flash := Price{Input: 0.75, Output: 3.75, CacheRead: 0.075}
+	// Every price is set, as Parse saves them.
+	flash := Price{Input: 0.75, Output: 3.75, Reasoning: 3.75, CacheRead: 0.075, CacheWrite: 0.75}
 	pro := Price{
-		Input: 2, Output: 12, CacheRead: 0.2,
-		Tiers: []Tier{{Over: 200_000, Input: 4, Output: 18, CacheRead: 0.4}},
+		Input: 2, Output: 12, Reasoning: 12, CacheRead: 0.2, CacheWrite: 2,
+		Tiers: []Tier{{Over: 200_000, Input: 4, Output: 18, Reasoning: 18, CacheRead: 0.4, CacheWrite: 4}},
 	}
 	haiku := Price{
-		Input: 0.1, Output: 0.5, CacheRead: 0.01, CacheWrite: 0.125,
-		Tiers: []Tier{{Over: 100_000, Input: 0.5, Output: 2.5, CacheRead: 0.05, CacheWrite: 0.625}},
+		Input: 0.1, Output: 0.5, Reasoning: 0.5, CacheRead: 0.01, CacheWrite: 0.125,
+		Tiers: []Tier{{Over: 100_000, Input: 0.5, Output: 2.5, Reasoning: 2.5, CacheRead: 0.05, CacheWrite: 0.625}},
 	}
 
 	tests := []struct {
@@ -125,7 +126,7 @@ func TestCost(t *testing.T) {
 		want  float64
 	}{
 		{
-			name:  "thinking outside the output is billed at the output price",
+			name:  "thinking outside the output at the reasoning price",
 			price: flash,
 			usage: llm.Usage{InputTokens: 10_000, OutputTokens: 1_000, TotalTokens: 13_000},
 			want:  (10_000*0.75 + 1_000*3.75 + 2_000*3.75) / 1e6,
@@ -155,22 +156,10 @@ func TestCost(t *testing.T) {
 			want:  (20_000*0.5 + 90_000*0.05 + 10_000*0.625 + 500*2.5) / 1e6,
 		},
 		{
-			name:  "without cache prices cached tokens pay the input price",
-			price: Price{Rates: Rates{Input: 1, Output: 2}},
-			usage: llm.Usage{InputTokens: 1_000, CachedInputTokens: 500, CacheWriteTokens: 200, OutputTokens: 10, TotalTokens: 1_010},
-			want:  (1_000*1 + 10*2) / 1e6,
-		},
-		{
-			name:  "a reasoning price is used for thinking",
+			name:  "a reasoning price different from the output price",
 			price: Price{Rates: Rates{Input: 1, Output: 2, Reasoning: 3}},
 			usage: llm.Usage{InputTokens: 100, OutputTokens: 10, TotalTokens: 1_110},
 			want:  (100*1 + 10*2 + 1_000*3) / 1e6,
-		},
-		{
-			name:  "a tier without a cache price keeps the base one",
-			price: Price{Rates: Rates{Input: 1, Output: 2, CacheRead: 0.1}, Tiers: []Tier{{Over: 10, Input: 3, Output: 4}}},
-			usage: llm.Usage{InputTokens: 100, CachedInputTokens: 50, OutputTokens: 10, TotalTokens: 110},
-			want:  (50*3 + 50*0.1 + 10*4) / 1e6,
 		},
 	}
 	for _, tt := range tests {
@@ -269,4 +258,71 @@ func keys[V any](m map[string]V) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// A price models.dev doesn't list is filled in when the prices are saved,
+// so the saved file lists every price and the cost needs no defaults.
+func TestParseFillsInMissingPrices(t *testing.T) {
+	t.Parallel()
+
+	f, err := Parse(sample(t), SourceURL, today)
+	require.NoError(t, err)
+
+	assert.Equal(t, Price{Input: 0.75, Output: 3.75, Reasoning: 3.75, CacheRead: 0.075, CacheWrite: 0.75},
+		f.Providers["google"]["gemini-3.6-flash"],
+		"thinking at the output price, cache writes at the input price")
+	assert.Equal(t, []Tier{{Over: 200_000, Input: 4, Output: 18, Reasoning: 18, CacheRead: 0.4, CacheWrite: 4}},
+		f.Providers["google"]["gemini-3.1-pro-preview"].Tiers,
+		"a tier's missing prices come from its own input and output prices")
+}
+
+func TestParseTierTakesTheBasePricesItLeavesOut(t *testing.T) {
+	t.Parallel()
+
+	f, err := Parse([]byte(`{"anthropic":{"models":{"m":{"cost":{
+		"input": 1, "output": 2, "reasoning": 5, "cache_read": 0.1,
+		"tiers": [{"input": 3, "output": 4, "tier": {"type": "context", "size": 10}}]
+	}}}}}`), "x", today)
+	require.NoError(t, err)
+	assert.Equal(t, []Tier{{Over: 10, Input: 3, Output: 4, Reasoning: 5, CacheRead: 0.1, CacheWrite: 3}},
+		f.Providers["anthropic"]["m"].Tiers)
+}
+
+// Zero is a price, not a missing one: free cache reads stay free.
+func TestZeroPriceIsFree(t *testing.T) {
+	t.Parallel()
+
+	f, err := Parse([]byte(`{"openai":{"models":{"m":{"cost":{
+		"input": 1, "output": 2, "cache_read": 0,
+		"tiers": [{"input": 3, "output": 4, "cache_read": 0, "tier": {"type": "context", "size": 1000}}]
+	}}}}}`), "x", today)
+	require.NoError(t, err)
+	p := f.Providers["openai"]["m"]
+
+	short := llm.Usage{InputTokens: 1_000, CachedInputTokens: 600, OutputTokens: 10, TotalTokens: 1_010}
+	assert.InDelta(t, (400*1+10*2)/1e6, p.Cost(short), 1e-12)
+	long := llm.Usage{InputTokens: 2_000, CachedInputTokens: 600, OutputTokens: 10, TotalTokens: 2_010}
+	assert.InDelta(t, (1_400*3+10*4)/1e6, p.Cost(long), 1e-12, "a tier's zero is kept too")
+
+	// And a saved zero is read back as zero.
+	path := filepath.Join(t.TempDir(), FileName)
+	require.NoError(t, Save(path, f))
+	got, _, err := Load(path)
+	require.NoError(t, err)
+	assert.InDelta(t, p.Cost(long), got.Providers["openai"]["m"].Cost(long), 1e-12)
+}
+
+// Tier sizes are int64; sorting them must not depend on int's size (the
+// difference of these two doesn't fit a 32-bit int).
+func TestParseSortsTiersOfAnySize(t *testing.T) {
+	t.Parallel()
+
+	f, err := Parse([]byte(`{"google":{"models":{"m":{"cost":{"input": 1, "output": 1, "tiers": [
+		{"input": 3, "output": 3, "tier": {"type": "context", "size": 3000000000}},
+		{"input": 2, "output": 2, "tier": {"type": "context", "size": 100000}}
+	]}}}}}`), "x", today)
+	require.NoError(t, err)
+	tiers := f.Providers["google"]["m"].Tiers
+	require.Len(t, tiers, 2)
+	assert.Equal(t, []int64{100_000, 3_000_000_000}, []int64{tiers[0].Over, tiers[1].Over})
 }

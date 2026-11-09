@@ -1,6 +1,7 @@
 package prices
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -51,6 +52,11 @@ func Fetch(ctx context.Context, client *http.Client, url string, today time.Time
 // Parse keeps the prices of Bark's providers' models from a models.dev
 // catalogue. Models without input and output prices are left out. It fails
 // if no model is left.
+//
+// Prices models.dev leaves out are filled in: cache reads and writes at the
+// input price, reasoning at the output price, and a tier's missing prices
+// from the model's base prices, or else from the tier's own input and
+// output prices. A listed zero stays zero.
 func Parse(data []byte, source string, today time.Time) (File, error) {
 	var catalogue map[string]json.RawMessage
 	if err := json.Unmarshal(data, &catalogue); err != nil {
@@ -164,29 +170,50 @@ func (c *mdCost) price() (Price, bool) {
 	p := Price{Rates: c.rates()}
 	for _, t := range c.Tiers {
 		if t.Tier.Type == "context" && t.Tier.Size > 0 {
-			p.Tiers = append(p.Tiers, Tier{Over: t.Tier.Size, Rates: t.rates()})
+			p.Tiers = append(p.Tiers, Tier{Over: t.Tier.Size, Rates: t.over(c.mdRates).rates()})
 		}
 	}
 	if len(p.Tiers) == 0 && c.ContextOver200k != nil {
-		p.Tiers = []Tier{{Over: 200_000, Rates: c.ContextOver200k.rates()}}
+		p.Tiers = []Tier{{Over: 200_000, Rates: c.ContextOver200k.over(c.mdRates).rates()}}
 	}
-	slices.SortFunc(p.Tiers, func(a, b Tier) int { return int(a.Over - b.Over) })
+	slices.SortFunc(p.Tiers, func(a, b Tier) int { return cmp.Compare(a.Over, b.Over) })
 	return p, true
 }
 
-func (r mdRates) rates() Rates {
-	return Rates{
-		Input:      value(r.Input),
-		Output:     value(r.Output),
-		Reasoning:  value(r.Reasoning),
-		CacheRead:  value(r.CacheRead),
-		CacheWrite: value(r.CacheWrite),
+// over returns r with the prices it leaves out taken from base.
+func (r mdRates) over(base mdRates) mdRates {
+	pick := func(v, fallback *float64) *float64 {
+		if v != nil {
+			return v
+		}
+		return fallback
+	}
+	return mdRates{
+		Input:      pick(r.Input, base.Input),
+		Output:     pick(r.Output, base.Output),
+		Reasoning:  pick(r.Reasoning, base.Reasoning),
+		CacheRead:  pick(r.CacheRead, base.CacheRead),
+		CacheWrite: pick(r.CacheWrite, base.CacheWrite),
 	}
 }
 
-func value(v *float64) float64 {
+// rates converts r, filling in what it leaves out: cache prices from the
+// input price, reasoning from the output price.
+func (r mdRates) rates() Rates {
+	in, out := value(r.Input, 0), value(r.Output, 0)
+	return Rates{
+		Input:      in,
+		Output:     out,
+		Reasoning:  value(r.Reasoning, out),
+		CacheRead:  value(r.CacheRead, in),
+		CacheWrite: value(r.CacheWrite, in),
+	}
+}
+
+// value returns *v, or fallback when v is nil (not listed).
+func value(v *float64, fallback float64) float64 {
 	if v == nil {
-		return 0
+		return fallback
 	}
 	return *v
 }

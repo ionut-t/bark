@@ -35,26 +35,27 @@ type File struct {
 	Providers map[string]map[string]Price `json:"providers"`
 }
 
-// Price is one model's prices in USD per million tokens. A missing cache
-// price means those tokens are billed at the input price, and a missing
-// reasoning price that thinking is billed at the output price.
+// Price is one model's prices in USD per million tokens. Every price is
+// set, and zero means free: prices models.dev leaves out are filled in when
+// they are saved (see Parse).
 type Price struct {
 	Rates
 	// Tiers hold higher prices for long prompts, ordered by Over.
 	Tiers []Tier `json:"tiers,omitempty"`
 }
 
-// Rates are prices in USD per million tokens.
+// Rates are prices in USD per million tokens. Reasoning is the price of
+// thinking that isn't counted in the output (Gemini's).
 type Rates struct {
 	Input      float64 `json:"input"`
 	Output     float64 `json:"output"`
-	Reasoning  float64 `json:"reasoning,omitempty"`
-	CacheRead  float64 `json:"cache_read,omitempty"`
-	CacheWrite float64 `json:"cache_write,omitempty"`
+	Reasoning  float64 `json:"reasoning"`
+	CacheRead  float64 `json:"cache_read"`
+	CacheWrite float64 `json:"cache_write"`
 }
 
 // Tier is the prices for prompts over a number of tokens (cached ones
-// included). A rate the tier leaves out is the model's base rate.
+// included).
 type Tier struct {
 	Over int64 `json:"over"`
 	Rates
@@ -130,16 +131,15 @@ func (p Price) Cost(u llm.Usage) float64 {
 	r := p.ratesFor(u.InputTokens)
 	uncached := max(0, u.InputTokens-u.CachedInputTokens-u.CacheWriteTokens)
 	usd := float64(uncached)*r.Input +
-		float64(u.CachedInputTokens)*or(r.CacheRead, r.Input) +
-		float64(u.CacheWriteTokens)*or(r.CacheWrite, r.Input) +
+		float64(u.CachedInputTokens)*r.CacheRead +
+		float64(u.CacheWriteTokens)*r.CacheWrite +
 		float64(u.OutputTokens)*r.Output +
-		float64(u.ThinkingTokens())*or(r.Reasoning, r.Output)
+		float64(u.ThinkingTokens())*r.Reasoning
 	return usd / 1e6
 }
 
 // ratesFor returns the rates for a prompt of input tokens.
 func (p Price) ratesFor(input int64) Rates {
-	r := p.Rates
 	var tier *Tier
 	for i := range p.Tiers {
 		if input > p.Tiers[i].Over && (tier == nil || p.Tiers[i].Over > tier.Over) {
@@ -147,23 +147,9 @@ func (p Price) ratesFor(input int64) Rates {
 		}
 	}
 	if tier == nil {
-		return r
+		return p.Rates
 	}
-	return Rates{
-		Input:      or(tier.Input, r.Input),
-		Output:     or(tier.Output, r.Output),
-		Reasoning:  or(tier.Reasoning, r.Reasoning),
-		CacheRead:  or(tier.CacheRead, r.CacheRead),
-		CacheWrite: or(tier.CacheWrite, r.CacheWrite),
-	}
-}
-
-// or returns v, or fallback when v is zero (not set).
-func or(v, fallback float64) float64 {
-	if v == 0 {
-		return fallback
-	}
-	return v
+	return tier.Rates
 }
 
 // Cost is what a call with usage u cost in USD (see Price.Cost).
