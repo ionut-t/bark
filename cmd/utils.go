@@ -19,9 +19,17 @@ func printError(w io.Writer, err error) {
 	_, _ = fmt.Fprintln(w, errorStyle.Render("Error: "+err.Error()))
 }
 
+const plainFlag = "plain"
+
+// addPlainFlag declares --plain on cmd. Only commands that check
+// isPlainMode get it, so the others don't accept a flag they'd ignore.
+func addPlainFlag(cmd *cobra.Command) {
+	cmd.Flags().Bool(plainFlag, false, "Output plain text instead of TUI (auto-detected when stdout is piped)")
+}
+
 // isPlainMode returns true if --plain is set or stdout is not a TTY.
 func isPlainMode(cmd *cobra.Command) bool {
-	plain, _ := cmd.Flags().GetBool("plain")
+	plain, _ := cmd.Flags().GetBool(plainFlag)
 	return plain || !isatty.IsTerminal(os.Stdout.Fd())
 }
 

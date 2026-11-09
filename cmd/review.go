@@ -38,6 +38,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().Bool("structured", false, "Ask for structured findings (file, line, severity, suggestion); the reviewer persona voices the intro, remarks and verdict")
 	cmd.Flags().Bool("check", true, "Check structured findings with a second model call that reads the code around them, and set aside the ones that don't hold up (overrides config)")
 	cmd.Flags().Bool("comment", false, "Post the review to the pull request, with findings as inline comments and fixes as suggestions (requires --pr; implies --structured)")
+	addPlainFlag(cmd)
 
 	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged", "hash", "pr")
 
