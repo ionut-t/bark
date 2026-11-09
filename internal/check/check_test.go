@@ -397,3 +397,19 @@ func TestExcerptsLinePastEndOfFile(t *testing.T) {
 		Apply(in, fs, map[int]Verdict{1: {Verdict: "keep", Evidence: fmt.Sprintf("line %d", n), Reason: "r"}})
 	})
 }
+
+// Models put raw tabs and newlines in quoted code, which JSON doesn't
+// allow; seen from gemma3:12b. Such a verdict was dropped and its finding
+// left unchecked.
+func TestParseVerdictsWithRawControlCharacters(t *testing.T) {
+	t.Parallel()
+
+	out := "{\"id\":1,\"verdict\":\"keep\",\"evidence\":\"if x {\n\treturn\n}\",\"reason\":\"r\"}\n" +
+		"{\"id\":2,\"verdict\":\"drop\",\"reason\":\"tab\there\"}"
+
+	got := ParseVerdicts(out)
+
+	assert.Equal(t, map[int]Verdict{
+		2: {ID: 2, Verdict: "drop", Reason: "tab\there"},
+	}, got, "a raw newline splits the line; only a whole line can be repaired")
+}

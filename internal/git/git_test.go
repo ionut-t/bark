@@ -475,3 +475,119 @@ func TestReviewDiff_NewSideFile(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+// Grep and RepoFile search the version of the repository the diff's new
+// side belongs to.
+func TestReviewDiff_Grep(t *testing.T) {
+	grep := func(t *testing.T, r ReviewDiff, word string) []string {
+		t.Helper()
+		got, err := r.Grep(t.Context(), word, "*.txt")
+		require.NoError(t, err)
+		return got
+	}
+	review := func(t *testing.T, params ReviewDiffParams) ReviewDiff {
+		t.Helper()
+		r, err := GetReviewDiff(t.Context(), params)
+		require.NoError(t, err)
+		return r
+	}
+
+	t.Run("working tree, including untracked files and subdirectories", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("edited marker\n"), 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "sub"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "new.txt"), []byte("marker\n"), 0o644))
+		t.Chdir(filepath.Join(dir, "sub"))
+
+		r := review(t, WorkingTreeDiff(false))
+		assert.Equal(t, []string{"feature.txt", "sub/new.txt"}, grep(t, r, "marker"))
+		content, err := r.RepoFile(t.Context(), "sub/new.txt")
+		require.NoError(t, err)
+		assert.Equal(t, "marker\n", string(content))
+	})
+
+	t.Run("whole words only", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("markers\n"), 0o644))
+
+		assert.Empty(t, grep(t, review(t, WorkingTreeDiff(false)), "marker"))
+	})
+
+	t.Run("staged", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("staged\n"), 0o644))
+		runGit(t, dir, "add", "feature.txt")
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("not staged\n"), 0o644))
+
+		r := review(t, WorkingTreeDiff(true))
+		assert.Equal(t, []string{"feature.txt"}, grep(t, r, "staged"))
+		assert.Empty(t, grep(t, r, "not"))
+	})
+
+	t.Run("commit", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		commitFile(t, dir, "feature.txt", "second\n")
+
+		r := review(t, CommitDiff("HEAD~1"))
+		assert.Equal(t, []string{"feature.txt"}, grep(t, r, "feature"))
+		assert.Empty(t, grep(t, r, "second"))
+	})
+
+	t.Run("branch searches HEAD, not uncommitted changes", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("edited\n"), 0o644))
+
+		r := review(t, BranchDiff("main"))
+		assert.Equal(t, []string{"feature.txt"}, grep(t, r, "feature"))
+		assert.Empty(t, grep(t, r, "edited"))
+	})
+
+	t.Run("pull request head in the local repository", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		runGit(t, dir, "checkout", "main")
+		cmd := exec.Command("git", "rev-parse", "feature")
+		cmd.Dir = dir
+		sha, err := cmd.Output()
+		require.NoError(t, err)
+
+		r := ReviewDiff{prHead: strings.TrimSpace(string(sha))}
+		assert.Equal(t, []string{"feature.txt"}, grep(t, r, "feature"))
+	})
+
+	t.Run("pull request head not in the local repository searches the working tree", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		runGit(t, dir, "checkout", "main")
+
+		r := ReviewDiff{prHead: strings.Repeat("0", 40)}
+		assert.Equal(t, []string{"main-only.txt"}, grep(t, r, "added"))
+	})
+
+	t.Run("no source", func(t *testing.T) {
+		newDivergedRepo(t)
+
+		_, err := ReviewDiff{Diff: "x"}.Grep(t.Context(), "feature")
+		require.Error(t, err)
+	})
+}
+
+func TestReviewDiff_GrepWords(t *testing.T) {
+	dir := newDivergedRepo(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("alpha beta\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a:b.txt"), []byte("beta alphas\n"), 0o644))
+	r, err := GetReviewDiff(t.Context(), WorkingTreeDiff(false))
+	require.NoError(t, err)
+
+	got, err := r.GrepWords(t.Context(), []string{"alpha", "beta", "gamma"}, "*.txt")
+	require.NoError(t, err)
+	assert.Equal(t, map[string][]string{"alpha": {"feature.txt"}, "beta": {"a:b.txt", "feature.txt"}}, got)
+
+	got, err = r.GrepWords(t.Context(), nil, "*.txt")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+
+	commit, err := GetReviewDiff(t.Context(), CommitDiff("HEAD"))
+	require.NoError(t, err)
+	got, err = commit.GrepWords(t.Context(), []string{"feature", "alpha"}, "*.txt")
+	require.NoError(t, err)
+	assert.Equal(t, map[string][]string{"feature": {"feature.txt"}}, got)
+}

@@ -123,9 +123,9 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 		}
 
 		var enclosingContext string
-		if params.contextEnrichment && err == nil && !result.SkipEnrichment {
+		if params.contextEnrichment && err == nil {
 			var ctxErr error
-			enclosingContext, ctxErr = enclosing.DeclarationsForDiff(ctx, result.Diff, result.Ref)
+			enclosingContext, ctxErr = enclosing.ForReview(ctx, result)
 			if ctxErr != nil {
 				enclosingContext = ""
 			}

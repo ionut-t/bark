@@ -69,7 +69,7 @@ type Data struct {
 	LLMModel           string `toml:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
 	MaxDiffLines       uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt (0 disables the limit)"`
 	RelativeNumber     bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
-	ContextEnrichment  bool   `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) as context for review (default: false)"`
+	ContextEnrichment  bool   `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review (default: false)"`
 	StructuredFindings bool   `toml:"structured_findings" comment:"Whether reviews ask the model for structured findings (file, line, severity, ...) instead of free text (default: false)"`
 	CheckFindings      bool   `toml:"check_findings" comment:"Whether structured reviews make a second model call that checks each finding against the code and sets aside the ones that don't hold up (default: true)"`
 }

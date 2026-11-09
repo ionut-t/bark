@@ -126,10 +126,10 @@ func RunReview(opts ReviewOptions) error {
 	}
 
 	var enclosingContext string
-	if opts.Config.GetContextEnrichment() && !reviewDiff.SkipEnrichment {
+	if opts.Config.GetContextEnrichment() {
 		enclosingCtx, enclosingCancel := context.WithTimeout(context.Background(), gitTimeout)
 		var err error
-		enclosingContext, err = enclosing.DeclarationsForDiff(enclosingCtx, reviewDiff.Diff, reviewDiff.Ref)
+		enclosingContext, err = enclosing.ForReview(enclosingCtx, reviewDiff)
 		enclosingCancel()
 		if err != nil {
 			// Gracefully continue without enclosing context if extraction fails
