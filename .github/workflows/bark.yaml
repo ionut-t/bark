@@ -1,8 +1,12 @@
 name: Bark
 
+# Reviews run when a PR is opened (except from chore/, docs/ and build/
+# branches) and when the "bark: review" label is added
+# (the review job removes it again). "bark: describe" regenerates the PR
+# description. Pushes to an open PR don't trigger anything.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, labeled]
 
 env:
   GO_VERSION: stable
@@ -34,7 +38,7 @@ jobs:
           BARK_API_KEY: ${{ secrets.BARK_API_KEY }}
           BARK_PROVIDER: ${{ vars.BARK_PROVIDER }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BARK_MODEL: ${{ vars.BARK_MODEL }}
+          BARK_MODEL: ${{ vars.BARK_DESCRIPTION_MODEL || vars.BARK_MODEL }}
           BARK_MAX_DIFF_LINES: ${{ vars.BARK_MAX_DIFF_LINES }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
@@ -70,7 +74,16 @@ jobs:
   review:
     name: AI Code Review
     needs: pr-description
-    if: "always() && (needs.pr-description.result == 'skipped' || (needs.pr-description.result == 'success' && github.event.action == 'opened'))"
+    # always() lets the job run when pr-description is skipped (a "bark: review" label).
+    # PRs from chore/, docs/ and build/ branches aren't reviewed on open; the label still works.
+    if: >-
+      always() && (
+        (github.event.action == 'opened' && needs.pr-description.result == 'success'
+          && !startsWith(github.head_ref, 'chore/')
+          && !startsWith(github.head_ref, 'docs/')
+          && !startsWith(github.head_ref, 'build/'))
+        || (github.event.action == 'labeled' && github.event.label.name == 'bark: review')
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -156,3 +169,11 @@ jobs:
           LABEL="Reviewed by ${REVIEWER^}"
           gh label create "$LABEL" --repo "${{ github.repository }}" --color "0075ca" --force 2>/dev/null || true
           gh pr edit "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --add-label "$LABEL"
+
+      - name: Remove review label
+        # Runs even if the review failed, so adding the label again retries.
+        if: always() && github.event.action == 'labeled'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --remove-label "bark: review" || true
