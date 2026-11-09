@@ -1,9 +1,9 @@
 // Package check runs a second model call over the findings of a structured
 // review and marks the ones that don't hold up against the code as doubted.
-// The first pass only sees the diff; the check also sees the new version
-// of every file a finding points to (whole, or the lines around each
-// finding for a long file), and must quote the code a kept finding rests
-// on. Doubted findings are set aside, not hidden, in case the check is
+// The first pass sees the diff; the check also sees the new version of
+// every file a finding points to (whole, or the lines around each finding
+// for a long file) and related code from other files, and must quote the
+// code a kept finding rests on. Doubted findings are set aside, not hidden, in case the check is
 // wrong.
 package check
 
@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/debuglog"
+	"github.com/ionut-t/bark/v2/internal/enclosing"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/bark/v2/internal/llm"
@@ -116,6 +117,10 @@ type Input struct {
 	// read are left out; their findings are checked against the diff alone.
 	// Long files are cut to the lines around the findings (see excerpts).
 	Files map[string]string
+	// Related is code from other files around the findings: definitions of
+	// what the findings' functions use, and their callers (see
+	// enclosing.Related).
+	Related []enclosing.Piece
 }
 
 // Prompt builds the user prompt for checking fs.
@@ -137,6 +142,11 @@ func Prompt(in Input, fs []findings.Finding) string {
 		for _, e := range ex {
 			e.write(&b)
 		}
+	}
+
+	if rel := enclosing.FormatRelated(in.Related); rel != "" {
+		b.WriteString("\n")
+		b.WriteString(rel)
 	}
 
 	b.WriteString("\n## Findings\n\n")
@@ -303,7 +313,10 @@ func ParseVerdicts(output string) map[int]Verdict {
 			continue
 		}
 		var v Verdict
-		if json.Unmarshal([]byte(s), &v) != nil || v.ID <= 0 {
+		if json.Unmarshal([]byte(s), &v) != nil && json.Unmarshal([]byte(escapeControl(s)), &v) != nil {
+			continue
+		}
+		if v.ID <= 0 {
 			continue
 		}
 		v.Verdict = strings.ToLower(strings.TrimSpace(v.Verdict))
@@ -312,6 +325,29 @@ func ParseVerdicts(output string) map[int]Verdict {
 		out[v.ID] = v
 	}
 	return out
+}
+
+// escapeControl escapes the control characters inside the strings of a
+// JSON line. Models copy code with raw tabs into quoted evidence, which
+// JSON doesn't allow.
+func escapeControl(s string) string {
+	var b strings.Builder
+	inString, escaped := false, false
+	for _, r := range s {
+		switch {
+		case escaped:
+			escaped = false
+		case inString && r == '\\':
+			escaped = true
+		case r == '"':
+			inString = !inString
+		case inString && r < 0x20:
+			fmt.Fprintf(&b, "\\u%04x", r)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // Outcome is what happened to one finding.
@@ -330,7 +366,7 @@ type Outcome struct {
 // dropped. A kept finding takes the check's severity, and loses its
 // suggestion if the check found it broken.
 func Apply(in Input, fs []findings.Finding, verdicts map[int]Verdict) []Outcome {
-	code := newCorpus(in.Diff, excerpts(in.Files, fs))
+	code := newCorpus(in.Diff, excerpts(in.Files, fs), in.Related)
 	out := make([]Outcome, len(fs))
 	for i, f := range fs {
 		v, ok := verdicts[i+1]
@@ -369,7 +405,7 @@ type corpus struct {
 	lines []string
 }
 
-func newCorpus(diff string, files []excerpt) corpus {
+func newCorpus(diff string, files []excerpt, related []enclosing.Piece) corpus {
 	var c corpus
 	for l := range strings.SplitSeq(diff, "\n") {
 		l = stripLineNumber(l)
@@ -385,6 +421,11 @@ func newCorpus(diff string, files []excerpt) corpus {
 			for _, l := range e.lines[r[0]-1 : r[1]] {
 				c.add(l)
 			}
+		}
+	}
+	for _, pc := range related {
+		for _, l := range pc.Lines {
+			c.add(l)
 		}
 	}
 	return c
@@ -492,8 +533,39 @@ func (r Review) Run(ctx context.Context, events []findings.Event) (Result, error
 	files := LoadFiles(events, func(path string) ([]byte, error) {
 		return r.ReviewDiff.NewSideFile(ctx, path)
 	})
-	in := Input{Header: r.ReviewDiff.ContextHeader, Diff: r.Diff, Files: files}
+	in := Input{
+		Header:  r.ReviewDiff.ContextHeader,
+		Diff:    r.Diff,
+		Files:   files,
+		Related: related(ctx, r.ReviewDiff, r.ReviewDiff.Diff, findingsIn(events), files),
+	}
 	return Run(ctx, r.Client, in, events, r.startLog("check"))
+}
+
+// relatedLines caps the related code the check is shown. Aimed at the
+// findings, it was 14-120 lines on Bark's own pull requests.
+const relatedLines = 300
+
+// related finds code in other files around the lines fs point to (see
+// enclosing.Related). Files the check is already shown are left out.
+func related(ctx context.Context, repo enclosing.Repo, diff string, fs []findings.Finding, files map[string]string) []enclosing.Piece {
+	focus := map[string][]int{}
+	for _, f := range fs {
+		if f.File == "" || f.Line <= 0 {
+			continue
+		}
+		for l := f.Line; l <= max(f.Line, f.EndLine); l++ {
+			focus[f.File] = append(focus[f.File], l)
+		}
+	}
+	if len(focus) == 0 {
+		return nil
+	}
+	skip := make(map[string]bool, len(files))
+	for p := range files {
+		skip[p] = true
+	}
+	return enclosing.Related(ctx, diff, repo, enclosing.RelatedOptions{MaxLines: relatedLines, Focus: focus, Skip: skip})
 }
 
 // Revise rewrites the intro and verdict of a checked review in the

@@ -752,12 +752,6 @@ type ReviewDiff struct {
 	Stat          string
 	Commits       []Commit
 	ContextHeader string
-	// Ref is the git revision whose file content matches the diff's new-side
-	// line numbers: a commit hash, ":" for the index, or "" for the working tree.
-	Ref string
-	// SkipEnrichment is true when no local ref matches the diff (e.g. a PR head
-	// that is not checked out), so enclosing-context extraction must be skipped.
-	SkipEnrichment bool
 
 	// source is where NewSideFile reads files from: a revision, or a pull
 	// request's head (prHead). A ReviewDiff not made by GetReviewDiff has
@@ -787,6 +781,142 @@ func (r ReviewDiff) NewSideFile(ctx context.Context, path string) ([]byte, error
 	return nil, errors.New("no source for the new side of the diff")
 }
 
+// searchSource returns where Grep and RepoFile look: a revision, ":" for the
+// index, or "" for the working tree. A pull request whose head isn't in
+// the local repository is searched in the working tree, which in CI is
+// the checked-out pull request.
+func (r ReviewDiff) searchSource(ctx context.Context) (string, error) {
+	switch {
+	case r.prHead != "":
+		if err := exec.CommandContext(ctx, "git", "cat-file", "-e", r.prHead+"^{commit}").Run(); err == nil {
+			return r.prHead, nil
+		}
+		return "", nil
+	case r.source == sourceWorkingTree:
+		return "", nil
+	case r.source != "":
+		return r.source, nil
+	}
+	return "", errors.New("no source for the new side of the diff")
+}
+
+// Grep returns the repository-relative paths of the files that contain word
+// as a whole word, at the version of the repository the diff's new side
+// belongs to, among the files matching the glob patterns (e.g. "*.go").
+func (r ReviewDiff) Grep(ctx context.Context, word string, globs ...string) ([]string, error) {
+	src, err := r.searchSource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	root, err := RepoRoot(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	args := []string{"grep", "-l", "-w", "-F", "--full-name", "-e", word}
+	switch src {
+	case "":
+		args = append(args, "--untracked")
+	case ":":
+		args = append(args, "--cached")
+	default:
+		args = append(args, src)
+	}
+	args = append(args, "--")
+	args = append(args, globs...)
+
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == 1 {
+		return nil, nil // no matches
+	}
+	if err != nil {
+		return nil, fmt.Errorf("git grep %q: %w", word, err)
+	}
+
+	var paths []string
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+		if src != "" && src != ":" {
+			line = strings.TrimPrefix(line, src+":")
+		}
+		if line != "" {
+			paths = append(paths, line)
+		}
+	}
+	return paths, nil
+}
+
+// GrepWords is Grep for many words in one git process: it maps each word to
+// the files that contain it. Words found nowhere are left out.
+func (r ReviewDiff) GrepWords(ctx context.Context, words []string, globs ...string) (map[string][]string, error) {
+	src, err := r.searchSource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	root, err := RepoRoot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(words) == 0 {
+		return map[string][]string{}, nil
+	}
+
+	// -o prints each match as path:word; patterns come from stdin.
+	args := []string{"grep", "-o", "-w", "-F", "--full-name", "-f", "-"}
+	switch src {
+	case "":
+		args = append(args, "--untracked")
+	case ":":
+		args = append(args, "--cached")
+	default:
+		args = append(args, src)
+	}
+	args = append(args, "--")
+	args = append(args, globs...)
+
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = root
+	cmd.Stdin = strings.NewReader(strings.Join(words, "\n") + "\n")
+	out, err := cmd.Output()
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == 1 {
+		return map[string][]string{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("git grep: %w", err)
+	}
+
+	found := map[string][]string{}
+	seen := map[string]bool{}
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+		if src != "" && src != ":" {
+			line = strings.TrimPrefix(line, src+":")
+		}
+		i := strings.LastIndexByte(line, ':')
+		if i <= 0 {
+			continue
+		}
+		path, word := line[:i], line[i+1:]
+		if key := word + "\x00" + path; !seen[key] {
+			seen[key] = true
+			found[word] = append(found[word], path)
+		}
+	}
+	return found, nil
+}
+
+// RepoFile reads path from the version of the repository Grep searches.
+// Unlike NewSideFile it never asks GitHub, so for a pull request whose
+// head isn't local, a file the pull request changes may not match the
+// diff's line numbers; use NewSideFile for those.
+func (r ReviewDiff) RepoFile(ctx context.Context, path string) ([]byte, error) {
+	src, err := r.searchSource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return GetFileContent(ctx, src, path)
+}
+
 // ghFileContent reads path at commit sha from the current repository on
 // GitHub.
 func ghFileContent(ctx context.Context, sha, path string) ([]byte, error) {
@@ -805,9 +935,6 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 
 	switch {
 	case params.pr != "":
-		// The PR head is generally not checked out locally, so no local ref
-		// matches the diff's line numbers.
-		r.SkipEnrichment = true
 		var err error
 		r.Diff, err = GetPRDiff(ctx, params.pr)
 		if err != nil {
@@ -835,7 +962,6 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		r.Commits, _ = GetBranchCommits(ctx, params.branch)
 
 	case params.commitHash != "":
-		r.Ref = params.commitHash
 		r.source = params.commitHash
 		var err error
 		r.Diff, err = GetDiff(ctx, params.commitHash)
@@ -849,7 +975,6 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		all := !params.stagedOnly
 		r.source = sourceWorkingTree
 		if params.stagedOnly {
-			r.Ref = ":"
 			r.source = ":"
 		}
 		var err error
@@ -928,26 +1053,30 @@ func GetPRInfo(ctx context.Context, prNumber string) (string, error) {
 }
 
 var (
-	repoRootMu   sync.Mutex
-	repoRootPath string
+	repoRootMu sync.Mutex
+	// repoRoots maps a working directory to its repository's root.
+	repoRoots = map[string]string{}
 )
 
 // RepoRoot returns the absolute path of the repository's top-level directory.
-// Only a successful result is memoized, so a transient failure (e.g. a
-// cancelled ctx on the first call) doesn't poison later calls.
+// Only a successful result is memoized, per working directory, so a
+// transient failure (e.g. a cancelled ctx on the first call) doesn't poison
+// later calls and a change of directory finds the right repository.
 func RepoRoot(ctx context.Context) (string, error) {
+	cwd, _ := os.Getwd()
 	repoRootMu.Lock()
 	defer repoRootMu.Unlock()
-	if repoRootPath != "" {
-		return repoRootPath, nil
+	if root, ok := repoRoots[cwd]; ok && cwd != "" {
+		return root, nil
 	}
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("could not resolve repository root: %w", err)
 	}
-	repoRootPath = strings.TrimSpace(string(output))
-	return repoRootPath, nil
+	root := strings.TrimSpace(string(output))
+	repoRoots[cwd] = root
+	return root, nil
 }
 
 // GetFileContent returns the content of a file at a specific git ref or index.

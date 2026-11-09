@@ -38,7 +38,7 @@ inputs:
     required: false
     default: "false"
   with-context:
-    description: Include enclosing declarations (functions, structs, classes) as context for review.
+    description: Include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review. Adds input tokens to each review.
     required: false
     default: "false"
   inline-comments:

@@ -2,7 +2,7 @@
 
 Another reviewer read a code change and reported the findings listed below. Automated reviewers often report problems that the surrounding code already handles, that can't happen, or that are only preferences, and also find real defects. Your job is to check each finding against the code and keep the real defects.
 
-You get the change as a diff (every added and context line starts with its line number in the new file), the new version of each file the findings point to (the whole file, or for a long file the lines around each finding), and the findings, numbered from 1.
+You get the change as a diff (every added and context line starts with its line number in the new file), the new version of each file the findings point to (the whole file, or for a long file the lines around each finding), sometimes related code from other files (definitions of what the findings' code uses, and code that calls it), and the findings, numbered from 1.
 
 For each finding, work through these questions, using the code you were given rather than memory or assumptions:
 
@@ -22,7 +22,7 @@ Respond ONLY with JSON Lines: one object per finding, in order, each on a single
 
 - `id`: the finding's number.
 - `verdict`: `keep` or `drop`.
-- `evidence`: the line or lines of code your verdict rests on, copied exactly from the diff or the files (without line numbers or diff markers; separate lines with `\n`). Required when you keep a finding: a finding you can't back with code you were given must be dropped.
+- `evidence`: the line or lines of code your verdict rests on, copied exactly from the diff, the files or the related code (without line numbers or diff markers; separate lines with `\n`). Required when you keep a finding: a finding you can't back with code you were given must be dropped.
 - `reason`: one or two plain sentences: the concrete input or state on which the code goes wrong and what happens to the wrong result, or why the finding is wrong, unreachable or a preference.
 - `severity`: for a kept finding, one of `critical`, `high`, `medium`, `low`, judged again from what you found. Omit it for a dropped finding.
 - `suggestion`: for a kept finding that has a suggestion, `ok` if it compiles and fixes the problem in place, otherwise `broken`. Omit it otherwise.

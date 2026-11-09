@@ -278,9 +278,36 @@ func ModifiedLinesFromDiff(diffText string) map[string][]int {
 	return result
 }
 
-// DeclarationsForDiff parses a diff, reads the files at the specified ref,
-// and extracts the enclosing declarations for all modified lines.
-func DeclarationsForDiff(ctx context.Context, diffText string, ref string) (string, error) {
+// maxEnclosingLines caps the enclosing declarations sent for one diff.
+// Declarations are taken in the diff's order; one that doesn't fit is left
+// out.
+const maxEnclosingLines = 800
+
+// reviewRelatedLines caps the related code a review is shown. Measured on
+// Bark's own pull requests, 600 lines plus enclosing declarations added
+// about 22k input tokens per review.
+const reviewRelatedLines = 400
+
+// ForReview returns the context sections for a review's diff: the enclosing
+// declarations of the changed lines, then related code (see Related). Files
+// are read from the version whose line numbers the diff uses (see
+// git.ReviewDiff.NewSideFile). A diff without a source gets none.
+func ForReview(ctx context.Context, r git.ReviewDiff) (string, error) {
+	decls, err := DeclarationsForDiff(ctx, r.Diff, r.NewSideFile)
+	if err != nil {
+		return "", err
+	}
+	rel := FormatRelated(Related(ctx, r.Diff, r, RelatedOptions{MaxLines: reviewRelatedLines}))
+	if rel == "" {
+		return decls, nil
+	}
+	return decls + "\n" + rel + "\n", nil
+}
+
+// DeclarationsForDiff parses a diff, reads each changed file with read, and
+// extracts the enclosing declarations for all modified lines. read must
+// return the new side of the diff, so that its line numbers match.
+func DeclarationsForDiff(ctx context.Context, diffText string, read func(ctx context.Context, path string) ([]byte, error)) (string, error) {
 	modifiedMap := ModifiedLinesFromDiff(diffText)
 	if len(modifiedMap) == 0 {
 		return "", nil
@@ -294,17 +321,28 @@ func DeclarationsForDiff(ctx context.Context, diffText string, ref string) (stri
 	sort.Strings(files)
 
 	var sb strings.Builder
+	budget := maxEnclosingLines
 
 	for _, file := range files {
-		// Get file content at ref
-		content, err := git.GetFileContent(ctx, ref, file)
+		content, err := read(ctx, file)
 		if err != nil {
 			// Gracefully skip files we can't read (e.g. deleted files)
 			continue
 		}
 
 		snippets, err := Declarations(file, content, modifiedMap[file])
-		if err != nil || len(snippets) == 0 {
+		if err != nil {
+			continue
+		}
+		var fit []string
+		for _, s := range snippets {
+			if n := strings.Count(s, "\n") + 1; n <= budget {
+				budget -= n
+				fit = append(fit, s)
+			}
+		}
+		snippets = fit
+		if len(snippets) == 0 {
 			continue
 		}
 
