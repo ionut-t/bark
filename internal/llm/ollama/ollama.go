@@ -46,23 +46,29 @@ func New(model string) *Ollama {
 // token for a Go check prompt on gemma3), so the estimate errs high. The
 // size is rounded up to a power of two so that consecutive requests usually
 // ask for the same one; Ollama reloads the model when it changes.
+//
+// The reserve is what a request asks for, not what it needs: on a model
+// whose context is smaller than prompt + reserve, the answer gets what the
+// prompt leaves, as long as that is at least minAnswer.
 const (
 	charsPerToken = 2.5
 	outputReserve = 8192
+	minAnswer     = 1024
 )
 
 // numCtx returns the context size for a request. A prompt that can't fit in
-// the model's context is an error rather than being cut.
+// the model's context with room for an answer is an error rather than
+// being cut.
 func (o *Ollama) numCtx(ctx context.Context, system, prompt string) (int, error) {
-	need := int(float64(len(system)+len(prompt))/charsPerToken) + outputReserve
+	promptTokens := int(float64(len(system)+len(prompt)) / charsPerToken)
 	n := outputReserve
-	for n < need {
+	for n < promptTokens+outputReserve {
 		n *= 2
 	}
 	if limit := o.contextLength(ctx); limit > 0 {
-		if need > limit {
-			return 0, fmt.Errorf("the prompt is about %d tokens, more than %s's context of %d tokens: review a smaller change (--max-diff-lines) or use a model with a longer context",
-				need-outputReserve, o.model, limit)
+		if promptTokens+minAnswer > limit {
+			return 0, fmt.Errorf("the prompt is about %d tokens, too long for %s's context of %d tokens with room for an answer: review a smaller change (--max-diff-lines) or use a model with a longer context",
+				promptTokens, o.model, limit)
 		}
 		n = min(n, limit)
 	}

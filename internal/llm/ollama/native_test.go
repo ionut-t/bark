@@ -123,6 +123,11 @@ func TestContextSize(t *testing.T) {
 		{"rounded up to a power of two", 30_000, 131072, 32768},    // 12k + 8k reserve
 		{"capped at the model's context", 250_000, 131072, 131072}, // 100k + 8k
 		{"unknown model context", 250_000, 0, 131072},
+		// Small-context models: the answer gets what the prompt leaves
+		// (PR #107 review: a fixed 8k reserve rejected every prompt).
+		{"a 4k model with a short prompt", 1_000, 4096, 4096},
+		{"an 8k model with a 4k-token prompt", 10_000, 8192, 8192},
+		{"a 2k model with a short prompt", 500, 2048, 2048},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -142,11 +147,15 @@ func TestPromptLongerThanTheModelContext(t *testing.T) {
 	o := New("small")
 
 	_, err := o.Generate(t.Context(), "", strings.Repeat("x", 100_000))
-	require.ErrorContains(t, err, "more than small's context of 8192 tokens")
+	require.ErrorContains(t, err, "too long for small's context of 8192 tokens")
+
+	// A prompt that fits but leaves too little room for an answer.
+	_, err = o.Generate(t.Context(), "", strings.Repeat("x", 19_000)) // ~7.6k tokens
+	require.ErrorContains(t, err, "context of 8192 tokens")
 
 	out, errc := o.Stream(t.Context(), "", strings.Repeat("x", 100_000))
 	_, _, err = collect(t, out, errc)
-	require.ErrorContains(t, err, "more than small's context")
+	require.ErrorContains(t, err, "too long for small's context")
 
 	assert.Equal(t, []string{"/api/show"}, f.paths, "no chat request; the model info is asked for once")
 }
