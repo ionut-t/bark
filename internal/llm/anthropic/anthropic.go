@@ -3,6 +3,7 @@ package anthropic
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -145,17 +146,26 @@ func (a *Anthropic) Generate(ctx context.Context, system, prompt string) (llm.Re
 		return llm.Response{}, fmt.Errorf("anthropic request failed: %w", err)
 	}
 
-	if len(resp.Content) == 0 {
-		return llm.Response{}, fmt.Errorf("no response from anthropic")
+	// Thinking blocks can come before the text, and the text can be split
+	// across several blocks, so join every text block.
+	var text strings.Builder
+	types := make([]string, 0, len(resp.Content))
+	for _, block := range resp.Content {
+		types = append(types, block.Type)
+		if tb, ok := block.AsAny().(anthropic.TextBlock); ok {
+			text.WriteString(tb.Text)
+		}
 	}
-
-	text, ok := resp.Content[0].AsAny().(anthropic.TextBlock)
-	if !ok || text.Text == "" {
-		return llm.Response{}, fmt.Errorf("empty response from anthropic")
+	if text.Len() == 0 {
+		blocks := "none"
+		if len(types) > 0 {
+			blocks = strings.Join(types, ", ")
+		}
+		return llm.Response{}, fmt.Errorf("no text in anthropic response (content blocks: %s; stop reason: %s)", blocks, resp.StopReason)
 	}
 
 	return llm.Response{
-		Content: text.Text,
+		Content: text.String(),
 		Time:    time.Now(),
 		Usage: usageCounts{
 			input:      resp.Usage.InputTokens,

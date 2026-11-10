@@ -42,6 +42,19 @@ func StreamErrorClient() *http.Client {
 	})}
 }
 
+// JSONClient returns an HTTP client whose every response is a 200 with body
+// as its JSON payload.
+func JSONClient(body string) *http.Client {
+	return &http.Client{Transport: roundTripper(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    r,
+		}, nil
+	})}
+}
+
 // AssertStreamCloses drains out without reading errc, then checks that both
 // channels are closed within a timeout and that errc holds exactly one error.
 func AssertStreamCloses(t *testing.T, out <-chan llm.Response, errc <-chan error) {
