@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.27.1](https://github.com/ionut-t/bark/compare/v2.27.0...v2.27.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* **anthropic:** read all content blocks in Generate ([#111](https://github.com/ionut-t/bark/issues/111)) ([ebf26fb](https://github.com/ionut-t/bark/commit/ebf26fb8c5faed938824992078a9bb9ccc2f73f2))
+
 ## [2.27.0](https://github.com/ionut-t/bark/compare/v2.26.0...v2.27.0) (2026-11-09)
 
 
