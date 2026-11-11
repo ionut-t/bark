@@ -121,6 +121,7 @@ func RunReview(opts ReviewOptions) error {
 		}
 	}
 	structured := opts.Config.GetStructuredFindings() || opts.Comment
+	minSeverity := findings.Severity(opts.Config.GetMinSeverity())
 	system := prompt.FormatReviewSystem(reviewer.Prompt, reviewInstructions)
 	if structured {
 		system = prompt.FormatStructuredReviewSystem(reviewer.Prompt, reviewInstructions)
@@ -177,7 +178,7 @@ func RunReview(opts ReviewOptions) error {
 	out := io.Writer(os.Stdout)
 	var output string
 	if opts.Stream {
-		output, err = streamResponse(llmCtx, client, system, promptText, out, structured, debugLog)
+		output, err = streamResponse(llmCtx, client, system, promptText, out, structured, minSeverity, debugLog)
 	} else {
 		output, err = fullResponse(llmCtx, client, system, promptText, debugLog)
 	}
@@ -201,7 +202,7 @@ func RunReview(opts ReviewOptions) error {
 			return checkFindings(r, events, meter)
 		}
 	}
-	events := finishReview(out, output, opts.Stream, structured, checkFn)
+	events := finishReview(out, output, opts.Stream, structured, minSeverity, checkFn)
 	if !opts.Comment {
 		return nil
 	}
@@ -320,11 +321,12 @@ func RunPR(opts PROptions) error {
 }
 
 // streamResponse streams the review to out and returns the raw model output.
-// A structured review is rendered to Markdown as it arrives.
-func streamResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool, debugLog *debuglog.Log) (string, error) {
+// A structured review is rendered to Markdown as it arrives, without the
+// findings less severe than minSeverity.
+func streamResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool, minSeverity findings.Severity, debugLog *debuglog.Log) (string, error) {
 	responseChan, errChan := client.Stream(ctx, system, promptText)
 
-	var renderer findings.Renderer
+	renderer := findings.Renderer{Min: minSeverity}
 	var output strings.Builder
 	for chunk := range responseChan {
 		output.WriteString(chunk.Content)
@@ -354,8 +356,9 @@ func streamResponse(ctx context.Context, client llm.LLM, system, promptText stri
 // review is already on out; a whole one is written now. checkFn, if not nil,
 // runs Bark's check on a structured review's findings: a whole review shows
 // the doubted findings in a section of their own, a streamed one gets a
-// report of them appended.
-func finishReview(out io.Writer, output string, stream, structured bool, checkFn func([]findings.Event) ([]findings.Event, int)) []findings.Event {
+// report of them appended. Findings less severe than minSeverity are left
+// out before the check, so they cost nothing to check.
+func finishReview(out io.Writer, output string, stream, structured bool, minSeverity findings.Severity, checkFn func([]findings.Event) ([]findings.Event, int)) []findings.Event {
 	if !structured {
 		if !stream {
 			_, _ = fmt.Fprintln(out, output)
@@ -363,7 +366,10 @@ func finishReview(out io.Writer, output string, stream, structured bool, checkFn
 		return nil
 	}
 
-	events := findings.Parse(output)
+	events, below := findings.DropBelow(findings.Parse(output), minSeverity)
+	if below > 0 {
+		fmt.Fprintf(os.Stderr, "bark: left out %d finding(s) below %s severity (min_severity)\n", below, minSeverity)
+	}
 	checked := 0
 	if checkFn != nil {
 		events, checked = checkFn(events)

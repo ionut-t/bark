@@ -16,6 +16,9 @@ import (
 // differently, the preview stops growing, and once the line completes its
 // final Markdown is written after it.
 type Renderer struct {
+	// Min leaves out findings less severe than it; "" shows them all.
+	Min Severity
+
 	partial string
 	// shown is what has been written for the unfinished line.
 	shown string
@@ -34,7 +37,7 @@ func (r *Renderer) Write(chunk string) string {
 		r.complete(&b, line)
 	}
 
-	if pending := pendingMarkdown(r.partial); strings.HasPrefix(pending, r.shown) {
+	if pending := pendingMarkdown(r.partial, r.Min); strings.HasPrefix(pending, r.shown) {
 		b.WriteString(pending[len(r.shown):])
 		r.shown = pending
 	}
@@ -55,7 +58,7 @@ func (r *Renderer) Close() string {
 // complete writes what is missing of line's final Markdown.
 func (r *Renderer) complete(b *strings.Builder, line string) {
 	var final string
-	if e, ok := parseLine(line); ok {
+	if e, ok := parseLine(line); ok && (e.Finding == nil || e.Finding.Severity.AtLeast(r.Min)) {
 		final = Markdown([]Event{e})
 	}
 
@@ -82,7 +85,7 @@ func nextLine(partial *string) (string, bool) {
 
 // pendingMarkdown renders as much of the unfinished line as can be shown
 // without anything later having to change it.
-func pendingMarkdown(partial string) string {
+func pendingMarkdown(partial string, min Severity) string {
 	s := strings.TrimSpace(partial)
 	switch {
 	case s == "", strings.HasPrefix(s, "`"):
@@ -123,7 +126,7 @@ func pendingMarkdown(partial string) string {
 	}
 
 	f := normaliseFinding(l.Finding)
-	if f.Title == "" {
+	if f.Title == "" || !f.Severity.AtLeast(min) {
 		return ""
 	}
 	if open == "suggestion" {

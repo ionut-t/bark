@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -27,15 +26,6 @@ var (
 )
 
 var shortStatRegex = regexp.MustCompile(`(?P<files>\d+) files? changed(?:, (?P<additions>\d+) insertions?\(\+\))?(?:, (?P<deletions>\d+) deletions?\(-\))?`)
-
-// defaultDiffExcludes are pathspecs applied to every diff to filter out generated and
-// dependency files that add token cost without useful review signal.
-var defaultDiffExcludes = []string{
-	":(exclude)*.sum",
-	":(exclude)*.lock",
-	":(exclude)*.pb.go",
-	":(exclude)*.pb.gw.go",
-}
 
 // Commit represents a single git commit.
 type Commit struct {
@@ -138,7 +128,7 @@ func GetDiff(ctx context.Context, hash string) (string, error) {
 		return "", ErrNotAGitRepository
 	}
 
-	args := append([]string{"show", hash, "--"}, defaultDiffExcludes...)
+	args := append([]string{"show", hash, "--"}, excludes(ctx)...)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	output, err := cmd.Output()
 	if err != nil {
@@ -160,7 +150,7 @@ func GetWorkingTreeDiff(ctx context.Context, all bool) (string, error) {
 	} else {
 		baseArgs = []string{"diff", "--staged", "--"}
 	}
-	cmd := exec.CommandContext(ctx, "git", append(baseArgs, defaultDiffExcludes...)...)
+	cmd := exec.CommandContext(ctx, "git", append(baseArgs, excludes(ctx)...)...)
 
 	if all {
 		cleanup, err := withUntrackedIndex(ctx, cmd)
@@ -191,9 +181,9 @@ func GetWorkingTreeDiff(ctx context.Context, all bool) (string, error) {
 func GetWorkingTreeStat(ctx context.Context, all bool) string {
 	var args []string
 	if all {
-		args = append([]string{"diff", "--stat", "HEAD", "--"}, defaultDiffExcludes...)
+		args = append([]string{"diff", "--stat", "HEAD", "--"}, excludes(ctx)...)
 	} else {
-		args = append([]string{"diff", "--stat", "--staged", "--"}, defaultDiffExcludes...)
+		args = append([]string{"diff", "--stat", "--staged", "--"}, excludes(ctx)...)
 	}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if all {
@@ -286,7 +276,7 @@ func branchRange(branch string) string {
 // GetBranchDiffStat returns the --stat summary for the changes on the current branch since it
 // forked from branch.
 func GetBranchDiffStat(ctx context.Context, branch string) string {
-	args := append([]string{"diff", "--stat", branchRange(branch), "--"}, defaultDiffExcludes...)
+	args := append([]string{"diff", "--stat", branchRange(branch), "--"}, excludes(ctx)...)
 	out, err := exec.CommandContext(ctx, "git", args...).Output()
 	if err != nil {
 		return ""
@@ -296,7 +286,7 @@ func GetBranchDiffStat(ctx context.Context, branch string) string {
 
 // GetCommitStat returns the --stat summary for a single commit.
 func GetCommitStat(ctx context.Context, hash string) string {
-	args := append([]string{"show", "--stat", hash, "--"}, defaultDiffExcludes...)
+	args := append([]string{"show", "--stat", hash, "--"}, excludes(ctx)...)
 	out, err := exec.CommandContext(ctx, "git", args...).Output()
 	if err != nil {
 		return ""
@@ -316,7 +306,7 @@ func GetCurrentBranch(ctx context.Context) (string, error) {
 
 // GetBranchDiff returns the changes on the current branch since it forked from branch.
 func GetBranchDiff(ctx context.Context, branch string, maxLines uint32) (string, error) {
-	args := append([]string{"diff", branchRange(branch), "--"}, defaultDiffExcludes...)
+	args := append([]string{"diff", branchRange(branch), "--"}, excludes(ctx)...)
 	cmd := exec.CommandContext(ctx, "git", args...)
 
 	if maxLines == 0 {
@@ -608,34 +598,21 @@ func GetPRDiff(ctx context.Context, prNumber string) (string, error) {
 		return "", fmt.Errorf("failed to get PR diff: %w", err)
 	}
 
-	return filterDiff(string(output), defaultDiffExcludes), nil
+	return filterDiff(string(output), loadIgnore(ctx)), nil
 }
 
 var diffFileHeaderRe = regexp.MustCompile(`^diff --git a/.+ b/(.+)$`)
 
-// filterDiff removes file sections from a unified git diff whose filename matches
-// any of the given exclude patterns (:(exclude)<glob> format).
-func filterDiff(diff string, excludePatterns []string) string {
-	globs := make([]string, len(excludePatterns))
-	for i, p := range excludePatterns {
-		globs[i] = strings.TrimPrefix(p, ":(exclude)")
-	}
-
+// filterDiff removes the file sections of a unified git diff whose path the
+// rules ignore.
+func filterDiff(diff string, rules ignoreRules) string {
 	lines := strings.Split(diff, "\n")
 	out := make([]string, 0, len(lines))
 	skip := false
 
 	for _, line := range lines {
 		if m := diffFileHeaderRe.FindStringSubmatch(line); m != nil {
-			filePath := m[1]
-			base := path.Base(filePath)
-			skip = false
-			for _, glob := range globs {
-				if matched, _ := path.Match(glob, base); matched {
-					skip = true
-					break
-				}
-			}
+			skip = rules.matches(m[1])
 		}
 		if !skip {
 			out = append(out, line)

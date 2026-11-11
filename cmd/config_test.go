@@ -21,6 +21,7 @@ type savedConfig struct {
 	ContextEnrichment  bool   `toml:"context_enrichment"`
 	StructuredFindings bool   `toml:"structured_findings"`
 	CheckFindings      bool   `toml:"check_findings"`
+	MinSeverity        string `toml:"min_severity"`
 }
 
 func readSavedConfig(t *testing.T, path string) savedConfig {
@@ -123,6 +124,7 @@ func TestConfigCmd_SetsZeroValues(t *testing.T) {
 		{name: "--context_enrichment=false", args: []string{"--context_enrichment=false"}, want: with(func(c *savedConfig) { c.ContextEnrichment = false })},
 		{name: "--structured-findings=false", args: []string{"--structured-findings=false"}, want: with(func(c *savedConfig) { c.StructuredFindings = false })},
 		{name: "--check-findings=false", args: []string{"--check-findings=false"}, want: with(func(c *savedConfig) { c.CheckFindings = false })},
+		{name: "--min-severity high", args: []string{"--min-severity", "high"}, want: with(func(c *savedConfig) { c.MinSeverity = "high" })},
 	}
 
 	for _, tt := range tests {
@@ -197,6 +199,7 @@ func TestReadConfigData_ReadsEveryField(t *testing.T) {
 		ContextEnrichment:  true,
 		StructuredFindings: true,
 		CheckFindings:      false,
+		MinSeverity:        "high",
 	}
 
 	// Loading starts from the defaults, so a field left at its default here
@@ -421,6 +424,18 @@ func TestReadConfigData_InvalidValues(t *testing.T) {
 			assert.Contains(t, err.Error(), path+":1:")
 		})
 	}
+}
+
+func TestReadConfigData_InvalidMinSeverity(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("min_severity = 'nuclear'\n"), 0o644))
+
+	_, err := readConfigData(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), path)
+	assert.Contains(t, err.Error(), "nuclear")
 }
 
 // A syntax error says which file and line to fix.

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"charm.land/lipgloss/v2"
+	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
@@ -17,6 +18,16 @@ var errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000")).Bold(
 // output isn't a terminal or NO_COLOR is set, so scripts get plain text.
 func printError(w io.Writer, err error) {
 	_, _ = fmt.Fprintln(w, errorStyle.Render("Error: "+err.Error()))
+}
+
+// warnRepoLLM tells the user when the repository's config picks the
+// provider or model for this run instead of their own config: running Bark
+// in a cloned repository shouldn't silently switch which model, and which of
+// their keys, it uses. Call it after applying --provider and --model.
+func warnRepoLLM(w io.Writer, cfg config.Config) {
+	if msg := cfg.RepoLLMWarning(); msg != "" {
+		_, _ = fmt.Fprintln(w, "bark: warning: "+msg)
+	}
 }
 
 const plainFlag = "plain"

@@ -1,13 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
@@ -25,6 +28,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 		contextEnrichment bool
 		structured        bool
 		checkFindings     bool
+		minSeverity       string
 	)
 
 	cmd := &cobra.Command{
@@ -83,6 +87,13 @@ func configCmd(getCfg configFunc) *cobra.Command {
 				flagsSet = true
 			}
 
+			if cmd.Flags().Changed("min-severity") {
+				if err := cfg.SetMinSeverity(minSeverity); err != nil {
+					return err
+				}
+				flagsSet = true
+			}
+
 			if !flagsSet {
 				return utils.OpenEditor(cfg.GetEditor(), cfg.Path())
 			}
@@ -99,6 +110,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 	flags.BoolVar(&contextEnrichment, "context-enrichment", false, "Enable or disable enclosing-declaration context for reviews (default: false)")
 	flags.BoolVar(&structured, "structured-findings", false, "Enable or disable structured findings for reviews (default: false)")
 	flags.BoolVar(&checkFindings, "check-findings", true, "Enable or disable the second model call that checks structured findings against the code (default: true)")
+	flags.StringVar(&minSeverity, "min-severity", "", "Set the lowest severity structured reviews show: "+strings.Join(config.Severities(), ", ")+` ("" shows every finding)`)
 
 	// Old names, matching the config file keys. Kept so existing scripts keep
 	// working; hidden from help, and pflag prints a deprecation notice.
@@ -149,7 +161,38 @@ func initConfig(path string) (config.Config, error) {
 		return nil, fmt.Errorf("error initializing commit instructions: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if root, err := git.RepoRoot(ctx); err == nil {
+		if err := applyRepoConfig(cfg, root); err != nil {
+			return nil, err
+		}
+		if err := git.CheckIgnoreFile(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "bark: warning: %v\n(the other lines still apply)\n", err)
+		}
+	}
+
 	return cfg, nil
+}
+
+// applyRepoConfig layers the config of the repository at root over cfg for
+// this run, if the repository has one.
+func applyRepoConfig(cfg config.Config, root string) error {
+	path := config.RepoFilePath(root)
+	content, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	repo, err := config.ParseRepo(path, content)
+	if err != nil {
+		return err
+	}
+	cfg.ApplyRepo(path, repo)
+	return nil
 }
 
 // loadConfigFrom loads the config file at path, or the default file (created
@@ -207,6 +250,10 @@ func readConfigData(path string) (config.Data, error) {
 			row, col := decodeErr.Position()
 			return config.Data{}, fmt.Errorf("%s:%d:%d: %w", path, row, col, err)
 		}
+		return config.Data{}, fmt.Errorf("%s: %w", path, err)
+	}
+
+	if data.MinSeverity, err = config.NormaliseMinSeverity(data.MinSeverity); err != nil {
 		return config.Data{}, fmt.Errorf("%s: %w", path, err)
 	}
 

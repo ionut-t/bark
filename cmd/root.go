@@ -78,6 +78,8 @@ func newRootCmd(load configLoader) *cobra.Command {
 }
 
 func handleRootCmd(cfg config.Config) error {
+	warnRepoLLM(os.Stderr, cfg)
+
 	storage, err := config.GetStorage()
 	if err != nil {
 		return fmt.Errorf("error getting storage: %w", err)
