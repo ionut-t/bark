@@ -1,0 +1,6 @@
+# Paths Bark leaves out of the diffs it sends to a model, on top of its
+# defaults (lock files, checksums, generated protobuf code, minified assets).
+# See "Ignoring files" in the README.
+
+.bark/prices.json
+CHANGELOG.md
