@@ -335,3 +335,18 @@ func TestBarkignoreCantHideItself(t *testing.T) {
 	assert.NotContains(t, diff, "b/evil.go", "valid lines still apply")
 	assert.Error(t, CheckIgnoreFile(t.Context()))
 }
+
+// The totals in a pull request description's prompt must count the same
+// files as the diff the model sees.
+func TestBranchStatsLeaveOutIgnoredFiles(t *testing.T) {
+	newRepoWithIgnoreFile(t)
+
+	files, additions, _, err := GetBranchStats(t.Context(), "main")
+	require.NoError(t, err)
+
+	// feature.txt, .barkignore, keep.go and Cargo.lock (a negated default);
+	// x.snap and go.sum are ignored.
+	assert.Equal(t, 4, files)
+	assert.Equal(t, 5, additions)
+	assert.Contains(t, GetBranchDiffStat(t.Context(), "main"), "4 files changed", "stats and diff stat agree")
+}

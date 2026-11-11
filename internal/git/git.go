@@ -479,18 +479,18 @@ func GetBranchCommits(ctx context.Context, baseBranch string) ([]Commit, error) 
 	return commits, nil
 }
 
-// GetBranchStats gets addition/deletion stats for the branch compared to base
+// GetBranchStats gets addition/deletion stats for the branch compared to
+// base, leaving out ignored files as GetBranchDiff does.
 func GetBranchStats(ctx context.Context, baseBranch string) (filesChanged, additions, deletions int, err error) {
 	currentBranch, err := GetCurrentBranch(ctx)
 	if err != nil {
 		return 0, 0, 0, err
 	}
 
-	cmd := exec.CommandContext(
-		ctx,
-		"git", "diff", "--shortstat",
-		fmt.Sprintf("%s...%s", baseBranch, currentBranch),
-	)
+	// The same files as GetBranchDiff, so the totals describe what the
+	// model sees.
+	args := append([]string{"diff", "--shortstat", fmt.Sprintf("%s...%s", baseBranch, currentBranch), "--"}, excludes(ctx)...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	output, err := cmd.Output()
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to get branch stats: %w", err)
