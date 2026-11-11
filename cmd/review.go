@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -37,6 +38,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().Bool("with-context", false, "Include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review")
 	cmd.Flags().Bool("structured", false, "Ask for structured findings (file, line, severity, suggestion); the reviewer persona voices the intro, remarks and verdict")
 	cmd.Flags().Bool("check", true, "Check structured findings with a second model call that reads the code around them, and set aside the ones that don't hold up (overrides config)")
+	cmd.Flags().String("min-severity", "", "Show only structured findings of this severity or higher: "+strings.Join(config.Severities(), ", ")+" (overrides config)")
 	cmd.Flags().Bool("comment", false, "Post the review to the pull request, with findings as inline comments and fixes as suggestions (requires --pr; implies --structured)")
 	addPlainFlag(cmd)
 
@@ -104,6 +106,14 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		check, _ := cmd.Flags().GetBool("check")
 		cfg.OverrideCheckFindings(check)
 	}
+
+	if cmd.Flags().Changed("min-severity") {
+		minSeverity, _ := cmd.Flags().GetString("min-severity")
+		if err := cfg.OverrideMinSeverity(minSeverity); err != nil {
+			return err
+		}
+	}
+	warnRepoLLM(os.Stderr, cfg)
 
 	// Posting runs in plain mode: the TUI has no step for it.
 	if stdinDiff != nil || comment || isPlainMode(cmd) {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -55,6 +56,7 @@ func runPRCmd(cmd *cobra.Command, cfg config.Config) error {
 		maxDiffLines, _ := cmd.Flags().GetUint32("max-diff-lines")
 		cfg.OverrideMaxDiffLines(maxDiffLines)
 	}
+	warnRepoLLM(os.Stderr, cfg)
 
 	if stdinDiff != nil || isPlainMode(cmd) {
 		return plain.RunPR(plain.PROptions{

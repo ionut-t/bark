@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -40,6 +41,7 @@ func runCommitCmd(cmd *cobra.Command, cfg config.Config) error {
 	if err := cfg.OverrideProvider(provider); err != nil {
 		return fmt.Errorf("error overriding provider: %w", err)
 	}
+	warnRepoLLM(os.Stderr, cfg)
 
 	// Read stdin if piped
 	stdinDiff, err := readStdinIfPiped()

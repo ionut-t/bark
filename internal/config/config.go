@@ -21,6 +21,7 @@ const (
 	ContextEnrichmentKey  = "context_enrichment"
 	StructuredFindingsKey = "structured_findings"
 	CheckFindingsKey      = "check_findings"
+	MinSeverityKey        = "min_severity"
 
 	rootDir                    = ".bark"
 	configFileName             = ".config.toml"
@@ -59,6 +60,18 @@ type Config interface {
 	SetCheckFindings(check bool) error
 	GetCheckFindings() bool
 	OverrideCheckFindings(check bool)
+	// SetMinSeverity saves the lowest severity a structured review shows;
+	// "" shows every finding.
+	SetMinSeverity(severity string) error
+	GetMinSeverity() string
+	OverrideMinSeverity(severity string) error
+	// ApplyRepo layers a repository's config (read from path) over the
+	// saved values for this run. Run overrides still win, and setters
+	// never save the repository's values.
+	ApplyRepo(path string, repo RepoData)
+	// RepoLLMWarning says which provider and model this run takes from the
+	// repository's config instead of the user's own; "" if none.
+	RepoLLMWarning() string
 }
 
 // Data is the contents of the config file. The toml tags name the keys both
@@ -72,6 +85,7 @@ type Data struct {
 	ContextEnrichment  bool   `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review (default: false)"`
 	StructuredFindings bool   `toml:"structured_findings" comment:"Whether reviews ask the model for structured findings (file, line, severity, ...) instead of free text (default: false)"`
 	CheckFindings      bool   `toml:"check_findings" comment:"Whether structured reviews make a second model call that checks each finding against the code and sets aside the ones that don't hold up (default: true)"`
+	MinSeverity        string `toml:"min_severity" comment:"The lowest severity a structured review shows: critical, high, medium or low (default: empty, every finding)"`
 }
 
 // config is safe for concurrent use: the TUI saves relative_number from a tea.Cmd
@@ -85,6 +99,10 @@ type config struct {
 	// data is what the setters save; the overrides below are never saved.
 	data      Data
 	overrides overrides
+	// repo holds the values a repository's config sets, read from
+	// repoPath. They beat data and lose to overrides.
+	repo     RepoData
+	repoPath string
 }
 
 // overrides hold the values set for the current run only. A nil field means
@@ -96,6 +114,7 @@ type overrides struct {
 	contextEnrichment *bool
 	structured        *bool
 	checkFindings     *bool
+	minSeverity       *string
 }
 
 // valueOr returns the override if set, otherwise the saved value.
@@ -172,7 +191,7 @@ func (c *config) GetLLMProvider() (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	provider := valueOr(c.overrides.llmProvider, c.data.LLMProvider)
+	provider := valueOr(c.overrides.llmProvider, valueOr(c.repo.LLMProvider, c.data.LLMProvider))
 
 	if provider == "" {
 		return "", fmt.Errorf("%s not set in config", LLMProviderKey)
@@ -232,7 +251,7 @@ func (c *config) GetLLMModel() (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	model := valueOr(c.overrides.llmModel, c.data.LLMModel)
+	model := valueOr(c.overrides.llmModel, valueOr(c.repo.LLMModel, c.data.LLMModel))
 
 	if model == "" {
 		return "", fmt.Errorf("%s not set in config", LLMModelKey)
@@ -260,7 +279,7 @@ func (c *config) GetMaxDiffLines() uint32 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return valueOr(c.overrides.maxDiffLines, c.data.MaxDiffLines)
+	return valueOr(c.overrides.maxDiffLines, valueOr(c.repo.MaxDiffLines, c.data.MaxDiffLines))
 }
 
 func (c *config) GetCommitInstructions() string {
@@ -315,7 +334,7 @@ func (c *config) GetContextEnrichment() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return valueOr(c.overrides.contextEnrichment, c.data.ContextEnrichment)
+	return valueOr(c.overrides.contextEnrichment, valueOr(c.repo.ContextEnrichment, c.data.ContextEnrichment))
 }
 
 func (c *config) OverrideContextEnrichment(enrich bool) {
@@ -344,7 +363,7 @@ func (c *config) GetStructuredFindings() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return valueOr(c.overrides.structured, c.data.StructuredFindings)
+	return valueOr(c.overrides.structured, valueOr(c.repo.StructuredFindings, c.data.StructuredFindings))
 }
 
 func (c *config) OverrideStructuredFindings(structured bool) {
@@ -373,7 +392,55 @@ func (c *config) GetCheckFindings() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return valueOr(c.overrides.checkFindings, c.data.CheckFindings)
+	return valueOr(c.overrides.checkFindings, valueOr(c.repo.CheckFindings, c.data.CheckFindings))
+}
+
+func (c *config) SetMinSeverity(severity string) error {
+	severity, err := NormaliseMinSeverity(severity)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.minSeverity = nil
+
+	if severity == c.data.MinSeverity {
+		return nil
+	}
+
+	c.data.MinSeverity = severity
+
+	return writeConfig(c.path, c.data)
+}
+
+func (c *config) GetMinSeverity() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return valueOr(c.overrides.minSeverity, valueOr(c.repo.MinSeverity, c.data.MinSeverity))
+}
+
+func (c *config) OverrideMinSeverity(severity string) error {
+	severity, err := NormaliseMinSeverity(severity)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.minSeverity = &severity
+	return nil
+}
+
+func (c *config) ApplyRepo(path string, repo RepoData) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.repo = repo
+	c.repoPath = path
 }
 
 func (c *config) OverrideCheckFindings(check bool) {

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ionut-t/bark/v2/internal/check"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/stretchr/testify/assert"
@@ -66,15 +67,42 @@ func TestReviewOutput(t *testing.T) {
 			var raw string
 			var err error
 			if tt.stream {
-				raw, err = streamResponse(context.Background(), client, "", "", &out, tt.structured, nil)
+				raw, err = streamResponse(context.Background(), client, "", "", &out, tt.structured, "", nil)
 			} else {
 				raw, err = fullResponse(context.Background(), client, "", "", nil)
 			}
 			require.NoError(t, err)
-			finishReview(&out, raw, tt.stream, tt.structured, nil)
+			finishReview(&out, raw, tt.stream, tt.structured, "", nil)
 			assert.Equal(t, tt.want, out.String())
 			assert.Equal(t, structuredOutput, raw)
 		})
+	}
+}
+
+// Findings below min_severity are never shown or checked, streamed or not.
+func TestReviewOutputMinSeverity(t *testing.T) {
+	t.Parallel()
+
+	client := fakeLLM{output: structuredOutput, chunkSize: 7}
+	const want = "## Verdict\n\nFix the map.\n\n\n"
+
+	for _, stream := range []bool{true, false} {
+		var out strings.Builder
+		var raw string
+		var err error
+		if stream {
+			raw, err = streamResponse(context.Background(), client, "", "", &out, true, findings.Critical, nil)
+		} else {
+			raw, err = fullResponse(context.Background(), client, "", "", nil)
+		}
+		require.NoError(t, err)
+
+		events := finishReview(&out, raw, stream, true, findings.Critical, func(events []findings.Event) ([]findings.Event, int) {
+			assert.Zero(t, check.Count(events), "findings below the threshold mustn't be checked")
+			return events, 0
+		})
+		assert.Equal(t, want, out.String(), "stream %v", stream)
+		assert.Len(t, events, 1, "only the verdict is left")
 	}
 }
 
@@ -102,7 +130,7 @@ func TestFinishReviewWithCheck(t *testing.T) {
 		t.Parallel()
 
 		var out strings.Builder
-		events := finishReview(&out, structuredOutput, false, true, doubtAll)
+		events := finishReview(&out, structuredOutput, false, true, "", doubtAll)
 
 		assert.Equal(t, "## Doubted by Bark's check\n\n"+
 			"A second pass checked these findings against the code and doubts them. They are listed in case it's wrong.\n\n"+
@@ -115,7 +143,7 @@ func TestFinishReviewWithCheck(t *testing.T) {
 		t.Parallel()
 
 		var out strings.Builder
-		finishReview(&out, structuredOutput, true, true, doubtAll)
+		finishReview(&out, structuredOutput, true, true, "", doubtAll)
 
 		assert.Equal(t, "## Bark's check\n\nA second pass checked 1 finding against the code and doubts 1:\n\n"+doubted, out.String())
 	})
@@ -124,7 +152,7 @@ func TestFinishReviewWithCheck(t *testing.T) {
 		t.Parallel()
 
 		var out strings.Builder
-		events := finishReview(&out, "plain text", false, false, func([]findings.Event) ([]findings.Event, int) {
+		events := finishReview(&out, "plain text", false, false, "", func([]findings.Event) ([]findings.Event, int) {
 			t.Fatal("free text has no findings to check")
 			return nil, 0
 		})

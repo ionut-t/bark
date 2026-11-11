@@ -74,6 +74,8 @@ bark review --pr 42 --comment
 
 Structured reviews (`--structured`, or `--comment`) are checked before they're shown in full or posted: a second model call reads the files the findings point to (whole, or the lines around each finding for files over 1,500 lines) and must quote the code a finding rests on. Findings that don't hold up are set aside in a "Doubted by Bark's check" section (collapsed in a posted review, never inline comments) with the reason. The check costs one extra call per review that has findings, with the diff and those files as input. When the review isn't streamed (plain output, `--comment`) and the check sets findings aside, one more small call (no code, a few hundred tokens) rewrites the reviewer's intro and verdict so they don't demand fixes for them. With `--pr`, the check also sets aside findings that repeat a point Bark's earlier reviews of the same pull request already raised (posted, doubted or resolved). Each posted review records its findings in a hidden comment for this; reviews posted by older versions of Bark have none. Repeats get no inline comments and are listed in a collapsed "Raised before on this pull request" block. Turn it off with `--check=false`, or for good with `bark config --check-findings=false`.
 
+To show only the more serious findings of a structured review, pass `--min-severity` (`critical`, `high`, `medium` or `low`), or set it for good with `bark config --min-severity high`. Less severe findings are left out before the check, so they aren't checked, shown or posted. The model still writes them, so the threshold doesn't lower the review's cost.
+
 ### Commit Message Generation
 
 To generate a commit message for the current staged changes, run `bark commit`:
@@ -107,6 +109,36 @@ To use a different config file, pass `--config <path>` to any command. The file 
 ```bash
 bark review --config ~/work/bark.toml
 ```
+
+### Per-repository config
+
+A repository can share review settings in `.bark/config.toml` at its top level. Its values win over your config file and lose to command-line flags. It can set `llm_provider`, `llm_model`, `max_diff_lines`, `context_enrichment`, `structured_findings`, `check_findings` and `min_severity`. Other keys are an error. That includes `editor` and `relative_number`, which stay personal (the editor is run as a command, so a cloned repository can't choose it).
+
+```toml
+structured_findings = true
+check_findings = true
+min_severity = "medium"
+max_diff_lines = 4000
+```
+
+If the repository's config picks a different provider or model from yours, Bark prints a warning on every run that uses it, because the run uses your credentials for that provider. Pass `--provider`/`--model` to choose your own.
+
+### Ignoring files
+
+Bark leaves lock files and checksums (`*.sum`, `*.lock`, `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `bun.lockb`), generated protobuf code (`*.pb.go`, `*.pb.gw.go`) and minified assets (`*.min.js`, `*.min.css`) out of every diff it sends to a model. The manifest that changed a lock file, such as `go.mod` or `package.json`, is still reviewed. List more paths in a `.barkignore` file at the repository's top level. It uses `.gitignore` syntax:
+
+```gitignore
+# Snapshots and generated code
+*.snap
+internal/gen/
+/docs/api.md
+testdata/**/*.golden
+
+# Review lock files again
+!*.lock
+```
+
+A pattern without a slash matches at any depth, and a leading or middle slash anchors it at the top level. A trailing slash matches a directory. `*` and `?` stay within one directory, and `**` crosses them. `!` can only turn off one of the defaults above. `.barkignore` and `.bark/config.toml` are always reviewed, so a pattern that matches either (such as `.bark/`, `.*` or `*`) is not used. In CI a pull request's own copies apply to its review, and this keeps a pull request from hiding files or lowering the bar without the change showing up in the review. Bark prints a warning for lines it can't use and applies the rest. The file applies to reviews, commit messages and pull request descriptions, including `--pr` reviews. Diffs piped on stdin are used as they are.
 
 ## Costs
 

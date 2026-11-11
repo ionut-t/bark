@@ -149,6 +149,8 @@ type reviewModel struct {
 	// turns them into Markdown as they stream.
 	structured bool
 	renderer   *findings.Renderer
+	// minSeverity leaves out less severe findings; "" shows them all.
+	minSeverity findings.Severity
 	// raw is the model's output so far; Bark's check parses it once the
 	// review is done.
 	raw *strings.Builder
@@ -341,7 +343,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		_ = m.editor.SetCursorPosition(0, 0)
 
 		if m.structured && m.check != nil {
-			if events := findings.Parse(m.raw.String()); check.Count(events) > 0 {
+			if events, _ := findings.DropBelow(findings.Parse(m.raw.String()), m.minSeverity); check.Count(events) > 0 {
 				m.checking = true
 				m.setCheckingStatusLine()
 				return m, runCheckCmd(*m.check, m.run, events)
@@ -504,7 +506,7 @@ func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	m.contentBuilder = &strings.Builder{}
 	m.renderer = nil
 	if m.structured {
-		m.renderer = &findings.Renderer{}
+		m.renderer = &findings.Renderer{Min: m.minSeverity}
 	}
 
 	m.finishLog(errors.New("review restarted"))
