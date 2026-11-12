@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/config"
@@ -166,4 +167,26 @@ func TestPlainFlag_OnlyOnCommandsThatReadIt(t *testing.T) {
 			assert.Contains(t, cmd.UsageString(), "--plain")
 		})
 	}
+}
+
+// The version banner is coloured for the terminal's background, which takes a
+// terminal query that can stall for seconds. Only --version may pay for it.
+func TestRootCmd_VersionBannerIsRenderedOnDemand(t *testing.T) {
+	t.Parallel()
+
+	load := func(string) (config.Config, error) { return config.New("", config.Data{}), nil }
+
+	cmd := newRootCmd(load)
+	assert.NotContains(t, cmd.VersionTemplate(), "Release date",
+		"building the command tree must not render the banner")
+
+	var out strings.Builder
+	cmd.Version = "test"
+	cmd.SetArgs([]string{"--version"})
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+
+	require.NoError(t, cmd.Execute())
+	assert.Contains(t, out.String(), "Release date")
+	assert.Contains(t, out.String(), "Commit")
 }

@@ -38,18 +38,23 @@ type AssetsModel struct {
 }
 
 func NewAssetsModel(storagePath string, assetType AssetType, action AssetAction, editor string) AssetsModel {
-	isDarkMode := styles.IsDark()
+	// Dark until the terminal answers Init's request: see Model.Init.
+	isDarkMode := true
 	appStyles := styles.New(isDarkMode)
 
-	var items []list.Item
+	// A load error leaves the list empty rather than unbuilt: Update still
+	// passes it messages, and a zero list.Model panics on them.
+	var (
+		items   []list.Item
+		loadErr error
+	)
 
 	switch assetType {
 	case AssetInstruction:
 		instructionsList, err := instructions.Get(storagePath)
 		if err != nil {
-			return AssetsModel{
-				error: err,
-			}
+			loadErr = err
+			break
 		}
 
 		items = make([]list.Item, 0, len(instructionsList))
@@ -62,9 +67,8 @@ func NewAssetsModel(storagePath string, assetType AssetType, action AssetAction,
 	case AssetReviewer:
 		reviewersList, err := reviewers.Get(storagePath)
 		if err != nil {
-			return AssetsModel{
-				error: err,
-			}
+			loadErr = err
+			break
 		}
 
 		items = make([]list.Item, 0, len(reviewersList))
@@ -86,16 +90,22 @@ func NewAssetsModel(storagePath string, assetType AssetType, action AssetAction,
 		action:    action,
 		list:      ls,
 		styles:    appStyles,
+		error:     loadErr,
 	}
 }
 
 func (m AssetsModel) Init() tea.Cmd {
-	return nil
+	return tea.RequestBackgroundColor
 }
 
 func (m AssetsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		m.styles = styles.New(msg.IsDark())
+		restyleList(&m.list, m.styles, msg.IsDark())
+		return m, nil
+
 	case tea.QuitMsg:
 		m.abort = true
 

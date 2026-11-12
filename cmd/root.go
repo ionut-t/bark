@@ -58,7 +58,7 @@ func newRootCmd(load configLoader) *cobra.Command {
 		},
 	}
 
-	rootCmd.SetVersionTemplate(versionTemplate())
+	rootCmd.SetVersionTemplate(versionTemplate)
 
 	rootCmd.AddCommand(configCmd(getCfg))
 	rootCmd.AddCommand(reviewCmd(getCfg))
@@ -114,7 +114,15 @@ func Execute() error {
 	)
 }
 
-func versionTemplate() string {
+// versionTemplate renders the banner when --version prints it, not when the
+// command tree is built
+const versionTemplate = "{{barkVersionBanner}}"
+
+func init() {
+	cobra.AddTemplateFunc("barkVersionBanner", versionBanner)
+}
+
+func versionBanner() string {
 	versionTpl := styles.New(styles.IsDark()).Primary.Margin(0, 2).Render(logo) + `
   Version        %s
   Commit         %s

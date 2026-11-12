@@ -89,7 +89,7 @@ type ActionsModel struct {
 }
 
 func NewActionsModel(cfg config.Config) ActionsModel {
-	isDarkMode := styles.IsDark()
+	isDarkMode := true
 	appStyles := styles.New(isDarkMode)
 
 	multiselectWorkflowInput := huh.NewMultiSelect[actionsWorkflowOption]().Title("Select workflows").
@@ -147,13 +147,35 @@ func (m *ActionsModel) setSize(width, height int) {
 }
 
 func (m ActionsModel) Init() tea.Cmd {
-	return nil
+	return tea.RequestBackgroundColor
+}
+
+func (m *ActionsModel) setDarkMode(isDarkMode bool) {
+	if isDarkMode == m.isDarkMode {
+		return
+	}
+
+	m.isDarkMode = isDarkMode
+	m.styles = styles.New(isDarkMode)
+
+	theme := styles.HuhThemeCatppuccin{Styles: m.styles}
+	m.multiselectWorkflowInput.WithTheme(theme)
+	m.selectStructuredWorkflowInput.WithTheme(theme)
+	m.confirmDirectoryInput.WithTheme(theme)
+
+	if m.view == actionsWorkflowSummaryView {
+		m.summary.setStyles(m.styles, isDarkMode)
+	}
 }
 
 func (m ActionsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		m.setDarkMode(msg.IsDark())
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -378,7 +400,7 @@ func (m ActionsModel) saveFiles() tea.Cmd {
 }
 
 func (m *ActionsModel) setWorkflowsSummary() {
-	m.summary.setStyles(m.styles, true)
+	m.summary.setStyles(m.styles, m.isDarkMode)
 	m.summary.setWorkflows(m.selectedWorkflowOptions, m.combinedWorkflow)
 	m.summary.setSize(m.width, m.height)
 	m.view = actionsWorkflowSummaryView
@@ -415,7 +437,7 @@ type actionsWorkflowSummaryModel struct {
 }
 
 func newActionsWorkflowSummaryModel(cfg config.Config) actionsWorkflowSummaryModel {
-	textEditor := editor.New(80, 24)
+	textEditor := newEditor(80, 24)
 	textEditor.SetExtraHighlightedContextLines(500)
 	textEditor.ShowRelativeLineNumbers(cfg.GetRelativeNumber())
 	textEditor.SetMoveAcrossLines(true)
