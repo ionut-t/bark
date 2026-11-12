@@ -147,6 +147,7 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 type commitDataLoadedMsg struct {
 	instructions string
 	diff         string
+	branch       string
 	commitAll    bool
 	err          error
 }
@@ -162,9 +163,11 @@ func loadCommitDataCmd(fallbackInstructions string, commitAll bool) tea.Cmd {
 		}
 
 		diff, err := git.GetWorkingTreeDiff(ctx, commitAll)
+		branch, _ := git.GetCurrentBranch(ctx)
 		return commitDataLoadedMsg{
 			instructions: instr,
 			diff:         diff,
+			branch:       branch,
 			commitAll:    commitAll,
 			err:          err,
 		}
