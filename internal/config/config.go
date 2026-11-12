@@ -44,6 +44,12 @@ type Config interface {
 	GetLLMModel() (string, error)
 	OverrideModel(model string)
 	OverrideProvider(provider string) error
+	// LLMProviderChoice returns the provider this run is configured with
+	// ("" if none) and whether it is pinned: set at the same layer as the
+	// model or a higher one (run override > repository > user config). An
+	// unpinned provider was chosen for a different model, so the factory may
+	// infer the provider from the model instead.
+	LLMProviderChoice() (provider string, pinned bool)
 	OverrideMaxDiffLines(lines uint32)
 	GetCommitInstructions() string
 	GetPRInstructions() string
@@ -78,7 +84,7 @@ type Config interface {
 // when saving and when loading.
 type Data struct {
 	Editor             string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
-	LLMProvider        string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark will try to auto-detect the provider based on available credentials."`
+	LLMProvider        string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark infers it from the model name (claude-*, gpt-*, gemini-*, ...), then from the credentials it finds. A --model or repository model naming another provider's model switches to that provider unless the provider is set at the same level."`
 	LLMModel           string `toml:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
 	MaxDiffLines       uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt (0 disables the limit)"`
 	RelativeNumber     bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
@@ -198,6 +204,34 @@ func (c *config) GetLLMProvider() (string, error) {
 	}
 
 	return provider, nil
+}
+
+func (c *config) LLMProviderChoice() (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	provider := valueOr(c.overrides.llmProvider, valueOr(c.repo.LLMProvider, c.data.LLMProvider))
+	if provider == "" {
+		return "", false
+	}
+
+	providerLayer := layerOf(c.overrides.llmProvider, c.repo.LLMProvider)
+	modelLayer := layerOf(c.overrides.llmModel, c.repo.LLMModel)
+
+	return provider, providerLayer >= modelLayer
+}
+
+// layerOf ranks where a value comes from: 2 for a run override, 1 for the
+// repository's config, 0 for the user's config.
+func layerOf(override, repo *string) int {
+	switch {
+	case override != nil:
+		return 2
+	case repo != nil:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func (c *config) OverrideModel(model string) {

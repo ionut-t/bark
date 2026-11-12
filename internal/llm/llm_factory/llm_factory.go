@@ -119,23 +119,18 @@ func New(ctx context.Context, cfg config.Config) (llm.LLM, string, error) {
 
 	creds := loadCredentials()
 
-	provider, err := cfg.GetLLMProvider()
-	if err != nil || provider == "" {
-		// Config doesn't specify provider, try to auto-detect
-		provider, err = creds.detectProvider()
-		if err != nil {
-			return nil, "", err
-		}
-	}
-
-	provider = strings.ToLower(strings.TrimSpace(provider))
-
-	if err := creds.validateProvider(provider); err != nil {
+	model, err := cfg.GetLLMModel()
+	if err != nil {
 		return nil, "", err
 	}
 
-	model, err := cfg.GetLLMModel()
+	configured, pinned := cfg.LLMProviderChoice()
+	provider, err := resolveProvider(configured, pinned, model, creds)
 	if err != nil {
+		return nil, "", err
+	}
+
+	if err := creds.validateProvider(provider); err != nil {
 		return nil, "", err
 	}
 

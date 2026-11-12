@@ -104,6 +104,10 @@ bark config --provider gemini         # `bark config --help` lists the providers
 bark config --model gemini-2.5-pro
 ```
 
+Setting the provider is optional. Bark infers it from the model name: `claude-*` is Anthropic, `gpt-*`, `o3`-style names, `chatgpt-*`, `codex-*` and `ft:` fine-tunes are OpenAI, and `gemini-*` is Gemini or Vertex AI (whichever you configured, otherwise whichever has credentials, Gemini first). Other names, such as Ollama models, use the configured provider, or the first provider whose credentials are set (`GEMINI_API_KEY`, `VERTEXAI_PROJECT_ID` and `VERTEXAI_LOCATION`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, then `OLLAMA_HOST`).
+
+A model chosen at a higher level than the provider wins: with `llm_provider = "gemini"` in your config, `bark review -m claude-sonnet-5-5` uses Anthropic. A provider set at the same level as the model, or a higher one, always wins, so `--provider ollama -m gpt-oss:20b` stays on Ollama.
+
 To use a different config file, pass `--config <path>` to any command. The file must already exist; `bark config --config <path>` reads and saves that file instead of the default:
 
 ```bash
@@ -121,7 +125,7 @@ min_severity = "medium"
 max_diff_lines = 4000
 ```
 
-If the repository's config picks a different provider or model from yours, Bark prints a warning on every run that uses it, because the run uses your credentials for that provider. Pass `--provider`/`--model` to choose your own.
+If the repository's config picks a different provider or model from yours, Bark prints a warning (a repository's `llm_model` alone can switch your provider, as above) on every run that uses it, because the run uses your credentials for that provider. Pass `--provider`/`--model` to choose your own.
 
 ### Ignoring files
 
