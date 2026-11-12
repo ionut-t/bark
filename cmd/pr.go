@@ -24,7 +24,7 @@ func prCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().StringP("branch", "b", "", "The base branch to compare against (optional)")
 	cmd.Flags().StringP("pr", "p", "", "Generate a description for a GitHub pull request by number (requires gh CLI)")
 	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
-	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config): "+strings.Join(config.SupportedProviders(), ", "))
+	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config; by default inferred from the model name): "+strings.Join(config.SupportedProviders(), ", "))
 	cmd.Flags().StringP("instructions", "i", "", "Custom instructions (file path or raw text, overrides default PR instructions)")
 	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
 	addPlainFlag(cmd)

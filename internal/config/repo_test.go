@@ -287,3 +287,94 @@ func TestMinSeverity(t *testing.T) {
 	require.NoError(t, cfg.SetMinSeverity(""))
 	assert.Empty(t, cfg.GetMinSeverity(), "an empty value turns the threshold off")
 }
+
+// A provider pins the model only when it is set at the same layer as the
+// model or a higher one (run > repo > user). A model chosen at a higher
+// layer than the provider leaves the provider free to follow the model.
+func TestLLMProviderChoice(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		saved        Data
+		repo         *RepoData
+		overProvider string
+		overModel    string
+		wantProvider string
+		wantPinned   bool
+	}{
+		{
+			name:         "provider and model saved together",
+			saved:        Data{LLMProvider: "ollama", LLMModel: "gpt-oss:20b"},
+			wantProvider: "ollama",
+			wantPinned:   true,
+		},
+		{
+			name:         "no provider anywhere",
+			saved:        Data{LLMModel: "claude-sonnet-5-5"},
+			wantProvider: "",
+			wantPinned:   false,
+		},
+		{
+			name:         "--model over a saved provider",
+			saved:        Data{LLMProvider: "gemini", LLMModel: "gemini-2.5-pro"},
+			overModel:    "claude-sonnet-5-5",
+			wantProvider: "gemini",
+			wantPinned:   false,
+		},
+		{
+			name:         "--provider and --model together",
+			saved:        Data{LLMProvider: "gemini", LLMModel: "gemini-2.5-pro"},
+			overProvider: "openai",
+			overModel:    "claude-sonnet-5-5",
+			wantProvider: "openai",
+			wantPinned:   true,
+		},
+		{
+			name:         "--provider alone",
+			saved:        Data{LLMProvider: "gemini", LLMModel: "gemini-2.5-pro"},
+			overProvider: "vertexai",
+			wantProvider: "vertexai",
+			wantPinned:   true,
+		},
+		{
+			name:         "repo model over a saved provider",
+			saved:        Data{LLMProvider: "gemini", LLMModel: "gemini-2.5-pro"},
+			repo:         &RepoData{LLMModel: new("claude-sonnet-5-5")},
+			wantProvider: "gemini",
+			wantPinned:   false,
+		},
+		{
+			name:         "repo sets both",
+			saved:        Data{LLMProvider: "gemini", LLMModel: "gemini-2.5-pro"},
+			repo:         &RepoData{LLMProvider: new("ollama"), LLMModel: new("llama3")},
+			wantProvider: "ollama",
+			wantPinned:   true,
+		},
+		{
+			name:         "--model over a repo provider",
+			saved:        Data{LLMModel: "gemini-2.5-pro"},
+			repo:         &RepoData{LLMProvider: new("vertexai")},
+			overModel:    "claude-sonnet-5-5",
+			wantProvider: "vertexai",
+			wantPinned:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := New("", tt.saved)
+			if tt.repo != nil {
+				cfg.ApplyRepo("/repo/.bark/config.toml", *tt.repo)
+			}
+			require.NoError(t, cfg.OverrideProvider(tt.overProvider))
+			cfg.OverrideModel(tt.overModel)
+
+			provider, pinned := cfg.LLMProviderChoice()
+			assert.Equal(t, tt.wantProvider, provider)
+			assert.Equal(t, tt.wantPinned, pinned)
+		})
+	}
+}
