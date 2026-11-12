@@ -933,7 +933,8 @@ func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.
 	}
 	m.operationCancelFunc = cancel
 
-	m.commitChanges = newCommitChangesModel(m.llm, commitSystem, msg.diff, msg.commitAll, m.width, m.height)
+	commitContent := prompt.FormatCommitContent(msg.branch, msg.diff)
+	m.commitChanges = newCommitChangesModel(m.llm, commitSystem, commitContent, msg.commitAll, m.width, m.height)
 	m.commitChanges.setStyles(m.styles, m.isDarkMode)
 	m.commitChanges.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.commitChanges.displayUsedModel(m.getLlmModelName())

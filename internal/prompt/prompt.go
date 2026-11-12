@@ -52,6 +52,13 @@ func FormatCommitSystem(instructions, hint string) string {
 		"Commit message hint: " + hint
 }
 
+// FormatCommitContent builds the user prompt for commit message generation.
+// The current branch is prepended when it carries intent,
+// so the model can use it as a hint for the commit type and scope.
+func FormatCommitContent(branch, diff string) string {
+	return git.FormatBranchHeader(branch) + diff
+}
+
 // FormatPRSystem builds the system prompt for PR description generation.
 func FormatPRSystem(instructions string) string {
 	return instructions + "**Analyze the following changes and generate an appropriate PR description:**"

@@ -222,7 +222,7 @@ func RunReview(opts ReviewOptions) error {
 
 // RunCommit generates a commit message and writes it to stdout.
 func RunCommit(opts CommitOptions) error {
-	var diff string
+	var diff, branch string
 
 	if opts.Diff == nil {
 		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -233,6 +233,9 @@ func RunCommit(opts CommitOptions) error {
 		if err != nil {
 			return err
 		}
+		// A piped diff may not come from the current branch, so only name it
+		// when the diff is the working tree's.
+		branch, _ = git.GetCurrentBranch(gitCtx)
 	} else {
 		diff = *opts.Diff
 	}
@@ -256,7 +259,7 @@ func RunCommit(opts CommitOptions) error {
 	llmCtx, llmCancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer llmCancel()
 
-	result, err := client.Generate(llmCtx, commitSystem, diff)
+	result, err := client.Generate(llmCtx, commitSystem, prompt.FormatCommitContent(branch, diff))
 	if err != nil {
 		return fmt.Errorf("error generating commit message: %w", err)
 	}
