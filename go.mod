@@ -9,12 +9,12 @@ require (
 	charm.land/huh/v2 v2.0.3
 	charm.land/lipgloss/v2 v2.1.0
 	github.com/anthropics/anthropic-sdk-go v1.84.0
-	github.com/ionut-t/coffee/help v0.0.0-20261024081733-050ab0cea83e
-	github.com/ionut-t/coffee/styles v0.0.0-20261024081733-050ab0cea83e
-	github.com/ionut-t/goeditor v0.20.0
+	github.com/ionut-t/coffee/help v0.0.0-20261112230337-edee214a608a
+	github.com/ionut-t/coffee/styles v0.0.0-20261112230337-edee214a608a
+	github.com/ionut-t/goeditor v0.21.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/odvcencio/gotreesitter v0.57.0
-	github.com/openai/openai-go/v3 v3.98.0
+	github.com/openai/openai-go/v3 v3.99.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
@@ -87,7 +87,7 @@ require (
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
-	google.golang.org/api v0.313.0 // indirect
+	google.golang.org/api v0.314.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261110000943-09e21b237f2c // indirect
 	google.golang.org/grpc v1.85.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
