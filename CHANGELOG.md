@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.29.1](https://github.com/ionut-t/bark/compare/v2.29.0...v2.29.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **tui:** prevent blocking terminal background colour queries ([#120](https://github.com/ionut-t/bark/issues/120)) ([a32380f](https://github.com/ionut-t/bark/commit/a32380f728e8c12131a37c3b08a686d38d6e7d4c))
+
 ## [2.29.0](https://github.com/ionut-t/bark/compare/v2.28.0...v2.29.0) (2026-11-12)
 
 
