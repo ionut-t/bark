@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.28.0](https://github.com/ionut-t/bark/compare/v2.27.1...v2.28.0) (2026-11-12)
+
+
+### Features
+
+* **commit:** include branch name in prompt context ([#116](https://github.com/ionut-t/bark/issues/116)) ([482ecc7](https://github.com/ionut-t/bark/commit/482ecc7ac84f23f61e4361d1d8d6620375560bd8))
+* **config:** add repository-level settings and barkignore ([#113](https://github.com/ionut-t/bark/issues/113)) ([84ea582](https://github.com/ionut-t/bark/commit/84ea5825af67ae3b8b69998b40336cb721ef2e4a))
+
 ## [2.27.1](https://github.com/ionut-t/bark/compare/v2.27.0...v2.27.1) (2026-11-10)
 
 
