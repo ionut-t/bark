@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.29.0](https://github.com/ionut-t/bark/compare/v2.28.0...v2.29.0) (2026-11-12)
+
+
+### Features
+
+* **llm:** infer provider from model name ([#117](https://github.com/ionut-t/bark/issues/117)) ([9a8b87f](https://github.com/ionut-t/bark/commit/9a8b87f8268334131d98f141aec00c4f41db680f))
+
+
+### Bug Fixes
+
+* **templates:** remove issue references in commit messages ([#119](https://github.com/ionut-t/bark/issues/119)) ([6677a71](https://github.com/ionut-t/bark/commit/6677a710c6a5dd9354d49435e08d10461aa15962))
+
 ## [2.28.0](https://github.com/ionut-t/bark/compare/v2.27.1...v2.28.0) (2026-11-12)
 
 
