@@ -181,7 +181,7 @@ type reviewModel struct {
 }
 
 func newReviewModel(reviewer reviewers.Reviewer, system, prompt string, width, height int, llm llm.LLM) reviewModel {
-	textEditor := editor.New(width, height)
+	textEditor := newEditor(width, height)
 	textEditor.DisableInsertMode(true)
 	textEditor.SetExtraHighlightedContextLines(streamingHighlightContextLines)
 	textEditor.Focus()

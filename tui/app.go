@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -136,7 +137,8 @@ type Options struct {
 }
 
 func New(options Options) *Model {
-	isDarkMode := styles.IsDark()
+	// Dark until the terminal answers Init's request: see Model.Init.
+	isDarkMode := true
 
 	llm, provider, err := llm_factory.New(context.Background(), options.Config)
 	if err != nil {
@@ -229,7 +231,49 @@ func (m *Model) recordCheckUsage(msg checkDoneMsg) {
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.pendingCmd
+	return tea.Batch(tea.RequestBackgroundColor, m.pendingCmd)
+}
+
+// setDarkMode restyles the app for the terminal's background. The answer
+// usually arrives before the first key press, but a task given on the command
+// line may already have built its models by then.
+func (m *Model) setDarkMode(isDarkMode bool) {
+	if isDarkMode == m.isDarkMode {
+		return
+	}
+
+	m.isDarkMode = isDarkMode
+	m.styles = styles.New(isDarkMode)
+
+	m.branchInput.setStyles(m.styles)
+	m.prNumberInput.setStyles(m.styles)
+
+	// Models built on demand are zero values until then; only a built list
+	// has items and only a built editor model has its LLM client.
+	for _, l := range []*list.Model{
+		&m.tasks.list,
+		&m.reviewOptions.list,
+		&m.prDescriptionOptions.list,
+		&m.reviewers.list,
+		&m.instructions.list,
+	} {
+		if len(l.Items()) > 0 {
+			restyleList(l, m.styles, isDarkMode)
+		}
+	}
+	if len(m.commits.list.Items()) > 0 {
+		m.commits.setStyles(m.styles, isDarkMode)
+	}
+
+	if m.review.llm != nil {
+		m.review.setStyles(m.styles, isDarkMode)
+	}
+	if m.commitChanges.llm != nil {
+		m.commitChanges.setStyles(m.styles, isDarkMode)
+	}
+	if m.pr.llm != nil {
+		m.pr.setStyles(m.styles, isDarkMode)
+	}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -259,6 +303,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		m.setDarkMode(msg.IsDark())
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height

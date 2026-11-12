@@ -88,11 +88,22 @@ func additionalHelpKeysFunc() func() []key.Binding {
 	}
 }
 
-func newListModel(title string, items []list.Item, s styles.Styles, isDark bool) list.Model {
-	delegate := itemDelegate{
+func newItemDelegate(s styles.Styles) itemDelegate {
+	return itemDelegate{
 		selectedStyle: s.Primary.PaddingLeft(2).Bold(true),
 	}
-	l := list.New(items, delegate, defaultListWidth, defaultListHeight)
+}
+
+// restyleList applies s to a list built by newListModel, keeping its items,
+// cursor and filter.
+func restyleList(l *list.Model, s styles.Styles, isDark bool) {
+	l.Styles = styles.ListStyles(s, isDark)
+	l.Styles.Title = l.Styles.Title.MarginLeft(2)
+	l.SetDelegate(newItemDelegate(s))
+}
+
+func newListModel(title string, items []list.Item, s styles.Styles, isDark bool) list.Model {
+	l := list.New(items, newItemDelegate(s), defaultListWidth, defaultListHeight)
 	l.Title = title
 
 	l.Styles = styles.ListStyles(s, isDark)

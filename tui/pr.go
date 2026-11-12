@@ -143,7 +143,7 @@ type prModel struct {
 }
 
 func newPRModel(llm llm.LLM, width, height int) prModel {
-	textEditor := editor.New(width, height)
+	textEditor := newEditor(width, height)
 	textEditor.SetExtraHighlightedContextLines(300)
 	textEditor.Focus()
 	textEditor.SetMoveAcrossLines(true)

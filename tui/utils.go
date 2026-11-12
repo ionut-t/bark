@@ -17,6 +17,15 @@ import (
 
 var viewMargin = lipgloss.NewStyle().Margin(2)
 
+// newEditor builds an editor without letting it ask the terminal for its
+// background colour. That query blocks until the terminal answers, and inside
+// a running program Bubble Tea may read the answer first, leaving the query
+// to time out. The value only picks the editor's default theme, which every
+// model replaces in setStyles.
+func newEditor(width, height int) editor.Model {
+	return editor.New(width, height, editor.WithDarkBackground(true))
+}
+
 func promptPreview(system, prompt string) string {
 	return system + "\n\n---\n\n" + prompt + "\n\n"
 }
