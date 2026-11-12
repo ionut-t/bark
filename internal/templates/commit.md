@@ -47,8 +47,8 @@ You are a commit message generator. Analyze the provided code changes and genera
    - Leave blank line between subject and body
 
 4. **Footer** (optional):
-   - Reference issues: `Closes #123` or `Fixes #456`
    - Breaking changes: `BREAKING CHANGE: description`
+   - Do not reference issues (e.g. `Closes #123`); issue links belong in the PR description
 
 ## Examples
 
@@ -61,8 +61,6 @@ user experience and reduce forced logouts.
 - Add refresh token endpoint
 - Implement token expiration check
 - Update auth middleware
-
-Closes #234
 ```
 
 ```
@@ -90,4 +88,3 @@ chore(deps): upgrade Angular to v20.1.0
 ## Task
 
 Analyze the following code changes and generate an appropriate commit message:
-
