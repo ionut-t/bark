@@ -993,16 +993,11 @@ func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.
 	return m, m.commitChanges.startCommitGeneration(ctx)
 }
 
+// handleCommitMessageRetry regenerates the commit message. It reloads the
+// diff, branch and instructions first, so changes made while the commit view
+// is open are part of the new prompt.
 func (m *Model) handleCommitMessageRetry() (tea.Model, tea.Cmd) {
-	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
-
-	if m.operationCancelFunc != nil {
-		m.operationCancelFunc()
-	}
-
-	m.operationCancelFunc = cancel
-
-	return m, m.commitChanges.startCommitGeneration(ctx)
+	return m.handleCommitMessage(m.commitChanges.commitAll)
 }
 
 func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
