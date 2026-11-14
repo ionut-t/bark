@@ -93,7 +93,7 @@ func TestReviewOutput(t *testing.T) {
 				raw, _, err = fullResponse(context.Background(), client, "", "", nil)
 			}
 			require.NoError(t, err)
-			finishReview(&out, raw, false, tt.stream, tt.structured, "", nil, nil)
+			finishReview(&out, os.Stderr, raw, false, tt.stream, tt.structured, "", nil, nil)
 			assert.Equal(t, tt.want, out.String())
 			assert.Equal(t, structuredOutput, raw)
 		})
@@ -134,7 +134,7 @@ func TestReviewOutputTruncated(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.True(t, truncated)
-			events := finishReview(&out, raw, truncated, tt.stream, tt.structured, "", nil, nil)
+			events, _ := finishReview(&out, os.Stderr, raw, truncated, tt.stream, tt.structured, "", nil, nil)
 			assert.Equal(t, tt.want, out.String())
 			if tt.structured {
 				require.NotEmpty(t, events)
@@ -162,7 +162,7 @@ func TestReviewOutputMinSeverity(t *testing.T) {
 		}
 		require.NoError(t, err)
 
-		events := finishReview(&out, raw, false, stream, true, findings.Critical, func(events []findings.Event) ([]findings.Event, int) {
+		events, _ := finishReview(&out, os.Stderr, raw, false, stream, true, findings.Critical, func(events []findings.Event) ([]findings.Event, int) {
 			assert.Zero(t, check.Count(events), "findings below the threshold mustn't be checked")
 			return events, 0
 		}, nil)
@@ -195,7 +195,7 @@ func TestFinishReviewWithCheck(t *testing.T) {
 		t.Parallel()
 
 		var out strings.Builder
-		events := finishReview(&out, structuredOutput, false, false, true, "", doubtAll, nil)
+		events, _ := finishReview(&out, os.Stderr, structuredOutput, false, false, true, "", doubtAll, nil)
 
 		assert.Equal(t, "## Doubted by Bark's check\n\n"+
 			"A second pass checked these findings against the code and doubts them. They are listed in case it's wrong.\n\n"+
@@ -208,7 +208,7 @@ func TestFinishReviewWithCheck(t *testing.T) {
 		t.Parallel()
 
 		var out strings.Builder
-		finishReview(&out, structuredOutput, false, true, true, "", doubtAll, nil)
+		finishReview(&out, os.Stderr, structuredOutput, false, true, true, "", doubtAll, nil)
 
 		assert.Equal(t, "## Bark's check\n\nA second pass checked 1 finding against the code and doubts 1:\n\n"+doubted, out.String())
 	})
@@ -217,7 +217,7 @@ func TestFinishReviewWithCheck(t *testing.T) {
 		t.Parallel()
 
 		var out strings.Builder
-		events := finishReview(&out, "plain text", false, false, false, "", func([]findings.Event) ([]findings.Event, int) {
+		events, _ := finishReview(&out, os.Stderr, "plain text", false, false, false, "", func([]findings.Event) ([]findings.Event, int) {
 			t.Fatal("free text has no findings to check")
 			return nil, 0
 		}, nil)
@@ -504,7 +504,7 @@ func TestCheckFindingsFailedMarksUnchecked(t *testing.T) {
 		{Finding: &findings.Finding{File: "a.go", Line: 2, Severity: findings.Low, Title: "B"}},
 		{Verdict: "Fix it."},
 	}
-	got, checked, _ := checkFindings(check.Review{Client: emptyLLM{}}, events, nil, time.Minute)
+	got, checked, _ := checkFindings(context.Background(), os.Stderr, check.Review{Client: emptyLLM{}}, events, nil, time.Minute)
 	assert.Equal(t, 0, checked)
 	assert.Equal(t, []findings.Event{
 		{Finding: &findings.Finding{File: "a.go", Line: 1, Severity: findings.High, Title: "A", Unchecked: "it failed."}},
@@ -669,11 +669,11 @@ func TestMeterCalls(t *testing.T) {
 	cache := t.TempDir()
 	client := nopLLM{}
 
-	got, meter := meterCalls(client, cache, "gemini", "gemini-3.6-flash")
+	got, meter := meterCalls(os.Stderr, client, cache, "gemini", "gemini-3.6-flash")
 	assert.Equal(t, client, got, "no prices file: the client is unwrapped")
 	assert.Nil(t, meter)
 
-	got, meter = meterCalls(client, cache, "no-such-provider", "x")
+	got, meter = meterCalls(os.Stderr, client, cache, "no-such-provider", "x")
 	assert.Equal(t, client, got)
 	assert.Nil(t, meter)
 
@@ -682,11 +682,11 @@ func TestMeterCalls(t *testing.T) {
 		Providers: map[string]map[string]prices.Price{"google": {"gemini-3.6-flash": {Input: 1, Output: 2}}},
 	}))
 
-	got, meter = meterCalls(client, cache, "gemini", "gemini-3.6-flash")
+	got, meter = meterCalls(os.Stderr, client, cache, "gemini", "gemini-3.6-flash")
 	require.NotNil(t, meter)
 	assert.Equal(t, meter, got, "a priced model's calls go through the meter")
 
-	got, meter = meterCalls(client, cache, "gemini", "unlisted-model")
+	got, meter = meterCalls(os.Stderr, client, cache, "gemini", "unlisted-model")
 	assert.Equal(t, client, got, "an unlisted model is a warning, not an error")
 	assert.Nil(t, meter)
 }
@@ -714,7 +714,7 @@ func TestLineMapperReportsEachFailureOnce(t *testing.T) {
 
 func TestReadHistoryFailure(t *testing.T) {
 	failingGHOnPath(t)
-	h, ok := readHistory("7", true, true)
+	h, ok := readHistory(context.Background(), os.Stderr, "7", true, true)
 	assert.False(t, ok)
 	assert.Empty(t, h.Findings)
 }
@@ -757,19 +757,19 @@ func (usageLLM) Generate(context.Context, string, string) (llm.Response, error) 
 }
 
 func TestWarnTruncated(t *testing.T) {
-	got := captureStderr(t, func() { warnTruncated("review", "it may be missing findings") })
+	got := captureStderr(t, func() { warnTruncated(os.Stderr, "review", "it may be missing findings") })
 	assert.Equal(t, "bark: warning: the model reached its output limit, so the review was cut off; it may be missing findings\n", got)
 }
 
 func TestPrintCost(t *testing.T) {
-	assert.Empty(t, captureStderr(t, func() { printCost(nil) }), "no meter, no cost")
+	assert.Empty(t, captureStderr(t, func() { printCost(os.Stderr, nil) }), "no meter, no cost")
 
 	meter := prices.NewMeter(usageLLM{}, &prices.Pricing{Price: prices.Price{Input: 1, Output: 2}, Date: "2026-11-01"})
-	assert.Empty(t, captureStderr(t, func() { printCost(meter) }), "no calls, no cost")
+	assert.Empty(t, captureStderr(t, func() { printCost(os.Stderr, meter) }), "no calls, no cost")
 
 	_, err := meter.Generate(context.Background(), "s", "p")
 	require.NoError(t, err)
-	got := captureStderr(t, func() { printCost(meter) })
+	got := captureStderr(t, func() { printCost(os.Stderr, meter) })
 	assert.Contains(t, got, "bark: ")
 	assert.Contains(t, got, "$3.00")
 }

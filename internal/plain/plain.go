@@ -2,6 +2,7 @@ package plain
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -40,6 +41,10 @@ const (
 	defaultTextTimeout   = 3 * time.Minute
 )
 
+// ErrNoReviewer is returned by Review when no reviewer is named and the repo
+// has no .bark/reviewer.md.
+var ErrNoReviewer = errors.New("reviewer is required in plain mode (use --as or add .bark/reviewer.md)")
+
 // ReviewOptions configures the plain text review runner.
 type ReviewOptions struct {
 	Diff              *string
@@ -71,6 +76,16 @@ type ReviewOptions struct {
 	// DryRun prints the prompts the review would send, with an estimate of
 	// their size and cost, and returns before calling the model or posting.
 	DryRun bool
+	// Structured asks for a structured review whatever the config says.
+	Structured bool
+	// Check, if not nil, turns Bark's check on or off whatever the config
+	// says.
+	Check *bool
+
+	// Out receives the review and Log Bark's progress, warnings and costs.
+	// They default to stdout and stderr.
+	Out io.Writer
+	Log io.Writer
 
 	// Diff source flags (used when Diff is empty)
 	Staged bool
@@ -97,26 +112,54 @@ type PROptions struct {
 	Config       config.Config
 }
 
+// ReviewResult is what Review returns besides what it writes.
+type ReviewResult struct {
+	// Events are a structured review's intro, findings and verdict, after
+	// Bark's check; nil for a free-text review.
+	Events []findings.Event
+	// Checked is how many findings Bark's check looked at; 0 if it didn't
+	// run.
+	Checked int
+}
+
 // RunReview runs a code review and writes the output to stdout.
 func RunReview(opts ReviewOptions) error {
+	_, err := Review(context.Background(), opts)
+	return err
+}
+
+// Review runs a code review, writes it to opts.Out and returns its events.
+func Review(ctx context.Context, opts ReviewOptions) (ReviewResult, error) {
+	out, log := opts.Out, opts.Log
+	if out == nil {
+		out = os.Stdout
+	}
+	if log == nil {
+		log = os.Stderr
+	}
+
 	if opts.Comment && (opts.PR == "" || opts.Diff != nil) {
-		return fmt.Errorf("posting the review needs a pull request diff (--pr), not a diff from stdin")
+		return ReviewResult{}, fmt.Errorf("posting the review needs a pull request diff (--pr), not a diff from stdin")
 	}
 	if opts.Approve && !opts.Comment {
-		return fmt.Errorf("approving needs the review to be posted (--comment)")
+		return ReviewResult{}, fmt.Errorf("approving needs the review to be posted (--comment)")
 	}
 	if opts.ApproveBelow != "" && !opts.Approve {
-		return fmt.Errorf("approve_below needs approving to be on (--approve)")
+		return ReviewResult{}, fmt.Errorf("approve_below needs approving to be on (--approve)")
 	}
 	if opts.NoResolve && !opts.Comment {
-		return fmt.Errorf("leaving fixed threads open (--no-resolve) needs the review to be posted (--comment)")
+		return ReviewResult{}, fmt.Errorf("leaving fixed threads open (--no-resolve) needs the review to be posted (--comment)")
 	}
 
 	// fail_on needs findings to count, so it turns on structured findings
 	// as --comment does.
 	failOn := findings.Severity(opts.Config.GetFailOn())
-	structured := opts.Config.GetStructuredFindings() || opts.Comment || failOn != ""
-	checking := structured && opts.Config.GetCheckFindings()
+	structured := opts.Config.GetStructuredFindings() || opts.Comment || failOn != "" || opts.Structured
+	checkOn := opts.Config.GetCheckFindings()
+	if opts.Check != nil {
+		checkOn = *opts.Check
+	}
+	checking := structured && checkOn
 
 	// What Bark's earlier reviews of the pull request recorded: the
 	// findings the check sets repeats of aside, and the commit to review
@@ -125,13 +168,13 @@ func RunReview(opts ReviewOptions) error {
 	var hist prreview.History
 	histOK := false
 	if opts.PR != "" && (incremental || checking) {
-		hist, histOK = readHistory(opts.PR, checking, incremental)
+		hist, histOK = readHistory(ctx, log, opts.PR, checking, incremental)
 	}
 
 	var reviewDiff git.ReviewDiff
 
 	if opts.Diff == nil {
-		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
+		gitCtx, gitCancel := context.WithTimeout(ctx, gitTimeout)
 		defer gitCancel()
 
 		limit := git.LimitFrom(opts.Config)
@@ -156,35 +199,35 @@ func RunReview(opts ReviewOptions) error {
 		var err error
 		reviewDiff, err = git.GetReviewDiff(gitCtx, diffParams)
 		if err != nil {
-			return err
+			return ReviewResult{}, err
 		}
-		warnReviewDiff(os.Stderr, reviewDiff)
+		warnReviewDiff(log, reviewDiff)
 		if opts.Comment && (histOK || opts.Full) {
-			noteReviewScope(os.Stderr, opts.Full, hist.Head, reviewDiff)
+			noteReviewScope(log, opts.Full, hist.Head, reviewDiff)
 		}
 		if reviewDiff.Since != "" && reviewDiff.Diff == "" {
-			// On stdout too, so CI can tell it from a review that failed
+			// On out too, so CI can tell it from a review that failed
 			// to produce anything.
-			fmt.Println(nothingToReview(reviewDiff))
-			return nil
+			_, _ = fmt.Fprintln(out, nothingToReview(reviewDiff))
+			return ReviewResult{}, nil
 		}
 		if reviewDiff.Diff == "" && len(reviewDiff.Ignored) > 0 {
 			// Nothing to review isn't a failure: CI shouldn't fail a
 			// release that only edits CHANGELOG.md.
-			fmt.Fprintln(os.Stderr, ignoredOnlyNote(opts, reviewDiff))
-			return nil
+			_, _ = fmt.Fprintln(log, ignoredOnlyNote(opts, reviewDiff))
+			return ReviewResult{}, nil
 		}
 	} else {
 		reviewDiff.Diff = *opts.Diff
 	}
 
 	if reviewDiff.Diff == "" {
-		return emptyDiffError(opts, reviewDiff)
+		return ReviewResult{}, emptyDiffError(opts, reviewDiff)
 	}
 
 	reviewer, err := resolveReviewer(opts.ReviewerName, opts.Paths.Config)
 	if err != nil {
-		return err
+		return ReviewResult{}, err
 	}
 
 	var reviewInstructions string
@@ -192,18 +235,18 @@ func RunReview(opts ReviewOptions) error {
 		var err error
 		reviewInstructions, err = resolveInstructions(opts.Instructions, opts.Paths.Config)
 		if err != nil {
-			return err
+			return ReviewResult{}, err
 		}
 	}
 	minSeverity := findings.Severity(opts.Config.GetMinSeverity())
-	warnFailOnBelowMin(os.Stderr, failOn, minSeverity)
+	warnFailOnBelowMin(log, failOn, minSeverity)
 	var approveThreshold findings.Severity
 	if opts.Approve {
-		approveThreshold = approvalThreshold(os.Stderr, opts.ApproveBelow, failOn)
+		approveThreshold = approvalThreshold(log, opts.ApproveBelow, failOn)
 	}
 	var rules houserules.Rules
 	if opts.Config.GetHouseRules() {
-		rulesCtx, rulesCancel := context.WithTimeout(context.Background(), gitTimeout)
+		rulesCtx, rulesCancel := context.WithTimeout(ctx, gitTimeout)
 		read := reviewDiff.RepoFile
 		if opts.Diff != nil {
 			// A diff from stdin has no version; read the working tree.
@@ -214,7 +257,7 @@ func RunReview(opts ReviewOptions) error {
 		rules = houserules.ForReview(rulesCtx, read, reviewDiff.Diff, opts.Config.GetHouseRulesFiles())
 		rulesCancel()
 		for _, w := range rules.Warnings() {
-			fmt.Fprintf(os.Stderr, "bark: warning: %s\n", w)
+			_, _ = fmt.Fprintf(log, "bark: warning: %s\n", w)
 		}
 	}
 	system := prompt.FormatReviewSystem(reviewer.Prompt, reviewInstructions, rules.Text)
@@ -224,7 +267,7 @@ func RunReview(opts ReviewOptions) error {
 
 	var enclosingContext string
 	if opts.Config.GetContextEnrichment() {
-		enclosingCtx, enclosingCancel := context.WithTimeout(context.Background(), gitTimeout)
+		enclosingCtx, enclosingCancel := context.WithTimeout(ctx, gitTimeout)
 		var err error
 		enclosingContext, err = enclosing.ForReview(enclosingCtx, reviewDiff)
 		enclosingCancel()
@@ -246,22 +289,22 @@ func RunReview(opts ReviewOptions) error {
 
 	if opts.DryRun {
 		pricing, why := dryRunPricing(opts.Config, opts.Paths.Cache)
-		dryRun(os.Stdout, os.Stderr, system, promptText, reviewDiff.Cut, checking, pricing, why)
-		return nil
+		dryRun(out, log, system, promptText, reviewDiff.Cut, checking, pricing, why)
+		return ReviewResult{}, nil
 	}
 
-	client, provider, err := llm_factory.New(context.Background(), opts.Config)
+	client, provider, err := llm_factory.New(ctx, opts.Config)
 	if err != nil {
-		return fmt.Errorf("error creating LLM client: %w", err)
+		return ReviewResult{}, fmt.Errorf("error creating LLM client: %w", err)
 	}
-	client = redact.Wrap(client, os.Stderr)
+	client = redact.Wrap(client, log)
 
-	llmCtx, llmCancel := context.WithTimeout(context.Background(), opts.Config.GetLLMTimeout(defaultReviewTimeout))
+	llmCtx, llmCancel := context.WithTimeout(ctx, opts.Config.GetLLMTimeout(defaultReviewTimeout))
 	defer llmCancel()
 
 	model, _ := opts.Config.GetLLMModel()
-	client, meter := meterCalls(client, opts.Paths.Cache, provider, model)
-	defer printCost(meter)
+	client, meter := meterCalls(log, client, opts.Paths.Cache, provider, model)
+	defer printCost(log, meter)
 
 	debugLog, err := debuglog.Start(opts.Paths.State, "review", debuglog.Meta{
 		Fields: []debuglog.Field{
@@ -275,17 +318,16 @@ func RunReview(opts ReviewOptions) error {
 		Prompt:  promptText,
 		Pricing: meter.Pricing(),
 	})
-	// Stderr, so the review on stdout stays clean for pipes.
+	// On log, so the review on out stays clean for pipes.
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "bark: debug log: %v\n", err)
+		_, _ = fmt.Fprintf(log, "bark: debug log: %v\n", err)
 	} else if debugLog != nil {
-		fmt.Fprintf(os.Stderr, "bark: debug log: %s\n", debugLog.Path())
+		_, _ = fmt.Fprintf(log, "bark: debug log: %s\n", debugLog.Path())
 	}
 
-	out := io.Writer(os.Stdout)
 	// Before the review, so a streamed one starts with it too.
 	if note := partialReviewNote(reviewDiff.Cut); note != "" {
-		fmt.Fprintf(os.Stderr, "bark: warning: %s\n", reviewDiff.Cut.Summary())
+		_, _ = fmt.Fprintf(log, "bark: warning: %s\n", reviewDiff.Cut.Summary())
 		_, _ = fmt.Fprintln(out, note)
 	}
 	if opts.Stream && len(secrets) > 0 {
@@ -301,10 +343,10 @@ func RunReview(opts ReviewOptions) error {
 	}
 	meter.Mark("review")
 	if err != nil {
-		return err
+		return ReviewResult{}, err
 	}
 	if truncated {
-		warnTruncated("review", "it ends early and may be missing findings")
+		warnTruncated(log, "review", "it ends early and may be missing findings")
 	}
 
 	// The threads of Bark's earlier inline comments that its check may
@@ -313,7 +355,7 @@ func RunReview(opts ReviewOptions) error {
 	var threads []prreview.Thread
 	var toCheck []check.Thread
 	if opts.Comment && !opts.NoResolve && histOK {
-		threads, toCheck = threadsToCheck(os.Stderr, hist, checking, reviewDiff.PRHead(), maps)
+		threads, toCheck = threadsToCheck(log, hist, checking, reviewDiff.PRHead(), maps)
 	}
 	var fixed map[int]string
 
@@ -326,15 +368,16 @@ func RunReview(opts ReviewOptions) error {
 			r.Persona = reviewer.Prompt
 		}
 		r.Prior = hist.Findings
-		r.SameLines = sameLinesHint(os.Stderr, hist.Findings, lineMapper(maps))
+		r.SameLines = sameLinesHint(log, hist.Findings, lineMapper(maps))
 		r.Threads = toCheck
 		checkFn = func(events []findings.Event) ([]findings.Event, int) {
 			var checked int
-			events, checked, fixed = checkFindings(r, events, meter, opts.Config.GetLLMTimeout(defaultReviewTimeout))
+			events, checked, fixed = checkFindings(ctx, log, r, events, meter, opts.Config.GetLLMTimeout(defaultReviewTimeout))
 			return events, checked
 		}
 	}
-	events := finishReview(out, output, truncated, opts.Stream, structured, minSeverity, checkFn, secrets)
+	events, checked := finishReview(out, log, output, truncated, opts.Stream, structured, minSeverity, checkFn, secrets)
+	result := ReviewResult{Events: events, Checked: checked}
 
 	var post func() error
 	if opts.Comment {
@@ -342,52 +385,52 @@ func RunReview(opts ReviewOptions) error {
 			scope := postScope(reviewDiff, truncated)
 			// Before approving: a point fixed and resolved no longer
 			// holds an incremental approval back.
-			hist.MarkResolved(resolveFixed(os.Stderr, fixedThreads(threads, fixed), scope.Head), scope.Head)
+			hist.MarkResolved(resolveFixed(log, fixedThreads(threads, fixed), scope.Head), scope.Head)
 			approve := false
 			if opts.Approve {
 				var why string
 				approve, why = approval(events, scope, hist, approveThreshold)
 				if approve {
-					listCtx, listCancel := context.WithTimeout(context.Background(), gitTimeout)
+					listCtx, listCancel := context.WithTimeout(ctx, gitTimeout)
 					changed, err := reviewDiff.PRChangedPaths(listCtx)
 					listCancel()
 					approve, why = settingsApproval(changed, err, opts.Config.GetHouseRules(), opts.Config.GetHouseRulesFiles(), rules)
 				}
 				if !approve {
-					fmt.Fprintf(os.Stderr, "bark: not approving: %s\n", why)
+					_, _ = fmt.Fprintf(log, "bark: not approving: %s\n", why)
 					// A later comment doesn't replace an approval on
 					// GitHub; this one would stand for code Bark no
 					// longer vouches for.
-					withdrawApprovals(os.Stderr, hist.Approvals, scope.Head, why, prreview.Withdraw)
+					withdrawApprovals(log, hist.Approvals, scope.Head, why, prreview.Withdraw)
 				}
 			}
 			// An approval changes the pull request's review state, so it
 			// is posted even when the review adds no new finding.
-			if !approve && skipPost(os.Stderr, events, scope, hist) {
+			if !approve && skipPost(log, events, scope, hist) {
 				return nil
 			}
-			postCtx, postCancel := context.WithTimeout(context.Background(), gitTimeout)
+			postCtx, postCancel := context.WithTimeout(ctx, gitTimeout)
 			defer postCancel()
-			result, err := prreview.Post(postCtx, opts.PR, withPartialNote(events, reviewDiff.Cut), reviewDiff.CommentDiff(),
+			posted, err := prreview.Post(postCtx, opts.PR, withPartialNote(events, reviewDiff.Cut), reviewDiff.CommentDiff(),
 				scope, approve)
 			if err != nil {
 				return err
 			}
-			if result.Fallback {
-				fmt.Fprintln(os.Stderr, "bark: GitHub rejected the inline comments; posted every finding in the review body instead")
+			if posted.Fallback {
+				_, _ = fmt.Fprintln(log, "bark: GitHub rejected the inline comments; posted every finding in the review body instead")
 			}
-			if result.ApprovalErr != nil {
-				fmt.Fprintf(os.Stderr, "bark: warning: GitHub refused to approve the pull request, so the review was posted as a comment: %v\n", result.ApprovalErr)
+			if posted.ApprovalErr != nil {
+				_, _ = fmt.Fprintf(log, "bark: warning: GitHub refused to approve the pull request, so the review was posted as a comment: %v\n", posted.ApprovalErr)
 			}
 			kind := "review"
-			if result.Approved {
+			if posted.Approved {
 				kind = "approving review"
 			}
-			fmt.Fprintf(os.Stderr, "bark: posted %s with %d inline comment(s): %s\n", kind, result.Inline, result.URL)
+			_, _ = fmt.Fprintf(log, "bark: posted %s with %d inline comment(s): %s\n", kind, posted.Inline, posted.URL)
 			return nil
 		}
 	}
-	return concludeReview(os.Stderr, events, failOn, post)
+	return result, concludeReview(log, events, failOn, post)
 }
 
 // FailOnExitCode is the exit status of a review that fails its fail_on
@@ -580,7 +623,7 @@ func RunCommit(opts CommitOptions) error {
 	if err != nil {
 		return err
 	}
-	defer printCost(meter)
+	defer printCost(os.Stderr, meter)
 
 	llmCtx, llmCancel := context.WithTimeout(context.Background(), opts.Config.GetLLMTimeout(defaultTextTimeout))
 	defer llmCancel()
@@ -590,7 +633,7 @@ func RunCommit(opts CommitOptions) error {
 		return fmt.Errorf("error generating commit message: %w", err)
 	}
 	if result.Truncated {
-		warnTruncated("commit message", "it may be incomplete")
+		warnTruncated(os.Stderr, "commit message", "it may be incomplete")
 	}
 
 	fmt.Print(utils.RemoveCodeFences(result.Content))
@@ -636,7 +679,7 @@ func RunPR(opts PROptions) error {
 	if err != nil {
 		return err
 	}
-	defer printCost(meter)
+	defer printCost(os.Stderr, meter)
 
 	llmCtx, llmCancel := context.WithTimeout(context.Background(), opts.Config.GetLLMTimeout(defaultTextTimeout))
 	defer llmCancel()
@@ -646,7 +689,7 @@ func RunPR(opts PROptions) error {
 		return fmt.Errorf("error generating PR description: %w", err)
 	}
 	if result.Truncated {
-		warnTruncated("PR description", "it may be incomplete")
+		warnTruncated(os.Stderr, "PR description", "it may be incomplete")
 	}
 
 	fmt.Print(result.Content)
@@ -689,7 +732,8 @@ func streamResponse(ctx context.Context, client llm.LLM, system, promptText stri
 }
 
 // finishReview writes what's left of the review to out once the model is
-// done, and returns its events (nil for a free-text review). A streamed
+// done, and returns its events (nil for a free-text review) and how many
+// findings the check looked at. A streamed
 // review is already on out; a whole one is written now. checkFn, if not nil,
 // runs Bark's check on a structured review's findings: a whole review shows
 // the doubted findings in a section of their own, a streamed one gets a
@@ -701,7 +745,7 @@ func streamResponse(ctx context.Context, client llm.LLM, system, promptText stri
 // the model's output already. A truncated review ends with
 // findings.TruncatedNote; a structured one also gets it as its last event,
 // so a posted review says so too.
-func finishReview(out io.Writer, output string, truncated, stream, structured bool, minSeverity findings.Severity, checkFn func([]findings.Event) ([]findings.Event, int), secrets []findings.Event) []findings.Event {
+func finishReview(out, log io.Writer, output string, truncated, stream, structured bool, minSeverity findings.Severity, checkFn func([]findings.Event) ([]findings.Event, int), secrets []findings.Event) ([]findings.Event, int) {
 	if !structured {
 		if !stream {
 			_, _ = fmt.Fprintln(out, output)
@@ -709,12 +753,12 @@ func finishReview(out io.Writer, output string, truncated, stream, structured bo
 		if truncated {
 			_, _ = fmt.Fprint(out, "\n"+findings.TruncatedNote)
 		}
-		return nil
+		return nil, 0
 	}
 
 	events, below := findings.DropBelow(findings.Parse(output), minSeverity)
 	if below > 0 {
-		fmt.Fprintf(os.Stderr, "bark: left out %d finding(s) below %s severity (min_severity)\n", below, minSeverity)
+		_, _ = fmt.Fprintf(log, "bark: left out %d finding(s) below %s severity (min_severity)\n", below, minSeverity)
 	}
 	checked := 0
 	if checkFn != nil {
@@ -734,7 +778,7 @@ func finishReview(out io.Writer, output string, truncated, stream, structured bo
 	} else {
 		_, _ = fmt.Fprintln(out, findings.Markdown(events))
 	}
-	return events
+	return events, checked
 }
 
 // fullResponse returns the whole review once it is complete, and whether the
@@ -753,9 +797,9 @@ func fullResponse(ctx context.Context, client llm.LLM, system, promptText string
 // threads of r, and returns the events with the doubted findings marked,
 // how many findings were checked, and the threads it found fixed (see
 // check.Result.Fixed). The check may take up to timeout. Progress and errors
-// go to stderr; if the check fails, events are returned with every finding
+// go to log; if the check fails, events are returned with every finding
 // marked unchecked.
-func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter, timeout time.Duration) ([]findings.Event, int, map[int]string) {
+func checkFindings(ctx context.Context, log io.Writer, r check.Review, events []findings.Event, meter *prices.Meter, timeout time.Duration) ([]findings.Event, int, map[int]string) {
 	n := check.Count(events)
 	if n == 0 && len(r.Threads) == 0 {
 		return events, 0, nil
@@ -764,16 +808,16 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter,
 	if len(r.Threads) > 0 {
 		what += fmt.Sprintf(" and %d open thread(s) whose code changed", len(r.Threads))
 	}
-	fmt.Fprintf(os.Stderr, "bark: checking %s against the code...\n", what)
+	_, _ = fmt.Fprintf(log, "bark: checking %s against the code...\n", what)
 
 	r.OnLog = func(path string, err error) {
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "bark: debug log: %v\n", err)
+			_, _ = fmt.Fprintf(log, "bark: debug log: %v\n", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "bark: debug log: %s\n", path)
+			_, _ = fmt.Fprintf(log, "bark: debug log: %s\n", path)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	res, err := r.Run(ctx, events)
 	meter.Mark("check")
@@ -785,14 +829,14 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter,
 		if len(r.Threads) > 0 {
 			left = append(left, "no thread is resolved")
 		}
-		fmt.Fprintf(os.Stderr, "bark: %v; %s\n", err, strings.Join(left, ", and "))
+		_, _ = fmt.Fprintf(log, "bark: %v; %s\n", err, strings.Join(left, ", and "))
 		return findings.MarkUnchecked(events, "it failed."), 0, nil
 	}
 	if n > 0 {
-		fmt.Fprint(os.Stderr, checkSummary(res))
+		_, _ = fmt.Fprint(log, checkSummary(res))
 	}
 	if len(r.Threads) > 0 {
-		threadSummary(os.Stderr, r.Threads, res)
+		threadSummary(log, r.Threads, res)
 	}
 
 	// The intro and verdict were written before the check; rewrite them so
@@ -801,9 +845,9 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter,
 	meter.Mark("verdict rewrite")
 	switch {
 	case err != nil:
-		fmt.Fprintf(os.Stderr, "bark: %v; keeping the original\n", err)
+		_, _ = fmt.Fprintf(log, "bark: %v; keeping the original\n", err)
 	case ok:
-		fmt.Fprintln(os.Stderr, "bark: rewrote the intro and verdict to match the checked findings")
+		_, _ = fmt.Fprintln(log, "bark: rewrote the intro and verdict to match the checked findings")
 	}
 	return revised, res.Checked, res.Fixed
 }
@@ -871,11 +915,11 @@ func lineMapper(maps *lineMaps) prreview.MapLines {
 // (when checking), and where the last one says the next review can start
 // (when incremental). If they can't be read, the review goes on without
 // them, and ok is false.
-func readHistory(pr string, checking, incremental bool) (h prreview.History, ok bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+func readHistory(ctx context.Context, log io.Writer, pr string, checking, incremental bool) (h prreview.History, ok bool) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	h, err := prreview.ReadHistory(ctx, pr)
-	historyNote(os.Stderr, h, err, checking, incremental)
+	historyNote(log, h, err, checking, incremental)
 	return h, err == nil
 }
 
@@ -1039,7 +1083,7 @@ func resolveReviewer(name, storage string) (*reviewers.Reviewer, error) {
 		return reviewers.FromFile(".bark/reviewer.md")
 	}
 
-	return nil, fmt.Errorf("reviewer is required in plain mode (use --as or add .bark/reviewer.md)")
+	return nil, ErrNoReviewer
 }
 
 // resolveInstructions returns the review instructions given by the
@@ -1078,7 +1122,7 @@ func newMeteredClient(cfg config.Config) (llm.LLM, *prices.Meter, error) {
 		return client, nil, nil
 	}
 	model, _ := cfg.GetLLMModel()
-	client, meter := meterCalls(client, p.Cache, provider, model)
+	client, meter := meterCalls(os.Stderr, client, p.Cache, provider, model)
 	return client, meter, nil
 }
 
@@ -1150,10 +1194,10 @@ func dryRunPricing(cfg config.Config, cacheDir string) (*prices.Pricing, string)
 // cacheDir's prices file lists the model. Otherwise it returns client and a
 // nil Meter (which does nothing). A prices file that can't be read, or
 // doesn't list the model, is a warning: the command goes on without costs.
-func meterCalls(client llm.LLM, cacheDir, provider, model string) (llm.LLM, *prices.Meter) {
+func meterCalls(log io.Writer, client llm.LLM, cacheDir, provider, model string) (llm.LLM, *prices.Meter) {
 	pricing, err := prices.For(cacheDir, provider, model)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "bark: %v; costs won't be shown\n", err)
+		_, _ = fmt.Fprintf(log, "bark: %v; costs won't be shown\n", err)
 		return client, nil
 	}
 	if pricing == nil {
@@ -1163,17 +1207,17 @@ func meterCalls(client llm.LLM, cacheDir, provider, model string) (llm.LLM, *pri
 	return meter, meter
 }
 
-// printCost writes what the calls cost to stderr, if they were priced.
-func printCost(meter *prices.Meter) {
+// printCost writes what the calls cost to log, if they were priced.
+func printCost(log io.Writer, meter *prices.Meter) {
 	if s := meter.Summary(); s != "" {
-		fmt.Fprintf(os.Stderr, "bark: %s\n", s)
+		_, _ = fmt.Fprintf(log, "bark: %s\n", s)
 	}
 }
 
-// warnTruncated tells the user on stderr, which stays out of pipes, that the
-// model cut what off at its output limit.
-func warnTruncated(what, consequence string) {
-	fmt.Fprintf(os.Stderr, "bark: warning: the model reached its output limit, so the %s was cut off; %s\n", what, consequence)
+// warnTruncated tells the user on w (stderr, which stays out of pipes) that
+// the model cut what off at its output limit.
+func warnTruncated(w io.Writer, what, consequence string) {
+	_, _ = fmt.Fprintf(w, "bark: warning: the model reached its output limit, so the %s was cut off; %s\n", what, consequence)
 }
 
 // partialReviewNote returns the note that starts a review of a diff cut to

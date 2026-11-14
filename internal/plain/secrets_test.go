@@ -1,6 +1,7 @@
 package plain
 
 import (
+	"io"
 	"strings"
 	"testing"
 
@@ -70,7 +71,7 @@ func TestFinishReviewWithSecrets(t *testing.T) {
 	}
 
 	var out strings.Builder
-	events := finishReview(&out, structuredOutput, false, false, true, "", checkFn, secrets)
+	events, _ := finishReview(&out, io.Discard, structuredOutput, false, false, true, "", checkFn, secrets)
 
 	for _, e := range checked {
 		if e.Finding != nil {
@@ -85,7 +86,7 @@ func TestFinishReviewWithSecrets(t *testing.T) {
 
 	// Without the check, they're still added.
 	var plainOut strings.Builder
-	events = finishReview(&plainOut, structuredOutput, false, false, true, "", nil, secrets)
+	events, _ = finishReview(&plainOut, io.Discard, structuredOutput, false, false, true, "", nil, secrets)
 	assert.Equal(t, secretTitle, events[0].Finding.Title)
 }
 
@@ -100,7 +101,7 @@ func TestFinishReviewStreamedCheckReportLeavesOutSecrets(t *testing.T) {
 	keep := func(events []findings.Event) ([]findings.Event, int) { return events, 1 }
 
 	var out strings.Builder
-	events := finishReview(&out, structuredOutput, false, true, true, "", keep, secrets)
+	events, _ := finishReview(&out, io.Discard, structuredOutput, false, true, true, "", keep, secrets)
 
 	assert.Equal(t, "## Bark's check\n\nA second pass checked 1 finding against the code and kept it.\n\n", out.String())
 	assert.Equal(t, secretTitle, events[0].Finding.Title, "the secret is still a finding")

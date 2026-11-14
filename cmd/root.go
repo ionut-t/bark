@@ -79,6 +79,7 @@ func newRootCmd(load configLoader) *cobra.Command {
 	rootCmd.AddCommand(editCmd(getCfg))
 	rootCmd.AddCommand(actionsCmd(getCfg))
 	rootCmd.AddCommand(pricesCmd())
+	rootCmd.AddCommand(mcpCmd(getCfg))
 
 	// No -c shorthand: review (--changes) and edit (--commit) already use it.
 	rootCmd.PersistentFlags().String(configFlag, "", "Config file (default is $XDG_CONFIG_HOME/bark/config.toml)")
