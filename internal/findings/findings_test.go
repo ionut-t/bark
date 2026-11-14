@@ -330,3 +330,39 @@ func TestFirstSentence(t *testing.T) {
 		})
 	}
 }
+
+// MarkedMarkdown keeps every finding where it was and marks the ones Bark's
+// check set aside under their heading, so a review already shown can be
+// marked without anything in it moving.
+func TestMarkedMarkdown(t *testing.T) {
+	t.Parallel()
+
+	events := []Event{
+		{Finding: &Finding{File: "a.go", Line: 2, Severity: High, Title: "Nil map", Body: "b", Doubt: "m is\nnever nil."}},
+		{Finding: &Finding{File: "b.go", Severity: Low, Title: "Typo", Body: "t"}},
+		{Finding: &Finding{File: "c.go", Line: 7, Severity: Low, Title: "Name", Body: "n", RaisedBefore: "Rename x (`c.go:7`)"}},
+		{Verdict: "Fix it."},
+	}
+
+	assert.Equal(t, "### [HIGH] Nil map\n\n"+
+		"> **Doubted by Bark's check:** m is never nil.\n\n"+
+		"`a.go:2`\n\nb\n\n"+
+		"### [LOW] Typo\n\n`b.go`\n\nt\n\n"+
+		"### [LOW] Name\n\n"+
+		"> **Raised before on this pull request:** Rename x (`c.go:7`)\n\n"+
+		"`c.go:7`\n\nn\n\n"+
+		"## Verdict\n\nFix it.\n\n", MarkedMarkdown(events))
+}
+
+// Without anything set aside, MarkedMarkdown is the review as it streamed.
+func TestMarkedMarkdownMatchesMarkdown(t *testing.T) {
+	t.Parallel()
+
+	events := []Event{
+		{Intro: "Hi."},
+		{Finding: &Finding{File: "b.go", Severity: Low, Title: "Typo", Body: "t", Remark: "Tsk."}},
+		{Text: "stray"},
+		{Verdict: "Fine."},
+	}
+	assert.Equal(t, Markdown(events), MarkedMarkdown(events))
+}

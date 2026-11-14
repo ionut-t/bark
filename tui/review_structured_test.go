@@ -2,8 +2,10 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/check"
@@ -93,6 +95,9 @@ func TestReviewWritesDebugLog(t *testing.T) {
 	assert.Contains(t, string(content), "tokens:       1 input, 2 output, 3 total\n")
 }
 
+// checkDiff is a diff a kept finding's evidence can quote.
+const checkDiff = "+counts := make(map[string]int)"
+
 // checkLLM answers the check's Generate call with output.
 type checkLLM struct{ output string }
 
@@ -105,14 +110,17 @@ func (c checkLLM) Generate(context.Context, string, string) (llm.Response, error
 }
 
 // Once a structured review is done, its findings are checked and the
-// check's report is appended to the review.
+// doubted ones are marked where they are, so nothing the reader has seen
+// moves and the verdict stays last.
 func TestReviewStructuredRunsCheck(t *testing.T) {
 	t.Parallel()
 
 	m := newStructuredReview(t)
-	m.setCheck(check.Review{Client: checkLLM{output: `{"id":1,"verdict":"drop","reason":"m is never nil."}`}})
+	m.setCheck(check.Review{Diff: checkDiff, Client: checkLLM{output: `{"id":1,"verdict":"drop","reason":"m is never nil."}` + "\n" +
+		`{"id":2,"verdict":"keep","evidence":"counts := make(map[string]int)"}`}})
 
 	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","line":2,"severity":"high","title":"Nil map","body":"b"}` + "\n"})
+	m, _ = m.Update(streamChunkMsg{content: `{"file":"b.go","line":5,"severity":"low","title":"Typo","body":"t"}` + "\n"})
 	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Fix it."}`})
 	m, cmd := m.Update(streamCompleteMsg{})
 	require.NotNil(t, cmd)
@@ -123,24 +131,93 @@ func TestReviewStructuredRunsCheck(t *testing.T) {
 	m, _ = m.Update(msg)
 
 	assert.False(t, m.checking)
-	assert.Contains(t, m.response, "## Verdict\n\nFix it.\n\n## Bark's check\n\n"+
-		"A second pass checked 1 finding against the code and doubts 1:\n\n"+
-		"- **[HIGH] Nil map** `a.go:2`\n  m is never nil.\n")
-	assert.Contains(t, m.editor.GetCurrentContent(), "m is never nil.", "the report is shown, not only stored")
+	assert.Equal(t, "### [HIGH] Nil map\n\n> **Doubted by Bark's check:** m is never nil.\n\n`a.go:2`\n\nb\n\n"+
+		"### [LOW] Typo\n\n`b.go:5`\n\nt\n\n"+
+		"## Verdict\n\nFix it.\n\n", m.response)
+	assert.Equal(t, strings.TrimRight(m.response, "\n"), strings.TrimRight(m.editor.GetCurrentContent(), "\n"), "the checked review is shown, not only stored")
+	assert.Equal(t, "Bark's check kept 1 of 2 findings", m.checkSummary)
 }
 
-// Without findings there is nothing to check.
-func TestReviewStructuredNoFindingsNoCheck(t *testing.T) {
+// When the check keeps every finding, the review reads as it streamed.
+func TestReviewStructuredCheckKeepsAll(t *testing.T) {
 	t.Parallel()
 
 	m := newStructuredReview(t)
-	m.setCheck(check.Review{Client: checkLLM{}})
+	m.setCheck(check.Review{Diff: checkDiff, Client: checkLLM{output: `{"id":1,"verdict":"keep","evidence":"counts := make(map[string]int)"}`}})
 
-	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Clean."}`})
-	m, _ = m.Update(streamCompleteMsg{})
+	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","line":2,"severity":"high","title":"Nil map","body":"b"}` + "\n"})
+	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Fix it."}`})
+	m, cmd := m.Update(streamCompleteMsg{})
+	streamed := m.response
+	m, _ = m.Update(cmd())
 
-	assert.False(t, m.checking)
-	assert.NotContains(t, m.response, "Bark's check")
+	assert.Equal(t, strings.TrimRight(streamed, "\n"), strings.TrimRight(m.response, "\n"))
+	assert.Equal(t, "Bark's check kept the finding", m.checkSummary)
+}
+
+// A failed check leaves the review as it streamed and says so at the end.
+func TestReviewStructuredCheckFails(t *testing.T) {
+	t.Parallel()
+
+	m := newStructuredReview(t)
+	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","title":"T","body":"b"}` + "\n"})
+	m.response = "### [MEDIUM] T\n\n`a.go`\n\nb\n\n"
+	m.checking = true
+
+	m, _ = m.Update(checkDoneMsg{run: m.run, err: assert.AnError})
+
+	assert.Equal(t, "### [MEDIUM] T\n\n`a.go`\n\nb\n\n## Bark's check\n\n"+
+		"The check failed, so the findings above are unchecked: "+assert.AnError.Error()+"\n", m.response)
+}
+
+// Marking findings after the check keeps the cursor on the line it was on,
+// though the notes add lines above it.
+func TestReviewCheckKeepsCursorOnFinding(t *testing.T) {
+	t.Parallel()
+
+	old := "### [HIGH] Nil map\n\n`a.go:2`\n\nb\n\n### [LOW] Typo\n\n`b.go:5`\n\nt\n"
+	updated := "### [HIGH] Nil map\n\n> **Doubted by Bark's check:** m is never nil.\n\n`a.go:2`\n\nb\n\n### [LOW] Typo\n\n`b.go:5`\n\nt\n"
+
+	assert.Equal(t, 10, followCursor(old, updated, 8), "on Typo's location line, below the note")
+	assert.Equal(t, 6, followCursor(old, updated, 4), "on Nil map's body, below its own note")
+	assert.Equal(t, 0, followCursor(old, updated, 0), "on the heading")
+	assert.Equal(t, 1, followCursor("intro\n\n### [HIGH] Nil map\n", updated, 1), "above every heading, the cursor stays put")
+	assert.Equal(t, 13, followCursor(old+"\n\n\n\n\n\n\n", updated, 20), "clamped to the new content")
+}
+
+// Two findings can share a heading; the cursor stays on its own one.
+func TestReviewCheckCursorWithDuplicateHeadings(t *testing.T) {
+	t.Parallel()
+
+	old := "### [LOW] Typo\n\n`a.go`\n\nx\n\n### [LOW] Typo\n\n`b.go`\n\ny\n"
+	updated := "### [LOW] Typo\n\n`a.go`\n\nx\n\n### [LOW] Typo\n\n> **Doubted by Bark's check:** no.\n\n`b.go`\n\ny\n"
+
+	assert.Equal(t, 6, followCursor(old, updated, 6), "on the second heading")
+	assert.Equal(t, 12, followCursor(old, updated, 10), "on the second finding's body")
+}
+
+// Lines starting with "#" inside a suggestion aren't headings.
+func TestReviewCheckCursorIgnoresHashesInCode(t *testing.T) {
+	t.Parallel()
+
+	old := "### [HIGH] Include\n\n`a.c:1`\n\nb\n\n```c\n#include <x.h>\nint y;\n```\n\n### [LOW] Typo\n\nt\n"
+	updated := "### [HIGH] Include\n\n> **Doubted by Bark's check:** no.\n\n`a.c:1`\n\nb\n\n```c\n#include <x.h>\nint y;\n```\n\n### [LOW] Typo\n\nt\n"
+
+	assert.Equal(t, 10, followCursor(old, updated, 8), "on the code line after #include")
+	assert.Equal(t, 13, followCursor(old, updated, 11), "on the second heading")
+}
+
+// The check can change a finding's severity or drop its broken suggestion;
+// the cursor still stays on that finding.
+func TestReviewCheckCursorFollowsChangedFinding(t *testing.T) {
+	t.Parallel()
+
+	old := "### [HIGH] Nil map\n\n`a.go:2`\n\nb\n\n```go\nx := 1\n```\n\n### [LOW] Typo\n\nt\n"
+	updated := "### [MEDIUM] Nil map\n\n`a.go:2`\n\nb\n\n### [LOW] Typo\n\nt\n"
+
+	assert.Equal(t, 4, followCursor(old, updated, 4), "on the body of the finding whose severity changed")
+	assert.Equal(t, 4, followCursor(old, updated, 7), "in the dropped suggestion, held on the finding's last line")
+	assert.Equal(t, 8, followCursor(old, updated, 12), "on the next finding's body")
 }
 
 // A check result for a review that was restarted is dropped.
@@ -152,7 +229,7 @@ func TestReviewStructuredIgnoresStaleCheck(t *testing.T) {
 	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","title":"T","body":"b"}` + "\n"})
 	m, _ = m.Update(streamCompleteMsg{})
 	require.True(t, m.checking)
-	stale := checkDoneMsg{run: m.run, report: "## Bark's check\n\nstale\n"}
+	stale := checkDoneMsg{run: m.run, err: errors.New("stale")}
 
 	_ = m.startReview(context.Background())
 	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Clean."}`})

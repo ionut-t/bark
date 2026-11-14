@@ -128,8 +128,13 @@ type streamCompleteMsg struct {
 // checkDoneMsg carries the outcome of Bark's check for the review started
 // as run number run.
 type checkDoneMsg struct {
-	run    int
-	report string
+	run int
+	// events are the review's events as the check left them, and checked
+	// how many findings it gave a verdict on.
+	events  []findings.Event
+	checked int
+	// err is set if the check failed; the review is then left unchecked.
+	err error
 	// usage is the check call's token usage, or nil.
 	usage *llm.Usage
 }
@@ -157,6 +162,9 @@ type reviewModel struct {
 	// check, if not nil, checks a finished structured review's findings.
 	check    *check.Review
 	checking bool
+	// checkSummary sums up what Bark's check kept, for the status line;
+	// empty until a check is done.
+	checkSummary string
 	// run counts the reviews started, so the result of a check for a
 	// review that was restarted is ignored.
 	run int
@@ -356,12 +364,22 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 			return m, nil
 		}
 		m.checking = false
+		old := m.response
+		if msg.err != nil {
+			m.response = strings.TrimRight(m.response, "\n") + "\n\n## Bark's check\n\n" +
+				"The check failed, so the findings above are unchecked: " + msg.err.Error() + "\n"
+		} else {
+			// Shown again from the checked events, each finding where it
+			// streamed: set-aside ones get a note under their heading, and
+			// kept ones show the check's changes to them.
+			m.response = strings.TrimRight(utils.NormaliseCodeFences(findings.MarkedMarkdown(msg.events)), "\n") + "\n\n"
+			m.checkSummary = checkSummary(msg.events, msg.checked)
+		}
 		m.setDoneStatusLine()
-		m.response = strings.TrimRight(m.response, "\n") + "\n\n" + msg.report + "\n"
 		if !m.showPrompt {
 			pos := m.editor.GetCursorPosition()
 			m.editor.SetContent(m.response)
-			_ = m.editor.SetCursorPosition(pos.Row, pos.Col)
+			_ = m.editor.SetCursorPosition(followCursor(old, m.response, pos.Row), 0)
 		}
 		return m, nil
 
@@ -502,6 +520,7 @@ func (m reviewModel) View() string {
 func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	m.run++
 	m.checking = false
+	m.checkSummary = ""
 	m.raw = &strings.Builder{}
 	m.contentBuilder = &strings.Builder{}
 	m.renderer = nil
@@ -560,7 +579,11 @@ func (m *reviewModel) setCheckingStatusLine() {
 
 func (m *reviewModel) setDoneStatusLine() {
 	reviewerInfo := m.styles.Accent.Render("Reviewed by " + m.reviewer.Name + " ")
-	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
+	if m.checkSummary == "" {
+		m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
+		return
+	}
+	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, m.checkSummary, reviewerInfo)
 }
 
 // awaitsCheck reports whether msg is the result of the check the review is
@@ -576,10 +599,101 @@ func runCheckCmd(r check.Review, run int, events []findings.Event) tea.Cmd {
 		defer cancel()
 		res, err := r.Run(ctx, events)
 		if err != nil {
-			return checkDoneMsg{run: run, usage: res.Usage, report: "## Bark's check\n\nThe check failed, so the findings above are unchecked: " + err.Error() + "\n"}
+			return checkDoneMsg{run: run, usage: res.Usage, err: err}
 		}
-		return checkDoneMsg{run: run, usage: res.Usage, report: findings.CheckReport(res.Events, res.Checked)}
+		return checkDoneMsg{run: run, usage: res.Usage, events: res.Events, checked: res.Checked}
 	}
+}
+
+// checkSummary sums up in a line how many of the checked findings Bark's
+// check kept, or "" if it checked none.
+func checkSummary(events []findings.Event, checked int) string {
+	if checked == 0 {
+		return ""
+	}
+	setAside := 0
+	for _, e := range events {
+		if e.Finding != nil && e.Finding.SetAside() {
+			setAside++
+		}
+	}
+	switch {
+	case setAside == 0 && checked == 1:
+		return "Bark's check kept the finding"
+	case setAside == 0:
+		return "Bark's check kept all " + strconv.Itoa(checked) + " findings"
+	default:
+		return "Bark's check kept " + strconv.Itoa(checked-setAside) + " of " + strconv.Itoa(checked) + " findings"
+	}
+}
+
+// followCursor returns the row in updated that shows what row showed in old,
+// where updated is old after Bark's check: the same findings in the same
+// order, some with a note under their heading, a new severity or a dropped
+// suggestion. Headings are matched by position, not text, as two findings
+// can share one and the check can change it. Above every heading, row stays
+// as it is, within updated.
+func followCursor(old, updated string, row int) int {
+	oldLines := strings.Split(old, "\n")
+	newLines := strings.Split(updated, "\n")
+	clamp := func(r int) int { return max(0, min(r, len(newLines)-1)) }
+
+	oldHeadings, newHeadings := headings(oldLines), headings(newLines)
+	k := -1
+	for i, h := range oldHeadings {
+		if h > row {
+			break
+		}
+		k = i
+	}
+	if k < 0 || k >= len(newHeadings) {
+		return clamp(row)
+	}
+
+	h, i := oldHeadings[k], newHeadings[k]
+	offset := row - h
+	// The note sits on the heading's second line below, ahead of everything
+	// else in the finding.
+	if offset >= 2 {
+		offset += noteLines(newLines, i) - noteLines(oldLines, h)
+	}
+	if k+1 < len(newHeadings) {
+		// Stay within the finding if it got shorter, on its last line
+		// rather than the blank one before the next heading.
+		offset = min(offset, max(0, newHeadings[k+1]-2-i))
+	}
+	return clamp(i + offset)
+}
+
+// headings returns the indices of the Markdown headings in lines, leaving
+// out lines in code fences, such as a suggestion's "#include".
+func headings(lines []string) []int {
+	var out []int
+	fence := ""
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		switch {
+		case fence != "":
+			if strings.HasPrefix(t, fence) && strings.Trim(t, "`") == "" {
+				fence = ""
+			}
+		case strings.HasPrefix(t, "```"):
+			fence = t[:len(t)-len(strings.TrimLeft(t, "`"))]
+		case strings.HasPrefix(l, "#"):
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// noteLines is how many lines the check's note under the heading at h takes
+// up, with the blank line after it: 2, or 0 without a note.
+func noteLines(lines []string, h int) int {
+	if h+2 < len(lines) && (strings.HasPrefix(lines[h+2], findings.DoubtedNote) ||
+		strings.HasPrefix(lines[h+2], findings.RaisedBeforeNote)) {
+		return 2
+	}
+	return 0
 }
 
 func (m *reviewModel) dispatchLoadingMsg() tea.Cmd {
