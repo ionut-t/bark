@@ -14,6 +14,18 @@ import (
 // request) are moved to sections of their own before the verdict. Only a
 // finished review has been checked, so this doesn't affect streaming.
 func Markdown(events []Event) string {
+	return markdown(events, false)
+}
+
+// MarkedMarkdown renders events as Markdown like Markdown, but keeps the
+// findings Bark's check set aside where they are, each with a note under its
+// heading saying why. A review already shown can be replaced by it without
+// anything moving.
+func MarkedMarkdown(events []Event) string {
+	return markdown(events, true)
+}
+
+func markdown(events []Event, inPlace bool) string {
 	var b strings.Builder
 	var doubted, repeats []Finding
 	writeSetAside := func() {
@@ -35,6 +47,8 @@ func Markdown(events []Event) string {
 		switch {
 		case e.Intro != "":
 			fmt.Fprintf(&b, "%s\n\n", e.Intro)
+		case e.Finding != nil && inPlace:
+			writeFinding(&b, *e.Finding, "")
 		case e.Finding != nil && e.Finding.RaisedBefore != "":
 			repeats = append(repeats, *e.Finding)
 		case e.Finding != nil && e.Finding.Doubt != "":
@@ -72,7 +86,7 @@ func setAsideList(fs []Finding, why func(Finding) string) string {
 		if loc := location(f); loc != "" {
 			fmt.Fprintf(&b, " `%s`", loc)
 		}
-		fmt.Fprintf(&b, "\n  %s\n", strings.Join(strings.Fields(why(f)), " "))
+		fmt.Fprintf(&b, "\n  %s\n", oneLine(why(f)))
 	}
 	if b.Len() > 0 {
 		b.WriteByte('\n')
@@ -119,6 +133,11 @@ func CheckReport(events []Event, checked int) string {
 	return b.String()
 }
 
+// oneLine joins s onto one line, so it fits in a list item or a quote.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
 func plural(n int, noun string) string {
 	if n == 1 {
 		return "1 " + noun
@@ -142,6 +161,13 @@ func writeFinding(b *strings.Builder, f Finding, open string) {
 		return
 	}
 	b.WriteString("\n\n")
+
+	switch {
+	case f.RaisedBefore != "":
+		fmt.Fprintf(b, "> **Raised before on this pull request:** %s\n\n", oneLine(f.RaisedBefore))
+	case f.Doubt != "":
+		fmt.Fprintf(b, "> **Doubted by Bark's check:** %s\n\n", oneLine(f.Doubt))
+	}
 
 	if loc := location(f); loc != "" {
 		fmt.Fprintf(b, "`%s`\n\n", loc)

@@ -128,8 +128,13 @@ type streamCompleteMsg struct {
 // checkDoneMsg carries the outcome of Bark's check for the review started
 // as run number run.
 type checkDoneMsg struct {
-	run    int
-	report string
+	run int
+	// events are the review's events as the check left them, and checked
+	// how many findings it gave a verdict on.
+	events  []findings.Event
+	checked int
+	// err is set if the check failed; the review is then left unchecked.
+	err error
 	// usage is the check call's token usage, or nil.
 	usage *llm.Usage
 }
@@ -157,6 +162,9 @@ type reviewModel struct {
 	// check, if not nil, checks a finished structured review's findings.
 	check    *check.Review
 	checking bool
+	// checkSummary sums up what Bark's check kept, for the status line;
+	// empty until a check is done.
+	checkSummary string
 	// run counts the reviews started, so the result of a check for a
 	// review that was restarted is ignored.
 	run int
@@ -356,12 +364,22 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 			return m, nil
 		}
 		m.checking = false
+		old := m.response
+		if msg.err != nil {
+			m.response = strings.TrimRight(m.response, "\n") + "\n\n## Bark's check\n\n" +
+				"The check failed, so the findings above are unchecked: " + msg.err.Error() + "\n"
+		} else {
+			// Shown again from the checked events, each finding where it
+			// streamed: set-aside ones get a note under their heading, and
+			// kept ones show the check's changes to them.
+			m.response = strings.TrimRight(utils.NormaliseCodeFences(findings.MarkedMarkdown(msg.events)), "\n") + "\n\n"
+			m.checkSummary = checkSummary(msg.events, msg.checked)
+		}
 		m.setDoneStatusLine()
-		m.response = strings.TrimRight(m.response, "\n") + "\n\n" + msg.report + "\n"
 		if !m.showPrompt {
 			pos := m.editor.GetCursorPosition()
 			m.editor.SetContent(m.response)
-			_ = m.editor.SetCursorPosition(pos.Row, pos.Col)
+			_ = m.editor.SetCursorPosition(followCursor(old, m.response, pos.Row), 0)
 		}
 		return m, nil
 
@@ -502,6 +520,7 @@ func (m reviewModel) View() string {
 func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	m.run++
 	m.checking = false
+	m.checkSummary = ""
 	m.raw = &strings.Builder{}
 	m.contentBuilder = &strings.Builder{}
 	m.renderer = nil
@@ -560,7 +579,11 @@ func (m *reviewModel) setCheckingStatusLine() {
 
 func (m *reviewModel) setDoneStatusLine() {
 	reviewerInfo := m.styles.Accent.Render("Reviewed by " + m.reviewer.Name + " ")
-	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
+	if m.checkSummary == "" {
+		m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
+		return
+	}
+	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, m.checkSummary, reviewerInfo)
 }
 
 // awaitsCheck reports whether msg is the result of the check the review is
@@ -576,10 +599,73 @@ func runCheckCmd(r check.Review, run int, events []findings.Event) tea.Cmd {
 		defer cancel()
 		res, err := r.Run(ctx, events)
 		if err != nil {
-			return checkDoneMsg{run: run, usage: res.Usage, report: "## Bark's check\n\nThe check failed, so the findings above are unchecked: " + err.Error() + "\n"}
+			return checkDoneMsg{run: run, usage: res.Usage, err: err}
 		}
-		return checkDoneMsg{run: run, usage: res.Usage, report: findings.CheckReport(res.Events, res.Checked)}
+		return checkDoneMsg{run: run, usage: res.Usage, events: res.Events, checked: res.Checked}
 	}
+}
+
+// checkSummary sums up in a line how many of the checked findings Bark's
+// check kept, or "" if it checked none.
+func checkSummary(events []findings.Event, checked int) string {
+	if checked == 0 {
+		return ""
+	}
+	setAside := 0
+	for _, e := range events {
+		if e.Finding != nil && e.Finding.SetAside() {
+			setAside++
+		}
+	}
+	switch {
+	case setAside == 0 && checked == 1:
+		return "Bark's check kept the finding"
+	case setAside == 0:
+		return "Bark's check kept all " + strconv.Itoa(checked) + " findings"
+	default:
+		return "Bark's check kept " + strconv.Itoa(checked-setAside) + " of " + strconv.Itoa(checked) + " findings"
+	}
+}
+
+// followCursor returns the row in updated that shows what row showed in old:
+// the same line under the same heading, as the check's notes add lines above
+// it. Above every heading, or if the heading is gone (the check changed a
+// finding's severity), row stays as it is, within updated.
+func followCursor(old, updated string, row int) int {
+	oldLines := strings.Split(old, "\n")
+	newLines := strings.Split(updated, "\n")
+	clamp := func(r int) int { return max(0, min(r, len(newLines)-1)) }
+	if row >= len(oldLines) {
+		return clamp(row)
+	}
+
+	for h := row; h >= 0; h-- {
+		if !strings.HasPrefix(oldLines[h], "#") {
+			continue
+		}
+		i := slices.Index(newLines, oldLines[h])
+		if i < 0 {
+			break
+		}
+		if h == row {
+			return i
+		}
+		// The note under a set-aside finding's heading shifts the lines
+		// below the heading; count them from the end of the section.
+		oldEnd, newEnd := sectionEnd(oldLines, h), sectionEnd(newLines, i)
+		return clamp(max(i, newEnd-(oldEnd-row)))
+	}
+	return clamp(row)
+}
+
+// sectionEnd is the index of the next heading after h, or len(lines).
+func sectionEnd(lines []string, h int) int {
+	for i := h + 1; i < len(lines); i++ {
+		if strings.HasPrefix(lines[i], "#") {
+			return i
+		}
+	}
+	return len(lines)
 }
 
 func (m *reviewModel) dispatchLoadingMsg() tea.Cmd {
