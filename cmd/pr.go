@@ -25,7 +25,7 @@ func prCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().StringP("pr", "p", "", "Generate a description for a GitHub pull request by number (requires gh CLI)")
 	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
 	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config; by default inferred from the model name): "+strings.Join(config.SupportedProviders(), ", "))
-	cmd.Flags().StringP("instructions", "i", "", "Custom instructions (file path or raw text, overrides default PR instructions)")
+	cmd.Flags().StringArrayP("instructions", "i", nil, "Custom instructions: a file path or raw text, overriding the default PR instructions (repeat to combine several)")
 	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
 	addPlainFlag(cmd)
 
@@ -39,7 +39,7 @@ func runPRCmd(cmd *cobra.Command, cfg config.Config) error {
 	pr, _ := cmd.Flags().GetString("pr")
 	model, _ := cmd.Flags().GetString("model")
 	provider, _ := cmd.Flags().GetString("provider")
-	instructions, _ := cmd.Flags().GetString("instructions")
+	instructions, _ := cmd.Flags().GetStringArray("instructions")
 
 	stdinDiff, err := readStdinIfPiped()
 	if err != nil {
@@ -75,11 +75,12 @@ func runPRCmd(cmd *cobra.Command, cfg config.Config) error {
 	}
 
 	m := tui.New(tui.Options{
-		Task:    tui.TaskPRDescription,
-		Storage: storage,
-		Config:  cfg,
-		Branch:  branch,
-		PR:      pr,
+		Task:         tui.TaskPRDescription,
+		Storage:      storage,
+		Config:       cfg,
+		Branch:       branch,
+		PR:           pr,
+		Instructions: instructions,
 	})
 
 	p := tea.NewProgram(m)

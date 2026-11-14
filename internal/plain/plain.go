@@ -31,7 +31,7 @@ const gitTimeout = 30 * time.Second
 type ReviewOptions struct {
 	Diff              *string
 	ReviewerName      string
-	Instruction       string
+	Instructions      []string
 	SkipInstruction   bool
 	Storage           string
 	Config            config.Config
@@ -62,7 +62,7 @@ type PROptions struct {
 	Diff         *string
 	Branch       string
 	PR           string
-	Instructions string
+	Instructions []string
 	Config       config.Config
 }
 
@@ -115,7 +115,7 @@ func RunReview(opts ReviewOptions) error {
 	var reviewInstructions string
 	if !opts.SkipInstruction {
 		var err error
-		reviewInstructions, err = resolveInstructions(opts.Instruction, opts.Storage)
+		reviewInstructions, err = resolveInstructions(opts.Instructions, opts.Storage)
 		if err != nil {
 			return err
 		}
@@ -483,39 +483,24 @@ func resolveReviewer(name, storage string) (*reviewers.Reviewer, error) {
 	return nil, fmt.Errorf("reviewer is required in plain mode (use --as or add .bark/reviewer.md)")
 }
 
-// resolveInstructions returns the instruction text from a file path, by name, raw text, or .bark/review.md.
-func resolveInstructions(instruction, storage string) (string, error) {
-	if instruction != "" {
-		if _, err := os.Stat(instruction); err == nil {
-			content, err := os.ReadFile(instruction)
-			if err != nil {
-				return "", fmt.Errorf("error reading instructions file: %w", err)
-			}
-			return string(content), nil
-		}
-
-		instructionList, _ := instructions.Get(storage)
-		if instr, err := instructions.Find(instruction, instructionList); err == nil {
-			return instr.Prompt, nil
-		}
-
-		return instruction, nil
+// resolveInstructions returns the review instructions given by the
+// --instructions values (see instructions.Resolve), or the repo's
+// .bark/review.md when there are none.
+func resolveInstructions(values []string, storage string) (string, error) {
+	if len(values) > 0 {
+		saved, _ := instructions.Get(storage)
+		return instructions.Resolve(values, saved)
 	}
 
 	return utils.ReadLocalOverride(".bark/review.md")
 }
 
-// resolvePRInstructions returns the instruction text from a file path.
-func resolvePRInstructions(instruction string, cfg config.Config) (string, error) {
-	if instruction != "" {
-		if _, err := os.Stat(instruction); err == nil {
-			content, err := os.ReadFile(instruction)
-			if err != nil {
-				return "", fmt.Errorf("error reading PR instructions file: %w", err)
-			}
-			return string(content), nil
-		}
-		return instruction, nil
+// resolvePRInstructions returns the PR instructions given by the
+// --instructions values (file paths or raw text), or the repo's .bark/pr.md
+// or configured ones when there are none.
+func resolvePRInstructions(values []string, cfg config.Config) (string, error) {
+	if len(values) > 0 {
+		return instructions.Resolve(values, nil)
 	}
 
 	return utils.GetInstructions(".bark/pr.md", cfg.GetPRInstructions())

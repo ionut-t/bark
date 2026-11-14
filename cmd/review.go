@@ -26,7 +26,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config; by default inferred from the model name): "+strings.Join(config.SupportedProviders(), ", "))
 	cmd.Flags().BoolP("commit", "t", false, "Select commit to review")
 	cmd.Flags().BoolP("changes", "c", false, "Review current changes")
-	cmd.Flags().StringP("instructions", "i", "", "Custom instructions to guide the reviewer's feedback")
+	cmd.Flags().StringArrayP("instructions", "i", nil, "Custom instructions to guide the reviewer's feedback: a saved instruction name, file path or raw text (repeat to combine several)")
 	cmd.Flags().StringP("branch", "b", "", "Provide a branch name to diff against the current branch")
 	cmd.Flags().BoolP("staged", "s", false, "Review only staged changes")
 	cmd.Flags().BoolP("skip-instruction", "k", false, "Skip the instructions selection step")
@@ -56,7 +56,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	reviewerName, _ := cmd.Flags().GetString("as")
 	commit, _ := cmd.Flags().GetBool("commit")
 	changes, _ := cmd.Flags().GetBool("changes")
-	instruction, _ := cmd.Flags().GetString("instructions")
+	instructions, _ := cmd.Flags().GetStringArray("instructions")
 	branch, _ := cmd.Flags().GetString("branch")
 	staged, _ := cmd.Flags().GetBool("staged")
 	skipInstruction, _ := cmd.Flags().GetBool("skip-instruction")
@@ -120,7 +120,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		return plain.RunReview(plain.ReviewOptions{
 			Diff:              stdinDiff,
 			ReviewerName:      reviewerName,
-			Instruction:       instruction,
+			Instructions:      instructions,
 			SkipInstruction:   skipInstruction,
 			Storage:           storage,
 			Config:            cfg,
@@ -153,7 +153,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		Task:              tui.TaskReview,
 		Storage:           storage,
 		ReviewerName:      reviewerName,
-		Instruction:       instruction,
+		Instructions:      instructions,
 		Branch:            branch,
 		SelectCommit:      commit,
 		Config:            cfg,
