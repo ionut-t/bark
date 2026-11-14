@@ -181,6 +181,9 @@ type prDataLoadedMsg struct {
 }
 
 type prDataCmdParams struct {
+	// instructions are the --instructions values; when given they replace
+	// .bark/pr.md and fallbackInstructions.
+	instructions         []string
 	fallbackInstructions string
 	prNumber             string
 	branch               string
@@ -192,7 +195,7 @@ func loadPRDataCmd(params prDataCmdParams) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 
-		instr, err := utils.GetInstructions(".bark/pr.md", params.fallbackInstructions)
+		instr, err := resolvePRInstructions(params.instructions, params.fallbackInstructions)
 		if err != nil {
 			return prDataLoadedMsg{err: err}
 		}
@@ -213,4 +216,14 @@ func loadPRDataCmd(params prDataCmdParams) tea.Cmd {
 
 		return prDataLoadedMsg{instructions: instr, content: content}
 	}
+}
+
+// resolvePRInstructions returns the PR instructions given by the
+// --instructions values (file paths or raw text), or the repo's .bark/pr.md
+// or fallback when there are none.
+func resolvePRInstructions(values []string, fallback string) (string, error) {
+	if len(values) > 0 {
+		return instructions.Resolve(values, nil)
+	}
+	return utils.GetInstructions(".bark/pr.md", fallback)
 }

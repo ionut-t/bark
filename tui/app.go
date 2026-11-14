@@ -80,7 +80,7 @@ type Model struct {
 
 	instructions        instructionsModel
 	selectedInstruction string
-	instructionName     string
+	instructionValues   []string
 	skipInstruction     bool
 
 	commitChanges commitChangesModel
@@ -123,7 +123,7 @@ type Model struct {
 type Options struct {
 	Storage           string
 	ReviewerName      string
-	Instruction       string
+	Instructions      []string
 	Branch            string
 	PR                string
 	SelectCommit      bool
@@ -181,7 +181,7 @@ func New(options Options) *Model {
 		storage:              options.Storage,
 		selectCommit:         options.SelectCommit,
 		reviewerName:         options.ReviewerName,
-		instructionName:      options.Instruction,
+		instructionValues:    options.Instructions,
 		branch:               options.Branch,
 		branchInput:          newBranchInputModel(options.Branch),
 		prNumber:             options.PR,
@@ -393,11 +393,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reviewInstructionsLoadedMsg:
 		listInstructions := msg.instructions
 
-		if m.instructionName != "" {
-			if instruction, err := instructions.Find(m.instructionName, listInstructions); err == nil {
-				m.selectedInstruction = instruction.Prompt
-				return m, utils.DispatchMsg(instructionSelectedMsg{instruction: instruction.Prompt})
+		if len(m.instructionValues) > 0 {
+			instruction, err := instructions.Resolve(m.instructionValues, listInstructions)
+			if err != nil {
+				m.error = err
+				return m, nil
 			}
+			m.selectedInstruction = instruction
+			return m, utils.DispatchMsg(instructionSelectedMsg{instruction: instruction})
 		}
 
 		if msg.overrideErr != nil {
@@ -1003,14 +1006,17 @@ func (m *Model) handleCommitMessageRetry() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
-	return m, loadPRDataCmd(
-		prDataCmdParams{
-			fallbackInstructions: m.config.GetPRInstructions(),
-			prNumber:             m.prNumber,
-			branch:               m.branch,
-			maxLines:             m.config.GetMaxDiffLines(),
-		},
-	)
+	return m, loadPRDataCmd(m.prDataParams())
+}
+
+func (m *Model) prDataParams() prDataCmdParams {
+	return prDataCmdParams{
+		instructions:         m.instructionValues,
+		fallbackInstructions: m.config.GetPRInstructions(),
+		prNumber:             m.prNumber,
+		branch:               m.branch,
+		maxLines:             m.config.GetMaxDiffLines(),
+	}
 }
 
 func (m *Model) handlePRDataLoaded(msg prDataLoadedMsg) (tea.Model, tea.Cmd) {

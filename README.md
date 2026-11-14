@@ -58,11 +58,14 @@ To use a specific reviewer, use the `--as` flag:
 bark review --as linus
 ```
 
-To provide custom instructions to the reviewer, use the `--instructions` or `-i` flag with the name of the instruction file:
+To provide custom instructions to the reviewer, use the `--instructions` or `-i` flag with the name of a saved instruction, a file path or the instructions as text. Repeat the flag to combine several; they're added in the order given:
 
 ```bash
 bark review --instructions <instruction-name>
+bark review -i security -i ./docs/review-rules.md -i "Keep it brief"
 ```
+
+Without `-i`, the TUI lets you pick from your saved instructions: press `space` to mark several and `enter` to use them together, or just `enter` to use the highlighted one.
 
 To review a GitHub pull request and post the review on it, use `--pr` with `--comment` (needs the [gh CLI](https://cli.github.com)):
 
