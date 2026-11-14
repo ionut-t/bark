@@ -627,45 +627,73 @@ func checkSummary(events []findings.Event, checked int) string {
 	}
 }
 
-// followCursor returns the row in updated that shows what row showed in old:
-// the same line under the same heading, as the check's notes add lines above
-// it. Above every heading, or if the heading is gone (the check changed a
-// finding's severity), row stays as it is, within updated.
+// followCursor returns the row in updated that shows what row showed in old,
+// where updated is old after Bark's check: the same findings in the same
+// order, some with a note under their heading, a new severity or a dropped
+// suggestion. Headings are matched by position, not text, as two findings
+// can share one and the check can change it. Above every heading, row stays
+// as it is, within updated.
 func followCursor(old, updated string, row int) int {
 	oldLines := strings.Split(old, "\n")
 	newLines := strings.Split(updated, "\n")
 	clamp := func(r int) int { return max(0, min(r, len(newLines)-1)) }
-	if row >= len(oldLines) {
+
+	oldHeadings, newHeadings := headings(oldLines), headings(newLines)
+	k := -1
+	for i, h := range oldHeadings {
+		if h > row {
+			break
+		}
+		k = i
+	}
+	if k < 0 || k >= len(newHeadings) {
 		return clamp(row)
 	}
 
-	for h := row; h >= 0; h-- {
-		if !strings.HasPrefix(oldLines[h], "#") {
-			continue
-		}
-		i := slices.Index(newLines, oldLines[h])
-		if i < 0 {
-			break
-		}
-		if h == row {
-			return i
-		}
-		// The note under a set-aside finding's heading shifts the lines
-		// below the heading; count them from the end of the section.
-		oldEnd, newEnd := sectionEnd(oldLines, h), sectionEnd(newLines, i)
-		return clamp(max(i, newEnd-(oldEnd-row)))
+	h, i := oldHeadings[k], newHeadings[k]
+	offset := row - h
+	// The note sits on the heading's second line below, ahead of everything
+	// else in the finding.
+	if offset >= 2 {
+		offset += noteLines(newLines, i) - noteLines(oldLines, h)
 	}
-	return clamp(row)
+	if k+1 < len(newHeadings) {
+		// Stay within the finding if it got shorter, on its last line
+		// rather than the blank one before the next heading.
+		offset = min(offset, max(0, newHeadings[k+1]-2-i))
+	}
+	return clamp(i + offset)
 }
 
-// sectionEnd is the index of the next heading after h, or len(lines).
-func sectionEnd(lines []string, h int) int {
-	for i := h + 1; i < len(lines); i++ {
-		if strings.HasPrefix(lines[i], "#") {
-			return i
+// headings returns the indices of the Markdown headings in lines, leaving
+// out lines in code fences, such as a suggestion's "#include".
+func headings(lines []string) []int {
+	var out []int
+	fence := ""
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		switch {
+		case fence != "":
+			if strings.HasPrefix(t, fence) && strings.Trim(t, "`") == "" {
+				fence = ""
+			}
+		case strings.HasPrefix(t, "```"):
+			fence = t[:len(t)-len(strings.TrimLeft(t, "`"))]
+		case strings.HasPrefix(l, "#"):
+			out = append(out, i)
 		}
 	}
-	return len(lines)
+	return out
+}
+
+// noteLines is how many lines the check's note under the heading at h takes
+// up, with the blank line after it: 2, or 0 without a note.
+func noteLines(lines []string, h int) int {
+	if h+2 < len(lines) && (strings.HasPrefix(lines[h+2], findings.DoubtedNote) ||
+		strings.HasPrefix(lines[h+2], findings.RaisedBeforeNote)) {
+		return 2
+	}
+	return 0
 }
 
 func (m *reviewModel) dispatchLoadingMsg() tea.Cmd {

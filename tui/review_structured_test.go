@@ -185,6 +185,41 @@ func TestReviewCheckKeepsCursorOnFinding(t *testing.T) {
 	assert.Equal(t, 13, followCursor(old+"\n\n\n\n\n\n\n", updated, 20), "clamped to the new content")
 }
 
+// Two findings can share a heading; the cursor stays on its own one.
+func TestReviewCheckCursorWithDuplicateHeadings(t *testing.T) {
+	t.Parallel()
+
+	old := "### [LOW] Typo\n\n`a.go`\n\nx\n\n### [LOW] Typo\n\n`b.go`\n\ny\n"
+	updated := "### [LOW] Typo\n\n`a.go`\n\nx\n\n### [LOW] Typo\n\n> **Doubted by Bark's check:** no.\n\n`b.go`\n\ny\n"
+
+	assert.Equal(t, 6, followCursor(old, updated, 6), "on the second heading")
+	assert.Equal(t, 12, followCursor(old, updated, 10), "on the second finding's body")
+}
+
+// Lines starting with "#" inside a suggestion aren't headings.
+func TestReviewCheckCursorIgnoresHashesInCode(t *testing.T) {
+	t.Parallel()
+
+	old := "### [HIGH] Include\n\n`a.c:1`\n\nb\n\n```c\n#include <x.h>\nint y;\n```\n\n### [LOW] Typo\n\nt\n"
+	updated := "### [HIGH] Include\n\n> **Doubted by Bark's check:** no.\n\n`a.c:1`\n\nb\n\n```c\n#include <x.h>\nint y;\n```\n\n### [LOW] Typo\n\nt\n"
+
+	assert.Equal(t, 10, followCursor(old, updated, 8), "on the code line after #include")
+	assert.Equal(t, 13, followCursor(old, updated, 11), "on the second heading")
+}
+
+// The check can change a finding's severity or drop its broken suggestion;
+// the cursor still stays on that finding.
+func TestReviewCheckCursorFollowsChangedFinding(t *testing.T) {
+	t.Parallel()
+
+	old := "### [HIGH] Nil map\n\n`a.go:2`\n\nb\n\n```go\nx := 1\n```\n\n### [LOW] Typo\n\nt\n"
+	updated := "### [MEDIUM] Nil map\n\n`a.go:2`\n\nb\n\n### [LOW] Typo\n\nt\n"
+
+	assert.Equal(t, 4, followCursor(old, updated, 4), "on the body of the finding whose severity changed")
+	assert.Equal(t, 4, followCursor(old, updated, 7), "in the dropped suggestion, held on the finding's last line")
+	assert.Equal(t, 8, followCursor(old, updated, 12), "on the next finding's body")
+}
+
 // A check result for a review that was restarted is dropped.
 func TestReviewStructuredIgnoresStaleCheck(t *testing.T) {
 	t.Parallel()

@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+// The notes MarkedMarkdown writes under a set-aside finding's heading start
+// with these.
+const (
+	DoubtedNote      = "> **Doubted by Bark's check:**"
+	RaisedBeforeNote = "> **Raised before on this pull request:**"
+)
+
 // Markdown renders events as a Markdown review. Rendering events one batch
 // at a time and joining the results gives the same output as rendering them
 // all at once, so a streamed review can be appended to as it arrives.
@@ -164,9 +171,9 @@ func writeFinding(b *strings.Builder, f Finding, open string) {
 
 	switch {
 	case f.RaisedBefore != "":
-		fmt.Fprintf(b, "> **Raised before on this pull request:** %s\n\n", oneLine(f.RaisedBefore))
+		fmt.Fprintf(b, "%s %s\n\n", RaisedBeforeNote, oneLine(f.RaisedBefore))
 	case f.Doubt != "":
-		fmt.Fprintf(b, "> **Doubted by Bark's check:** %s\n\n", oneLine(f.Doubt))
+		fmt.Fprintf(b, "%s %s\n\n", DoubtedNote, oneLine(f.Doubt))
 	}
 
 	if loc := location(f); loc != "" {
