@@ -187,6 +187,19 @@ func TestRootCmd_VersionBannerIsRenderedOnDemand(t *testing.T) {
 	cmd.SetErr(io.Discard)
 
 	require.NoError(t, cmd.Execute())
-	assert.Contains(t, out.String(), "Release date")
-	assert.Contains(t, out.String(), "Commit")
+	assert.Contains(t, out.String(), "Version")
+}
+
+// Commit and release date are only known for builds that record them, so the
+// banner leaves out the rows it can't fill.
+func TestWriteVersionLine_SkipsUnknownValues(t *testing.T) {
+	t.Parallel()
+
+	var b strings.Builder
+	writeVersionLine(&b, "Commit", "unknown")
+	writeVersionLine(&b, "Release date", "")
+	assert.Empty(t, b.String())
+
+	writeVersionLine(&b, "Commit", "abc1234")
+	assert.Equal(t, "  Commit         abc1234\n", b.String())
 }
