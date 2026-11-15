@@ -11,7 +11,7 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/ionut-t/coffee/help v0.0.0-20261112230337-edee214a608a
 	github.com/ionut-t/coffee/styles v0.0.0-20261112230337-edee214a608a
-	github.com/ionut-t/goeditor v0.21.0
+	github.com/ionut-t/goeditor v0.23.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/odvcencio/gotreesitter v0.57.0
 	github.com/openai/openai-go/v3 v3.99.0
