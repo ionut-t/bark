@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.30.0](https://github.com/ionut-t/bark/compare/v2.29.1...v2.30.0) (2026-11-15)
+
+
+### Features
+
+* **instructions:** allow combining several instructions ([#123](https://github.com/ionut-t/bark/issues/123)) ([ab53b02](https://github.com/ionut-t/bark/commit/ab53b023dbf864d9723e94d720502f2387dbafbd))
+* **tui:** add British-themed loading messages and standardise spelling ([#127](https://github.com/ionut-t/bark/issues/127)) ([0b3c3db](https://github.com/ionut-t/bark/commit/0b3c3dbed8a23c9188acef592170377152331d71))
+* **tui:** mark findings in-place after automated check ([#126](https://github.com/ionut-t/bark/issues/126)) ([e0b9c6a](https://github.com/ionut-t/bark/commit/e0b9c6af9b129fb0f57391f5093268330d5f2e0f))
+
+
+### Bug Fixes
+
+* **cmd:** hide unknown metadata from version banner ([#129](https://github.com/ionut-t/bark/issues/129)) ([235ced9](https://github.com/ionut-t/bark/commit/235ced9e2bae55db592d50b6c06693b306d3441a))
+* **tui:** ensure commit retry reloads repository state ([#125](https://github.com/ionut-t/bark/issues/125)) ([da93873](https://github.com/ionut-t/bark/commit/da9387366443229d09080ad22ff421fcd0207246))
+
 ## [2.29.1](https://github.com/ionut-t/bark/compare/v2.29.0...v2.29.1) (2026-11-12)
 
 
