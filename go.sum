@@ -148,6 +148,8 @@ github.com/ionut-t/coffee/styles v0.0.0-20261112230337-edee214a608a h1:gROfTvsPo
 github.com/ionut-t/coffee/styles v0.0.0-20261112230337-edee214a608a/go.mod h1:bLrZosfb/DcUrpPasoO7QVD2TSzenGuC//qby+7Wg+g=
 github.com/ionut-t/goeditor v0.21.0 h1:9YjXV0o/BJFYzqr+M4dGaxAWvEcOFymZ8T3YaTZ4cKo=
 github.com/ionut-t/goeditor v0.21.0/go.mod h1:yQt3Uy6RbbKY+8G/ilu/c6BCXwZttn1yQraVzkIbhws=
+github.com/ionut-t/goeditor v0.23.0 h1:6PNdhTMgcoo0/u/F7f5zX+MxGTU1HfGMNEXQV+KcmNA=
+github.com/ionut-t/goeditor v0.23.0/go.mod h1:yQt3Uy6RbbKY+8G/ilu/c6BCXwZttn1yQraVzkIbhws=
 github.com/ionut-t/gotable v1.0.1 h1:wkF+BN7AWdnysy4fZ7nwdTlG8NOKMQypg1OtzlnR6Ic=
 github.com/ionut-t/gotable v1.0.1/go.mod h1:AADrDhAQWNlYfkTZACr8D0c6kbinH/5jK8qeU28WAk8=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
