@@ -75,9 +75,37 @@ bark review --pr 42 --comment
 
 `--comment` turns on structured findings. Each finding on a line the pull request changes becomes an inline comment, and its fix becomes a suggestion that can be applied with one click. The reviewer's intro and verdict, and findings about other lines, go in the review body.
 
-Structured reviews (`--structured`, or `--comment`) are checked before they're shown in full or posted: a second model call reads the files the findings point to (whole, or the lines around each finding for files over 1,500 lines) and must quote the code a finding rests on. Findings that don't hold up are set aside in a "Doubted by Bark's check" section (collapsed in a posted review, never inline comments) with the reason. The check costs one extra call per review that has findings, with the diff and those files as input. When the review isn't streamed (plain output, `--comment`) and the check sets findings aside, one more small call (no code, a few hundred tokens) rewrites the reviewer's intro and verdict so they don't demand fixes for them. With `--pr`, the check also sets aside findings that repeat a point Bark's earlier reviews of the same pull request already raised (posted, doubted or resolved). Each posted review records its findings in a hidden comment for this; reviews posted by older versions of Bark have none. Repeats get no inline comments and are listed in a collapsed "Raised before on this pull request" block. Turn it off with `--check=false`, or for good with `bark config --check-findings=false`.
+#### Checking findings
 
-To show only the more serious findings of a structured review, pass `--min-severity` (`critical`, `high`, `medium` or `low`), or set it for good with `bark config --min-severity high`. Less severe findings are left out before the check, so they aren't checked, shown or posted. The model still writes them, so the threshold doesn't lower the review's cost.
+Before a structured review (`--structured` or `--comment`) is shown in full or posted, Bark checks its findings with a second model call. The check reads the files the findings point to (whole, or only the lines around each finding for files over 1,500 lines) and must quote the code each finding rests on. Two kinds of finding are set aside:
+
+- **Findings that don't hold up** go in a "Doubted by Bark's check" section, each with the reason.
+- **Findings already raised** (with `--pr` only) go in a "Raised before on this pull request" block. These repeat a point from Bark's earlier reviews of the same pull request, whether it was posted, doubted or resolved. Bark finds those points in a hidden comment that each posted review leaves.
+
+In a posted review, both sections are collapsed and their findings get no inline comments.
+
+The check adds:
+
+- one call per review that has findings, with the diff and the files it reads as input;
+- when the review isn't streamed (plain output, `--comment`) and findings are set aside, one more small call (no code, a few hundred tokens) that rewrites the reviewer's intro and verdict so they don't ask for fixes to those findings.
+
+To turn the check off:
+
+```bash
+bark review --check=false            # for one review
+bark config --check-findings=false   # for good
+```
+
+#### Filtering by severity
+
+To show only the more serious findings, pass `--min-severity` with `critical`, `high`, `medium` or `low`:
+
+```bash
+bark review --structured --min-severity high   # for one review
+bark config --min-severity high                # for good
+```
+
+Less severe findings are dropped before the check, so they aren't checked, shown or posted. The model still writes them, though, so a threshold doesn't make the review cheaper.
 
 ### Commit Message Generation
 
