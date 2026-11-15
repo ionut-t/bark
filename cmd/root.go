@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fang/v2"
@@ -123,10 +124,20 @@ func init() {
 }
 
 func versionBanner() string {
-	versionTpl := styles.New(styles.IsDark()).Primary.Margin(0, 2).Render(logo) + `
-  Version        %s
-  Commit         %s
-  Release date   %s
-`
-	return fmt.Sprintf(versionTpl, version.Version(), version.Commit(), version.Date())
+	var b strings.Builder
+	b.WriteString(styles.New(styles.IsDark()).Primary.Margin(0, 2).Render(logo))
+	b.WriteString("\n")
+	writeVersionLine(&b, "Version", version.Version())
+	writeVersionLine(&b, "Commit", version.Commit())
+	writeVersionLine(&b, "Release date", version.Date())
+	return b.String()
+}
+
+// writeVersionLine writes one banner row, skipping values the build didn't
+// record.
+func writeVersionLine(b *strings.Builder, label, value string) {
+	if value == "" || value == "unknown" {
+		return
+	}
+	fmt.Fprintf(b, "  %-15s%s\n", label, value)
 }
