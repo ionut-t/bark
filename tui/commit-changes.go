@@ -29,7 +29,7 @@ var generationPhaseLoadingMessages = [...]string{
 	"Resisting the urge to write 'WIP'...",
 	"Trying not to write 'minor changes'...",
 	"Suppressing 'fixed bug' instincts...",
-	"Channeling conventional commit energy...",
+	"Channelling conventional commit energy...",
 
 	"git commit -m 'AI did it'...",
 	"Blaming previous commits...",
@@ -49,7 +49,7 @@ var generationPhaseLoadingMessages = [...]string{
 	"Determining if this is breaking or not...",
 	"Classifying your chaos...",
 
-	"Analyzing what you actually changed...",
+	"Analysing what you actually changed...",
 	"Figuring out what this diff means...",
 	"Reading your mind (and your code)...",
 	"Decoding the intent behind these changes...",
@@ -57,12 +57,12 @@ var generationPhaseLoadingMessages = [...]string{
 
 	"Taking longer than the actual code changes...",
 	"Spending more time on message than code...",
-	"Practicing the art of summarization...",
+	"Practising the art of summarisation...",
 	"Condensing hours of work into 50 characters...",
 
 	"Writing commit message for commit message generator...",
 	"Committing to writing better commits...",
-	"Meta-analyzing your changes...",
+	"Meta-analysing your changes...",
 	"Generating commit inception...",
 
 	"Checking if anyone will actually read this...",
@@ -71,22 +71,33 @@ var generationPhaseLoadingMessages = [...]string{
 	"Documenting for the archaeologists...",
 	"Creating tomorrow's git log...",
 
-	"Summarizing your refactoring journey...",
+	"Summarising your refactoring journey...",
 	"Describing technical debt payments...",
 	"Explaining the unexplainable...",
 	"Justifying questionable decisions...",
 
 	"Consulting the commit message gods...",
-	"Channeling Linus Torvalds...",
+	"Channelling Linus Torvalds...",
 	"Computing semantic similarity...",
 	"Training on 10 million commit messages...",
 	"Avoiding passive voice...",
 
-	"Summarizing brilliance...",
+	"Summarising brilliance...",
 	"Capturing context...",
 	"Being concise...",
 	"Staying under 72 characters...",
 	"Making it meaningful...",
+
+	"Putting the kettle on while the words brew...",
+	"Avoiding 'bits and bobs' as a commit message...",
+	"Replacing 'sorted it' with something more descriptive...",
+	"Turning 'faffed about a bit' into a refactor...",
+	"Resisting 'tweaked a few things, innit'...",
+	"Swapping 'fixed the dodgy bit' for proper words...",
+	"Being terribly British about your breaking changes...",
+	"Writing 'minor tidy-up' with a straight face...",
+	"Phrasing it so nobody blames you later...",
+	"Queueing politely for the commit message...",
 }
 
 var commitPhaseLoadingMessages = [...]string{
@@ -110,6 +121,12 @@ var commitPhaseLoadingMessages = [...]string{
 	"Committing your breaking changes...",
 	"Reverting your changes 😈...",
 	"rm -rf . ... 👺 oh, wrong command...",
+	"Popping it in the post to Git...",
+	"Signing it off with 'cheers'...",
+	"Job's a good'un...",
+	"Bob's your uncle, nearly...",
+	"Filing it neatly under 'sorted'...",
+	"Committing, and then having a lie-down...",
 }
 
 type commitGenerationLoadingMsg struct {

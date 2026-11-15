@@ -29,7 +29,7 @@ var loadingMessages = [...]string{
 	"Marinating your commits in wisdom...",
 
 	"Summoning legendary reviewers...",
-	"Channeling the wisdom of ancient code masters...",
+	"Channelling the wisdom of ancient code masters...",
 	"Consulting the elder scroll of best practices...",
 
 	"Analysing your code with ruthless precision...",
@@ -78,7 +78,7 @@ var loadingMessages = [...]string{
 
 	"Deploying the code critique squad...",
 	"Assembling the review dream team...",
-	"Mobilizing the refactoring task force...",
+	"Mobilising the refactoring task force...",
 	"Unleashing the linter army...",
 
 	"Following the trail of code smells...",
@@ -90,6 +90,33 @@ var loadingMessages = [...]string{
 	"Analysing under a microscope...",
 	"Testing hypothesis: 'This will work'... unlikely...",
 	"Peer reviewing in zero gravity...",
+
+	"Putting the kettle on, this could take a while...",
+	"Having a quick cuppa before diving in...",
+	"Dunking a biscuit in your diff...",
+	"Queueing politely behind the other reviews...",
+	"Muttering 'well, that's not ideal' under its breath...",
+	"Saying 'interesting choice' in the most British way possible...",
+	"Preparing a strongly worded letter about your indentation...",
+	"Tutting quietly at your error handling...",
+	"Apologising in advance for what's coming...",
+	"Keeping calm and carrying on reading...",
+
+	"Finding your code a bit of a dog's dinner...",
+	"Discovering it's all gone a bit pear-shaped...",
+	"Wondering who left this function in such a state...",
+	"Spotting a dodgy loop or two...",
+	"Hoping this isn't a load of old cobblers...",
+	"Concluding it's not bad, considering...",
+	"Rating your code 'could be worse'...",
+
+	"Minding the gap in your test coverage...",
+	"Waiting for the review, like a bus, three at once...",
+	"Sorry to bother you, but is this meant to be global...",
+	"Checking whether this null pointer is having a laugh...",
+	"Reading your comments with a raised eyebrow...",
+	"Fetching a brolly for the incoming storm of feedback...",
+	"Blaming the weather for your flaky tests...",
 }
 
 const (
