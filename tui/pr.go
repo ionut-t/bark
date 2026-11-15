@@ -111,6 +111,21 @@ var prLoadingMessages = [...]string{
 	"Capturing the essence...",
 	"Explaining clearly...",
 	"Documenting thoroughly...",
+
+	"Putting the kettle on for the reviewers...",
+	"Writing it nicely so nobody tuts...",
+	"Adding 'sorry for the massive PR' to the top...",
+	"Politely asking for a review, cap in hand...",
+	"Queueing your PR behind eighteen others...",
+	"Pretending this was the plan all along...",
+	"Turning a right old faff into a tidy summary...",
+	"Describing your dog's dinner of a branch diplomatically...",
+	"Making 'it's a bit fiddly' sound like a design decision...",
+	"Bribing reviewers with imaginary biscuits...",
+	"Translating 'it works, don't touch it' into British understatement...",
+	"Hoping nobody asks 'why not just...?'...",
+	"Labelling this 'quick win' with a straight face...",
+	"Promising the follow-up PR will tidy things up, honest...",
 }
 
 type prInitReadyMsg struct{}
