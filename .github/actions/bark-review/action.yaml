@@ -179,8 +179,12 @@ runs:
         MARKER="<!-- bark-review -->"
         BODY=$(printf '%s\n## Bark AI Code Review\n\n%s' "$MARKER" "$(cat /tmp/bark-review.txt)")
 
-        COMMENT_ID=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-          --jq '.[] | select(.body | startswith("<!-- bark-review -->")) | .id' | head -1)
+        # --paginate: without it gh returns only the first 30 comments, and on a
+        # busy PR the earlier review is missed and a duplicate posted. The first
+        # ID is taken in bash: | head -1 can kill gh with SIGPIPE under pipefail.
+        COMMENT_IDS=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
+          --jq '.[] | select(.body | startswith("<!-- bark-review -->")) | .id')
+        COMMENT_ID=${COMMENT_IDS%%$'\n'*}
 
         if [ -n "$COMMENT_ID" ]; then
           jq -n --arg body "$BODY" '{"body": $body}' | \
