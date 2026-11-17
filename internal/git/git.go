@@ -740,21 +740,15 @@ func formatPRFileStat(meta *PRMeta, rules ignoreRules) string {
 		return ""
 	}
 
-	// Like git, the bars are scaled down so the longest is 50 wide.
-	bar := func(n int) int {
-		if most <= 50 || n == 0 {
-			return n
-		}
-		return max(1, n*50/most)
-	}
 	countWidth := len(strconv.Itoa(most))
 	var sb strings.Builder
 	added, deleted := 0, 0
 	for _, f := range files {
 		added += f.Additions
 		deleted += f.Deletions
+		plus, minus := statBar(f.Additions, f.Deletions, most)
 		fmt.Fprintf(&sb, " %-*s | %*d %s%s\n", width, f.Path, countWidth, f.Additions+f.Deletions,
-			strings.Repeat("+", bar(f.Additions)), strings.Repeat("-", bar(f.Deletions)))
+			strings.Repeat("+", plus), strings.Repeat("-", minus))
 	}
 
 	fmt.Fprintf(&sb, " %d %s changed", len(files), plural(len(files), "file", "files"))
@@ -768,6 +762,36 @@ func formatPRFileStat(meta *PRMeta, rules ignoreRules) string {
 		fmt.Fprintf(&sb, "\n (GitHub listed only %d of the %d changed files)", len(meta.Files), meta.ChangedFiles)
 	}
 	return sb.String()
+}
+
+// statGraphWidth is the width of git diff --stat's graph on a wide terminal.
+const statGraphWidth = 50
+
+// statBar returns how many + and - git diff --stat draws for a file with
+// add additions and del deletions when the file with the most changes has
+// most. Like git (diff.c), it scales the file's total first and then
+// splits it, and draws at least one of each sign the file has, so a small
+// mixed file can get a longer bar than a slightly bigger one-sided file.
+func statBar(add, del, most int) (plus, minus int) {
+	if most <= statGraphWidth {
+		return add, del
+	}
+	scale := func(n int) int {
+		if n == 0 {
+			return 0
+		}
+		return 1 + n*(statGraphWidth-1)/most
+	}
+	total := scale(add + del)
+	if total < 2 && add > 0 && del > 0 {
+		total = 2
+	}
+	if add < del {
+		plus = scale(add)
+		return plus, total - plus
+	}
+	minus = scale(del)
+	return total - minus, minus
 }
 
 func plural(n int, one, many string) string {

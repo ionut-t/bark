@@ -2,6 +2,7 @@ package git
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -254,4 +255,54 @@ func TestGetReviewDiff_PRGoVersion(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, r.ContextHeader, "go.mod targets Go 1.22")
 	})
+}
+
+// The stat made from GitHub's file list draws the same bars as git diff
+// --stat with a 50-column graph, the width git uses on a wide terminal.
+func TestFormatPRFileStatMatchesGit(t *testing.T) {
+	dir := newDivergedRepo(t)
+	lines := func(prefix string, n int) string {
+		var sb strings.Builder
+		for i := range n {
+			fmt.Fprintf(&sb, "%s %d\n", prefix, i)
+		}
+		return sb.String()
+	}
+	// Each file starts with old lines; the commit replaces del of them
+	// and adds add more.
+	files := []PRFile{
+		{Path: "a.txt", Additions: 1, Deletions: 1},
+		{Path: "b.txt", Additions: 10},
+		{Path: "c.txt", Additions: 19, Deletions: 1},
+		{Path: "d.txt", Additions: 30, Deletions: 30},
+		{Path: "e.txt", Additions: 300, Deletions: 100},
+		{Path: "f.txt", Additions: 1000},
+		{Path: "g.txt", Deletions: 7},
+	}
+	for _, f := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, f.Path), []byte(lines("old", 100)), 0o644))
+	}
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "old")
+	for _, f := range files {
+		content := strings.Join(strings.SplitAfter(lines("old", 100), "\n")[f.Deletions:], "") + lines("new", f.Additions)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, f.Path), []byte(content), 0o644))
+	}
+	cmd := exec.Command("git", "diff", "--stat=200", "--stat-graph-width=50")
+	cmd.Dir = dir
+	want, err := cmd.Output()
+	require.NoError(t, err)
+
+	bars := func(stat string) map[string]string {
+		got := map[string]string{}
+		for line := range strings.SplitSeq(stat, "\n") {
+			if name, rest, ok := strings.Cut(line, "|"); ok {
+				fields := strings.Fields(rest)
+				got[strings.TrimSpace(name)] = strings.Join(fields[1:], "")
+			}
+		}
+		return got
+	}
+	require.Len(t, bars(string(want)), len(files))
+	assert.Equal(t, bars(string(want)), bars(formatPRFileStat(&PRMeta{Files: files}, ignoreRules{})))
 }
