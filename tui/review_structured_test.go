@@ -11,6 +11,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/check"
 	"github.com/ionut-t/bark/v2/internal/debuglog"
 	"github.com/ionut-t/bark/v2/internal/findings"
+	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/stretchr/testify/assert"
@@ -258,4 +259,33 @@ func TestReviewTruncated(t *testing.T) {
 	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Clean."}` + "\n"})
 	m, _ = m.Update(streamCompleteMsg{})
 	assert.NotContains(t, m.response, "Cut off")
+}
+
+// A review of a diff cut to fit its limit starts with a note saying so,
+// also after Bark's check redraws it and when the review is retried.
+func TestReviewOfCutDiff(t *testing.T) {
+	t.Parallel()
+
+	cut := &git.DiffCut{Files: 5, Kept: 2, Partial: true, Setting: "max_diff_tokens"}
+	note := findings.PartialReviewNote(cut.Summary())
+
+	m := newReviewModel(reviewers.Reviewer{Name: "Spock"}, "system", "prompt", 80, 40, nil)
+	m.setStructured(true)
+	m.setDiffCut(cut)
+	_ = m.startReview(context.Background())
+
+	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Fix it."}` + "\n"})
+	m, _ = m.Update(streamCompleteMsg{})
+	assert.True(t, strings.HasPrefix(m.response, note), m.response)
+	assert.Contains(t, m.response, "## Verdict\n\nFix it.")
+
+	m.checking = true
+	m, _ = m.Update(checkDoneMsg{run: m.run, events: findings.Parse(m.raw.String())})
+	assert.True(t, strings.HasPrefix(m.response, note), "the check's redraw keeps the note: %s", m.response)
+
+	_ = m.startReview(context.Background())
+	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Clean."}` + "\n"})
+	m, _ = m.Update(streamCompleteMsg{})
+	assert.True(t, strings.HasPrefix(m.response, note), "a retry reviews the same cut diff: %s", m.response)
+	assert.Equal(t, 1, strings.Count(m.response, "Partial review"))
 }

@@ -177,6 +177,11 @@ func RunReview(opts ReviewOptions) error {
 	}
 
 	out := io.Writer(os.Stdout)
+	// Before the review, so a streamed one starts with it too.
+	if note := partialReviewNote(reviewDiff.Cut); note != "" {
+		fmt.Fprintf(os.Stderr, "bark: warning: %s\n", reviewDiff.Cut.Summary())
+		_, _ = fmt.Fprintln(out, note)
+	}
 	var output string
 	var truncated bool
 	if opts.Stream {
@@ -214,7 +219,7 @@ func RunReview(opts ReviewOptions) error {
 
 	postCtx, postCancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer postCancel()
-	result, err := prreview.Post(postCtx, opts.PR, events, reviewDiff.Diff)
+	result, err := prreview.Post(postCtx, opts.PR, withPartialNote(events, reviewDiff.Cut), reviewDiff.Diff)
 	if err != nil {
 		return err
 	}
@@ -575,4 +580,23 @@ func printCost(meter *prices.Meter) {
 // model cut what off at its output limit.
 func warnTruncated(what, consequence string) {
 	fmt.Fprintf(os.Stderr, "bark: warning: the model reached its output limit, so the %s was cut off; %s\n", what, consequence)
+}
+
+// partialReviewNote returns the note that starts a review of a diff cut to
+// fit its limit, or "" if cut is nil.
+func partialReviewNote(cut *git.DiffCut) string {
+	if cut == nil {
+		return ""
+	}
+	return findings.PartialReviewNote(cut.Summary())
+}
+
+// withPartialNote returns events with the note about the cut diff first, or
+// events as they are if cut is nil.
+func withPartialNote(events []findings.Event, cut *git.DiffCut) []findings.Event {
+	note := partialReviewNote(cut)
+	if note == "" {
+		return events
+	}
+	return append([]findings.Event{{Text: note}}, events...)
 }

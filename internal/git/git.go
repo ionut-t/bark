@@ -307,55 +307,68 @@ func GetCurrentBranch(ctx context.Context) (string, error) {
 // GetBranchDiff returns the changes on the current branch since it forked
 // from branch, cut to limit.
 func GetBranchDiff(ctx context.Context, branch string, limit DiffLimit) (string, error) {
+	diff, _, err := branchDiff(ctx, branch, limit)
+	return diff, err
+}
+
+// branchDiff is GetBranchDiff that also returns the cut, or nil if the whole
+// diff fits. It keeps only what fits, but reads the rest of the diff to
+// count its files.
+func branchDiff(ctx context.Context, branch string, limit DiffLimit) (string, *DiffCut, error) {
 	args := append([]string{"diff", branchRange(branch), "--"}, excludes(ctx)...)
 	cmd := exec.CommandContext(ctx, "git", args...)
 
 	if limit == (DiffLimit{}) {
 		output, err := cmd.Output()
 		if err != nil {
-			return "", fmt.Errorf("failed to get branch diff: %w", err)
+			return "", nil, fmt.Errorf("failed to get branch diff: %w", err)
 		}
-		return string(output), nil
+		return string(output), nil, nil
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", fmt.Errorf("failed to get branch diff: %w", err)
+		return "", nil, fmt.Errorf("failed to get branch diff: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to get branch diff: %w", err)
+		return "", nil, fmt.Errorf("failed to get branch diff: %w", err)
 	}
 
 	var sb strings.Builder
-	budget := diffBudget{limit: limit}
-	truncated := false
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		kept, stop := budget.take(scanner.Text() + "\n")
-		sb.WriteString(kept)
-		if stop {
-			truncated = true
+	c := diffCutter{budget: diffBudget{limit: limit}}
+	// A reader, not a Scanner: a Scanner fails on a line longer than its
+	// buffer, which would stop the file count after the cut.
+	reader := bufio.NewReader(stdout)
+	var readErr error
+	for {
+		line, err := reader.ReadString('\n')
+		if line != "" {
+			if !strings.HasSuffix(line, "\n") {
+				line += "\n"
+			}
+			sb.WriteString(c.line(line))
+		}
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				readErr = err
+			}
 			break
 		}
 	}
 
-	_ = stdout.Close()
-
-	if scanErr := scanner.Err(); scanErr != nil && !truncated {
-		_ = cmd.Wait()
-		return "", fmt.Errorf("failed to read branch diff: %w", scanErr)
+	if waitErr := cmd.Wait(); waitErr != nil {
+		return "", nil, fmt.Errorf("failed to get branch diff: %w", waitErr)
+	}
+	if readErr != nil {
+		return "", nil, fmt.Errorf("failed to read branch diff: %w", readErr)
 	}
 
-	if waitErr := cmd.Wait(); waitErr != nil && !truncated {
-		return "", fmt.Errorf("failed to get branch diff: %w", waitErr)
-	}
-
-	if truncated {
+	cut := c.result()
+	if cut != nil {
 		sb.WriteString(truncatedMarker)
 	}
 
-	return sb.String(), nil
+	return sb.String(), cut, nil
 }
 
 func CommitChanges(ctx context.Context, message string, all bool) (<-chan string, <-chan error) {
@@ -731,6 +744,9 @@ type ReviewDiff struct {
 	Stat          string
 	Commits       []Commit
 	ContextHeader string
+	// Cut says how much of the diff was kept if it was cut to fit its
+	// limit; nil if the whole diff is there.
+	Cut *DiffCut
 
 	// source is where NewSideFile reads files from: a revision, or a pull
 	// request's head (prHead). A ReviewDiff not made by GetReviewDiff has
@@ -919,7 +935,7 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		if err != nil {
 			return r, err
 		}
-		r.Diff = truncateDiff(r.Diff, params.limit)
+		r.Diff, r.Cut = truncateDiff(r.Diff, params.limit)
 		if meta, metaErr := GetPRMeta(ctx, params.pr); metaErr == nil {
 			if !params.withBody {
 				meta.Body = ""
@@ -931,7 +947,7 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 
 	case params.branch != "":
 		var err error
-		r.Diff, err = GetBranchDiff(ctx, params.branch, params.limit)
+		r.Diff, r.Cut, err = branchDiff(ctx, params.branch, params.limit)
 		if err != nil {
 			return r, &BranchDiffError{Branch: params.branch, Err: err}
 		}
@@ -947,7 +963,7 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		if err != nil {
 			return r, err
 		}
-		r.Diff = truncateDiff(r.Diff, params.limit)
+		r.Diff, r.Cut = truncateDiff(r.Diff, params.limit)
 		r.Stat = GetCommitStat(ctx, params.commitHash)
 
 	default:
@@ -961,7 +977,7 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		if err != nil {
 			return r, err
 		}
-		r.Diff = truncateDiff(r.Diff, params.limit)
+		r.Diff, r.Cut = truncateDiff(r.Diff, params.limit)
 		r.Stat = GetWorkingTreeStat(ctx, all)
 		branch, _ := GetCurrentBranch(ctx)
 		r.ContextHeader = FormatBranchHeader(branch)

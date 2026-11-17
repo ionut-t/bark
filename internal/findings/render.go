@@ -104,6 +104,12 @@ func setAsideList(fs []Finding, why func(Finding) string) string {
 // TruncatedNote ends a review the model cut off at its output limit.
 const TruncatedNote = "> **Cut off:** the model reached its output limit, so this review ends early and may be missing findings.\n"
 
+// PartialReviewNote starts a review of a diff that was cut to fit its
+// limit; summary says how much of it was reviewed.
+func PartialReviewNote(summary string) string {
+	return "> **Partial review:** " + summary + "\n"
+}
+
 // CheckReport renders the outcome of Bark's check for a review that has
 // already been shown, so it can be appended to it: how many findings were
 // checked, which were doubted and which were raised before.

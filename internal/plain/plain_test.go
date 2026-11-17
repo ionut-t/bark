@@ -7,7 +7,9 @@ import (
 
 	"github.com/ionut-t/bark/v2/internal/check"
 	"github.com/ionut-t/bark/v2/internal/findings"
+	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/bark/v2/internal/llm"
+	"github.com/ionut-t/bark/v2/internal/prreview"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -207,4 +209,26 @@ func TestFinishReviewWithCheck(t *testing.T) {
 		assert.Nil(t, events)
 		assert.Equal(t, "plain text\n", out.String())
 	})
+}
+
+// A review of a diff cut to fit its limit starts with a note saying so,
+// also when it's posted to the pull request.
+func TestPartialReviewNote(t *testing.T) {
+	t.Parallel()
+
+	events := findings.Parse(structuredOutput)
+	assert.Empty(t, partialReviewNote(nil))
+	assert.Equal(t, events, withPartialNote(events, nil))
+
+	cut := &git.DiffCut{Files: 5, Kept: 2, Setting: "max_diff_tokens"}
+	note := partialReviewNote(cut)
+	assert.Equal(t, "> **Partial review:** Bark reviewed only the first 2 of 5 changed files: the diff was cut to fit max_diff_tokens.\n", note)
+
+	got := withPartialNote(events, cut)
+	require.Len(t, got, len(events)+1)
+	assert.Equal(t, note, got[0].Text)
+	assert.Equal(t, events, got[1:])
+
+	body := prreview.Build(got, "").Body
+	assert.Contains(t, body, "## Bark AI Code Review\n\n"+note, "the note comes first in the posted review")
 }
