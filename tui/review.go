@@ -200,8 +200,8 @@ type reviewModel struct {
 	// truncated is true when the model cut the review off at its output
 	// limit; the review then ends with findings.TruncatedNote.
 	truncated bool
-	// diffNote starts the review when the diff was cut to fit its limit;
-	// empty otherwise.
+	// diffNote starts the review when the diff was cut to fit its limit
+	// or came with warnings; empty otherwise.
 	diffNote string
 	// run counts the reviews started, so the result of a check for a
 	// review that was restarted is ignored.
@@ -631,12 +631,16 @@ func (m *reviewModel) setDoneStatusLine() {
 	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, m.checkSummary, reviewerInfo)
 }
 
-// setDiffCut makes the review start with a note saying how much of the
-// diff it covers, if cut is not nil.
-func (m *reviewModel) setDiffCut(cut *git.DiffCut) {
+// setDiffNotes makes the review start with a note saying how much of the
+// diff it covers, if cut is not nil, and a note for each warning about
+// the diff (see git.ReviewDiff.Warnings).
+func (m *reviewModel) setDiffNotes(cut *git.DiffCut, warnings []string) {
 	m.diffNote = ""
 	if cut != nil {
 		m.diffNote = findings.PartialReviewNote(cut.Summary())
+	}
+	for _, w := range warnings {
+		m.diffNote += findings.WarningNote(w)
 	}
 }
 

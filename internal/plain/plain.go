@@ -100,6 +100,7 @@ func RunReview(opts ReviewOptions) error {
 		if err != nil {
 			return err
 		}
+		warnReviewDiff(os.Stderr, reviewDiff)
 	} else {
 		reviewDiff.Diff = *opts.Diff
 	}
@@ -584,6 +585,13 @@ func warnTruncated(what, consequence string) {
 
 // partialReviewNote returns the note that starts a review of a diff cut to
 // fit its limit, or "" if cut is nil.
+// warnReviewDiff writes the warnings about the diff to w (stderr).
+func warnReviewDiff(w io.Writer, r git.ReviewDiff) {
+	for _, warning := range r.Warnings {
+		_, _ = fmt.Fprintf(w, "bark: warning: %s\n", warning)
+	}
+}
+
 func partialReviewNote(cut *git.DiffCut) string {
 	if cut == nil {
 		return ""

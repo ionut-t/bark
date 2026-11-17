@@ -232,3 +232,17 @@ func TestPartialReviewNote(t *testing.T) {
 	body := prreview.Build(got, "").Body
 	assert.Contains(t, body, "## Bark AI Code Review\n\n"+note, "the note comes first in the posted review")
 }
+
+// Warnings about the diff go to stderr, so the review on stdout stays
+// clean for pipes.
+func TestWarnReviewDiff(t *testing.T) {
+	t.Parallel()
+
+	var stderr strings.Builder
+	warnReviewDiff(&stderr, git.ReviewDiff{Warnings: []string{"could not read pull request #7's title", "second"}})
+	assert.Equal(t, "bark: warning: could not read pull request #7's title\nbark: warning: second\n", stderr.String())
+
+	stderr.Reset()
+	warnReviewDiff(&stderr, git.ReviewDiff{})
+	assert.Empty(t, stderr.String())
+}
