@@ -271,7 +271,7 @@ func TestReviewOfCutDiff(t *testing.T) {
 
 	m := newReviewModel(reviewers.Reviewer{Name: "Spock"}, "system", "prompt", 80, 40, nil)
 	m.setStructured(true)
-	m.setDiffCut(cut)
+	m.setDiffNotes(cut, nil)
 	_ = m.startReview(context.Background())
 
 	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Fix it."}` + "\n"})
@@ -288,4 +288,31 @@ func TestReviewOfCutDiff(t *testing.T) {
 	m, _ = m.Update(streamCompleteMsg{})
 	assert.True(t, strings.HasPrefix(m.response, note), "a retry reviews the same cut diff: %s", m.response)
 	assert.Equal(t, 1, strings.Count(m.response, "Partial review"))
+}
+
+// A review whose diff came with warnings (e.g. a pull request whose
+// metadata couldn't be read) starts with them, after the note about a cut
+// diff.
+func TestReviewWithDiffWarnings(t *testing.T) {
+	t.Parallel()
+
+	cut := &git.DiffCut{Files: 5, Kept: 2, Partial: true, Setting: "max_diff_tokens"}
+	m := newReviewModel(reviewers.Reviewer{Name: "Spock"}, "system", "prompt", 80, 40, nil)
+	m.setDiffNotes(cut, []string{"could not read pull request #7's title", "second"})
+	_ = m.startReview(context.Background())
+
+	m, _ = m.Update(streamChunkMsg{content: "Looks fine."})
+	m, _ = m.Update(streamCompleteMsg{})
+	want := findings.PartialReviewNote(cut.Summary()) +
+		findings.WarningNote("could not read pull request #7's title") +
+		findings.WarningNote("second")
+	assert.True(t, strings.HasPrefix(m.response, want), m.response)
+	assert.Contains(t, m.response, "could not read pull request #7's title")
+	assert.Contains(t, m.response, "Looks fine.")
+
+	m.setDiffNotes(nil, nil)
+	_ = m.startReview(context.Background())
+	m, _ = m.Update(streamChunkMsg{content: "Clean."})
+	m, _ = m.Update(streamCompleteMsg{})
+	assert.NotContains(t, m.response, "Warning")
 }

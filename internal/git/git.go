@@ -276,7 +276,13 @@ func branchRange(branch string) string {
 // GetBranchDiffStat returns the --stat summary for the changes on the current branch since it
 // forked from branch.
 func GetBranchDiffStat(ctx context.Context, branch string) string {
-	args := append([]string{"diff", "--stat", branchRange(branch), "--"}, excludes(ctx)...)
+	return rangeStat(ctx, branchRange(branch))
+}
+
+// rangeStat returns the --stat summary for the diff of rng, a range such
+// as "<base>...<head>", or "" if git can't make it.
+func rangeStat(ctx context.Context, rng string) string {
+	args := append([]string{"diff", "--stat", rng, "--"}, excludes(ctx)...)
 	out, err := exec.CommandContext(ctx, "git", args...).Output()
 	if err != nil {
 		return ""
@@ -315,7 +321,12 @@ func GetBranchDiff(ctx context.Context, branch string, limit DiffLimit) (string,
 // diff fits. It keeps only what fits, but reads the rest of the diff to
 // count its files.
 func branchDiff(ctx context.Context, branch string, limit DiffLimit) (string, *DiffCut, error) {
-	args := append([]string{"diff", branchRange(branch), "--"}, excludes(ctx)...)
+	return rangeDiff(ctx, branchRange(branch), limit)
+}
+
+// rangeDiff is branchDiff for any range, such as "<base>...<head>".
+func rangeDiff(ctx context.Context, rng string, limit DiffLimit) (string, *DiffCut, error) {
+	args := append([]string{"diff", rng, "--"}, excludes(ctx)...)
 	cmd := exec.CommandContext(ctx, "git", args...)
 
 	if limit == (DiffLimit{}) {
@@ -645,11 +656,25 @@ type PRMeta struct {
 	Commits []Commit
 	// HeadSHA is the commit the pull request's branch points to.
 	HeadSHA string
+	// BaseSHA is the commit the branch the pull request merges into
+	// points to.
+	BaseSHA string
+	// Files are the files the pull request changes, as GitHub lists
+	// them: it may list fewer than ChangedFiles.
+	Files        []PRFile
+	ChangedFiles int
+}
+
+// PRFile is a file a pull request changes.
+type PRFile struct {
+	Path      string `json:"path"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
 }
 
 // GetPRMeta fetches the title and commit messages for a GitHub pull request via the gh CLI.
 func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "commits,title,number,body,headRefOid")
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "commits,title,number,body,headRefOid,baseRefOid,files,changedFiles")
 	out, err := cmd.Output()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
@@ -664,11 +689,14 @@ func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
 	}
 
 	var raw struct {
-		Number  int    `json:"number"`
-		Title   string `json:"title"`
-		Body    string `json:"body"`
-		HeadSHA string `json:"headRefOid"`
-		Commits []struct {
+		Number       int      `json:"number"`
+		Title        string   `json:"title"`
+		Body         string   `json:"body"`
+		HeadSHA      string   `json:"headRefOid"`
+		BaseSHA      string   `json:"baseRefOid"`
+		Files        []PRFile `json:"files"`
+		ChangedFiles int      `json:"changedFiles"`
+		Commits      []struct {
 			MessageHeadline string `json:"messageHeadline"`
 			MessageBody     string `json:"messageBody"`
 		} `json:"commits"`
@@ -682,7 +710,76 @@ func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
 		commits[i] = Commit{Message: c.MessageHeadline, Body: c.MessageBody}
 	}
 
-	return &PRMeta{Number: raw.Number, Title: raw.Title, Body: raw.Body, Commits: commits, HeadSHA: raw.HeadSHA}, nil
+	return &PRMeta{
+		Number:       raw.Number,
+		Title:        raw.Title,
+		Body:         raw.Body,
+		Commits:      commits,
+		HeadSHA:      raw.HeadSHA,
+		BaseSHA:      raw.BaseSHA,
+		Files:        raw.Files,
+		ChangedFiles: raw.ChangedFiles,
+	}, nil
+}
+
+// formatPRFileStat formats the files GitHub lists for a pull request like
+// git diff --stat, leaving out the files rules ignore. It returns "" if
+// GitHub listed none.
+func formatPRFileStat(meta *PRMeta, rules ignoreRules) string {
+	var files []PRFile
+	width, most := 0, 0
+	for _, f := range meta.Files {
+		if rules.matches(f.Path) {
+			continue
+		}
+		files = append(files, f)
+		width = max(width, len(f.Path))
+		most = max(most, f.Additions+f.Deletions)
+	}
+	if len(files) == 0 {
+		return ""
+	}
+
+	// Like git, the bars are scaled down so the longest is 50 wide.
+	bar := func(n int) int {
+		if most <= 50 || n == 0 {
+			return n
+		}
+		return max(1, n*50/most)
+	}
+	countWidth := len(strconv.Itoa(most))
+	var sb strings.Builder
+	added, deleted := 0, 0
+	for _, f := range files {
+		added += f.Additions
+		deleted += f.Deletions
+		fmt.Fprintf(&sb, " %-*s | %*d %s%s\n", width, f.Path, countWidth, f.Additions+f.Deletions,
+			strings.Repeat("+", bar(f.Additions)), strings.Repeat("-", bar(f.Deletions)))
+	}
+
+	fmt.Fprintf(&sb, " %d %s changed", len(files), plural(len(files), "file", "files"))
+	if added > 0 {
+		fmt.Fprintf(&sb, ", %d %s(+)", added, plural(added, "insertion", "insertions"))
+	}
+	if deleted > 0 {
+		fmt.Fprintf(&sb, ", %d %s(-)", deleted, plural(deleted, "deletion", "deletions"))
+	}
+	if len(meta.Files) < meta.ChangedFiles {
+		fmt.Fprintf(&sb, "\n (GitHub listed only %d of the %d changed files)", len(meta.Files), meta.ChangedFiles)
+	}
+	return sb.String()
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// hasCommit reports whether the local repository has the commit sha.
+func hasCommit(ctx context.Context, sha string) bool {
+	return sha != "" && exec.CommandContext(ctx, "git", "cat-file", "-e", sha+"^{commit}").Run() == nil
 }
 
 // ReviewDiffParams controls which diff GetReviewDiff fetches.
@@ -747,6 +844,10 @@ type ReviewDiff struct {
 	// Cut says how much of the diff was kept if it was cut to fit its
 	// limit; nil if the whole diff is there.
 	Cut *DiffCut
+	// Warnings say what the review is missing or where its diff came
+	// from when that isn't the usual place, e.g. a pull request whose
+	// metadata couldn't be read.
+	Warnings []string
 
 	// source is where NewSideFile reads files from: a revision, or a pull
 	// request's head (prHead). A ReviewDiff not made by GetReviewDiff has
@@ -783,7 +884,7 @@ func (r ReviewDiff) NewSideFile(ctx context.Context, path string) ([]byte, error
 func (r ReviewDiff) searchSource(ctx context.Context) (string, error) {
 	switch {
 	case r.prHead != "":
-		if err := exec.CommandContext(ctx, "git", "cat-file", "-e", r.prHead+"^{commit}").Run(); err == nil {
+		if hasCommit(ctx, r.prHead) {
 			return r.prHead, nil
 		}
 		return "", nil
@@ -930,19 +1031,8 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 
 	switch {
 	case params.pr != "":
-		var err error
-		r.Diff, err = GetPRDiff(ctx, params.pr)
-		if err != nil {
+		if err := r.loadPR(ctx, params); err != nil {
 			return r, err
-		}
-		r.Diff, r.Cut = truncateDiff(r.Diff, params.limit)
-		if meta, metaErr := GetPRMeta(ctx, params.pr); metaErr == nil {
-			if !params.withBody {
-				meta.Body = ""
-			}
-			r.ContextHeader = FormatPRHeader(meta)
-			r.Commits = meta.Commits
-			r.prHead = meta.HeadSHA
 		}
 
 	case params.branch != "":
@@ -983,23 +1073,93 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		r.ContextHeader = FormatBranchHeader(branch)
 	}
 
-	r.ContextHeader += goVersionHeader(ctx, r.Diff)
+	r.ContextHeader += r.goVersionHeader(ctx)
 
 	return r, nil
 }
 
-// goVersionHeader reads go.mod at the repository root. For a pull request,
-// that's the checked-out go.mod, which is the PR's own in CI.
-func goVersionHeader(ctx context.Context, diff string) string {
-	root, err := RepoRoot(ctx)
+// loadPR fills r with the diff, stat, commits and context header of the
+// pull request params.pr.
+func (r *ReviewDiff) loadPR(ctx context.Context, params ReviewDiffParams) error {
+	meta, err := GetPRMeta(ctx, params.pr)
 	if err != nil {
+		meta = nil
+		r.Warnings = append(r.Warnings, fmt.Sprintf(
+			"could not read pull request #%s's title, commits and head commit, so the review goes without them: %s",
+			params.pr, oneLine(err)))
+	} else {
+		r.Commits = meta.Commits
+		r.prHead = meta.HeadSHA
+		withBody := *meta
+		if !params.withBody {
+			withBody.Body = ""
+		}
+		r.ContextHeader = FormatPRHeader(&withBody)
+	}
+
+	// The pull request's commits, if the local repository has them (CI
+	// checks out with fetch-depth: 0). Three dots diff from the merge
+	// base, as GitHub does.
+	var local string
+	if meta != nil && hasCommit(ctx, meta.BaseSHA) && hasCommit(ctx, meta.HeadSHA) {
+		local = meta.BaseSHA + "..." + meta.HeadSHA
+	}
+
+	diff, err := GetPRDiff(ctx, params.pr)
+	switch {
+	case err == nil:
+		r.Diff, r.Cut = truncateDiff(diff, params.limit)
+	case local != "":
+		// GitHub refuses the diff of a very large pull request.
+		var localErr error
+		r.Diff, r.Cut, localErr = rangeDiff(ctx, local, params.limit)
+		if localErr != nil {
+			return fmt.Errorf("%w (the local diff of its commits failed too: %v)", err, localErr)
+		}
+		r.Warnings = append(r.Warnings, fmt.Sprintf(
+			"GitHub didn't give pull request #%s's diff (%s), so Bark reviews the local diff of its commits instead",
+			params.pr, oneLine(err)))
+	default:
+		return err
+	}
+
+	if local != "" {
+		r.Stat = rangeStat(ctx, local)
+	}
+	if r.Stat == "" && meta != nil {
+		r.Stat = formatPRFileStat(meta, loadIgnore(ctx))
+	}
+	return nil
+}
+
+// oneLine is err's message on one line.
+func oneLine(err error) string {
+	return strings.Join(strings.Fields(err.Error()), " ")
+}
+
+// goVersionHeader reads go.mod as it is on the new side of the diff for a
+// pull request, and otherwise, or if that fails, at the repository root.
+func (r ReviewDiff) goVersionHeader(ctx context.Context) string {
+	// Skip reading go.mod (maybe from GitHub) for a diff with no Go files.
+	if !goFileInDiff.MatchString(r.Diff) {
 		return ""
 	}
-	goMod, err := os.ReadFile(filepath.Join(root, "go.mod"))
-	if err != nil {
-		return ""
+	var goMod []byte
+	if r.prHead != "" {
+		if out, err := r.NewSideFile(ctx, "go.mod"); err == nil {
+			goMod = out
+		}
 	}
-	return FormatGoVersionHeader(goMod, diff)
+	if goMod == nil {
+		root, err := RepoRoot(ctx)
+		if err != nil {
+			return ""
+		}
+		if goMod, err = os.ReadFile(filepath.Join(root, "go.mod")); err != nil {
+			return ""
+		}
+	}
+	return FormatGoVersionHeader(goMod, r.Diff)
 }
 
 // GetPRInfo returns a formatted string with commit messages and diff for a GitHub PR.

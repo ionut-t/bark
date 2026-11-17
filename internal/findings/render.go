@@ -273,3 +273,9 @@ func language(file string) string {
 	}
 	return "text"
 }
+
+// WarningNote starts a review whose diff came with a warning, e.g. a pull
+// request whose metadata couldn't be read.
+func WarningNote(warning string) string {
+	return "> **Warning:** " + warning + "\n"
+}
