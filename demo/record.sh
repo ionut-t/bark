@@ -37,7 +37,7 @@ cat >"$DEMO_HOME/.bark/.config.toml" <<'TOML'
 editor = 'vim'
 llm_provider = ''
 llm_model = 'gemini-2.5-pro'
-max_diff_lines = 0
+max_diff_tokens = 0
 relative_number = false
 context_enrichment = false
 TOML

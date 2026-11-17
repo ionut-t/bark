@@ -24,8 +24,10 @@ func RepoFilePath(root string) string {
 // editor is run as a command, so a cloned repository must not choose it).
 // A nil field isn't set, and the user's value applies.
 type RepoData struct {
-	LLMProvider        *string `toml:"llm_provider"`
-	LLMModel           *string `toml:"llm_model"`
+	LLMProvider   *string `toml:"llm_provider"`
+	LLMModel      *string `toml:"llm_model"`
+	MaxDiffTokens *uint32 `toml:"max_diff_tokens"`
+	// MaxDiffLines is the deprecated max_diff_lines setting.
 	MaxDiffLines       *uint32 `toml:"max_diff_lines"`
 	ContextEnrichment  *bool   `toml:"context_enrichment"`
 	StructuredFindings *bool   `toml:"structured_findings"`
@@ -35,7 +37,7 @@ type RepoData struct {
 
 // repoKeys are the keys RepoData accepts, for error messages.
 var repoKeys = []string{
-	LLMProviderKey, LLMModelKey, MaxDiffLinesKey, ContextEnrichmentKey,
+	LLMProviderKey, LLMModelKey, MaxDiffTokensKey, ContextEnrichmentKey,
 	StructuredFindingsKey, CheckFindingsKey, MinSeverityKey,
 }
 

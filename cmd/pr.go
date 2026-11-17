@@ -26,7 +26,9 @@ func prCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
 	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config; by default inferred from the model name): "+strings.Join(config.SupportedProviders(), ", "))
 	cmd.Flags().StringArrayP("instructions", "i", nil, "Custom instructions: a file path or raw text, overriding the default PR instructions (repeat to combine several)")
+	cmd.Flags().Uint32("max-diff-tokens", 0, "Maximum number of diff tokens to include in the prompt, estimated at 2.5 characters a token (0 disables the limit)")
 	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
+	_ = cmd.Flags().MarkDeprecated("max-diff-lines", "use --max-diff-tokens instead")
 	addPlainFlag(cmd)
 
 	cmd.MarkFlagsMutuallyExclusive("branch", "pr")
@@ -50,6 +52,11 @@ func runPRCmd(cmd *cobra.Command, cfg config.Config) error {
 
 	if err := cfg.OverrideProvider(provider); err != nil {
 		return fmt.Errorf("error overriding provider: %w", err)
+	}
+
+	if cmd.Flags().Changed("max-diff-tokens") {
+		maxDiffTokens, _ := cmd.Flags().GetUint32("max-diff-tokens")
+		cfg.OverrideMaxDiffTokens(maxDiffTokens)
 	}
 
 	if cmd.Flags().Changed("max-diff-lines") {

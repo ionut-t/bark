@@ -16,6 +16,7 @@ const (
 	EditorKey             = "editor"
 	LLMProviderKey        = "llm_provider"
 	LLMModelKey           = "llm_model"
+	MaxDiffTokensKey      = "max_diff_tokens"
 	MaxDiffLinesKey       = "max_diff_lines"
 	RelativeNumberKey     = "relative_number"
 	ContextEnrichmentKey  = "context_enrichment"
@@ -28,7 +29,8 @@ const (
 	commitInstructionsFileName = "commit.md"
 	prInstructionsFileName     = "pull_request_description.md"
 
-	DEFAULT_MAX_DIFF_LINES = 0
+	DEFAULT_MAX_DIFF_TOKENS = 0
+	DEFAULT_MAX_DIFF_LINES  = 0
 
 	defaultLLMModel = "gemini-2.5-pro"
 )
@@ -50,11 +52,19 @@ type Config interface {
 	// unpinned provider was chosen for a different model, so the factory may
 	// infer the provider from the model instead.
 	LLMProviderChoice() (provider string, pinned bool)
+	OverrideMaxDiffTokens(tokens uint32)
+	SetMaxDiffTokens(tokens uint32) error
+	GetMaxDiffTokens() uint32
+	// The max diff lines methods serve the deprecated max_diff_lines
+	// setting, kept working until it's removed; use max diff tokens.
 	OverrideMaxDiffLines(lines uint32)
-	GetCommitInstructions() string
-	GetPRInstructions() string
 	SetMaxDiffLines(lines uint32) error
 	GetMaxDiffLines() uint32
+	// Deprecations lists the deprecated settings this run's config files
+	// use, as warnings to show the user.
+	Deprecations() []string
+	GetCommitInstructions() string
+	GetPRInstructions() string
 	SetRelativeNumber(relative bool) error
 	GetRelativeNumber() bool
 	SetContextEnrichment(enrich bool) error
@@ -83,10 +93,13 @@ type Config interface {
 // Data is the contents of the config file. The toml tags name the keys both
 // when saving and when loading.
 type Data struct {
-	Editor             string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
-	LLMProvider        string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark infers it from the model name (claude-*, gpt-*, gemini-*, ...), then from the credentials it finds. A --model or repository model naming another provider's model switches to that provider unless the provider is set at the same level."`
-	LLMModel           string `toml:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
-	MaxDiffLines       uint32 `toml:"max_diff_lines" comment:"Maximum number of diff lines to include in the prompt (0 disables the limit)"`
+	Editor        string `toml:"editor" comment:"The editor will be used to edit the config file and LLM instructions"`
+	LLMProvider   string `toml:"llm_provider" comment:"It can be set to Gemini, VertexAI, OpenAI, Anthropic or Ollama. If not set, Bark infers it from the model name (claude-*, gpt-*, gemini-*, ...), then from the credentials it finds. A --model or repository model naming another provider's model switches to that provider unless the provider is set at the same level."`
+	LLMModel      string `toml:"llm_model" comment:"The LLM model is required for VertexAI/Gemini/OpenAI LLMs, e.g., gemini-2.5-pro"`
+	MaxDiffTokens uint32 `toml:"max_diff_tokens" comment:"Maximum number of diff tokens to include in the prompt, estimated at 2.5 characters a token (0 disables the limit)"`
+	// MaxDiffLines is the deprecated max_diff_lines setting, superseded by
+	// MaxDiffTokens. omitempty keeps it out of new files.
+	MaxDiffLines       uint32 `toml:"max_diff_lines,omitempty" comment:"Deprecated: use max_diff_tokens. Maximum number of diff lines to include in the prompt (0 disables the limit)"`
 	RelativeNumber     bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
 	ContextEnrichment  bool   `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review (default: false)"`
 	StructuredFindings bool   `toml:"structured_findings" comment:"Whether reviews ask the model for structured findings (file, line, severity, ...) instead of free text (default: false)"`
@@ -116,6 +129,7 @@ type config struct {
 type overrides struct {
 	llmProvider       *string
 	llmModel          *string
+	maxDiffTokens     *uint32
 	maxDiffLines      *uint32
 	contextEnrichment *bool
 	structured        *bool
@@ -149,6 +163,7 @@ func DefaultData() Data {
 	return Data{
 		Editor:        DefaultEditor(),
 		LLMModel:      defaultLLMModel,
+		MaxDiffTokens: DEFAULT_MAX_DIFF_TOKENS,
 		MaxDiffLines:  DEFAULT_MAX_DIFF_LINES,
 		CheckFindings: true,
 	}
@@ -257,6 +272,52 @@ func (c *config) OverrideProvider(provider string) error {
 
 	c.overrides.llmProvider = &provider
 	return nil
+}
+
+func (c *config) OverrideMaxDiffTokens(tokens uint32) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.maxDiffTokens = &tokens
+}
+
+func (c *config) SetMaxDiffTokens(tokens uint32) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.maxDiffTokens = nil
+
+	if tokens == c.data.MaxDiffTokens {
+		return nil
+	}
+
+	c.data.MaxDiffTokens = tokens
+
+	return writeConfig(c.path, c.data)
+}
+
+func (c *config) GetMaxDiffTokens() uint32 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return valueOr(c.overrides.maxDiffTokens, valueOr(c.repo.MaxDiffTokens, c.data.MaxDiffTokens))
+}
+
+func (c *config) Deprecations() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	const advice = "it's deprecated: use " + MaxDiffTokensKey + " (a token is about 2.5 characters of diff)"
+	var warnings []string
+	if c.data.MaxDiffLines != 0 {
+		warnings = append(warnings, fmt.Sprintf("%s sets %s = %d; %s, e.g. bark config --max-diff-lines 0 --max-diff-tokens <n>",
+			c.path, MaxDiffLinesKey, c.data.MaxDiffLines, advice))
+	}
+	if c.repo.MaxDiffLines != nil {
+		warnings = append(warnings, fmt.Sprintf("%s sets %s = %d; %s",
+			c.repoPath, MaxDiffLinesKey, *c.repo.MaxDiffLines, advice))
+	}
+	return warnings
 }
 
 func (c *config) OverrideMaxDiffLines(lines uint32) {

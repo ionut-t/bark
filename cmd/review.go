@@ -33,7 +33,9 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().String("hash", "", "Specify a commit hash to review")
 	cmd.Flags().BoolP("stream", "S", false, "Stream the review output in real-time (only for plain mode)")
 	cmd.Flags().StringP("pr", "p", "", "Review a GitHub pull request by number (requires gh CLI)")
+	cmd.Flags().Uint32("max-diff-tokens", 0, "Maximum number of diff tokens to include in the prompt, estimated at 2.5 characters a token (0 disables the limit)")
 	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
+	_ = cmd.Flags().MarkDeprecated("max-diff-lines", "use --max-diff-tokens instead")
 	cmd.Flags().Bool("with-description", false, "Include the PR description in the review context (only applies with --pr)")
 	cmd.Flags().Bool("with-context", false, "Include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review")
 	cmd.Flags().Bool("structured", false, "Ask for structured findings (file, line, severity, suggestion); the reviewer persona voices the intro, remarks and verdict")
@@ -85,6 +87,11 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 
 	if err := cfg.OverrideProvider(provider); err != nil {
 		return fmt.Errorf("error overriding provider: %w", err)
+	}
+
+	if cmd.Flags().Changed("max-diff-tokens") {
+		maxDiffTokens, _ := cmd.Flags().GetUint32("max-diff-tokens")
+		cfg.OverrideMaxDiffTokens(maxDiffTokens)
 	}
 
 	if cmd.Flags().Changed("max-diff-lines") {

@@ -19,7 +19,7 @@ jobs:
           provider: ${{ vars.BARK_PROVIDER }}
           api-key: ${{ secrets.BARK_API_KEY }}
           model: ${{ vars.BARK_MODEL }}
-          max-diff-lines: ${{ vars.BARK_MAX_DIFF_LINES }}
+          max-diff-tokens: ${{ vars.BARK_MAX_DIFF_TOKENS }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
   review:
@@ -38,7 +38,7 @@ jobs:
           api-key: ${{ secrets.BARK_API_KEY }}
           model: ${{ vars.BARK_MODEL }}
           reviewer: ${{ vars.BARK_REVIEWER }}
-          max-diff-lines: ${{ vars.BARK_MAX_DIFF_LINES }}
+          max-diff-tokens: ${{ vars.BARK_MAX_DIFF_TOKENS }}
           with-context: ${{ vars.BARK_WITH_CONTEXT }}
           with-description: ${{ needs.pr-description.result == 'success' }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -22,8 +22,13 @@ inputs:
       the default PR instructions.
     required: false
     default: ""
+  max-diff-tokens:
+    description: Maximum number of diff tokens to include in the prompt, estimated at 2.5 characters a token (0 disables the limit).
+    required: false
+    default: ""
   max-diff-lines:
     description: Maximum number of diff lines to include in the prompt (0 disables the limit).
+    deprecationMessage: max-diff-lines is deprecated; use max-diff-tokens.
     required: false
     default: ""
   github-token:
@@ -102,6 +107,7 @@ runs:
 
         ARGS=(pr --pr "${{ github.event.pull_request.number }}" --provider "$PROVIDER" --model "${{ inputs.model }}")
         [ -n "${{ inputs.instructions }}" ] && ARGS+=(--instructions "${{ inputs.instructions }}")
+        [ -n "${{ inputs.max-diff-tokens }}" ] && ARGS+=(--max-diff-tokens "${{ inputs.max-diff-tokens }}")
         [ -n "${{ inputs.max-diff-lines }}" ] && ARGS+=(--max-diff-lines "${{ inputs.max-diff-lines }}")
 
         bark "${ARGS[@]}" > /tmp/bark-pr.txt

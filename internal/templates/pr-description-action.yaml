@@ -19,5 +19,5 @@ jobs:
           provider: ${{ vars.BARK_PROVIDER }}
           api-key: ${{ secrets.BARK_API_KEY }}
           model: ${{ vars.BARK_MODEL }}
-          max-diff-lines: ${{ vars.BARK_MAX_DIFF_LINES }}
+          max-diff-tokens: ${{ vars.BARK_MAX_DIFF_TOKENS }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

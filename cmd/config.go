@@ -24,6 +24,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 		editor            string
 		provider          string
 		model             string
+		maxDiffTokens     uint32
 		maxDiffLines      uint32
 		contextEnrichment bool
 		structured        bool
@@ -54,6 +55,13 @@ func configCmd(getCfg configFunc) *cobra.Command {
 
 			if model != "" {
 				if err := cfg.SetLLMModel(model); err != nil {
+					return err
+				}
+				flagsSet = true
+			}
+
+			if cmd.Flags().Changed("max-diff-tokens") {
+				if err := cfg.SetMaxDiffTokens(maxDiffTokens); err != nil {
 					return err
 				}
 				flagsSet = true
@@ -106,7 +114,9 @@ func configCmd(getCfg configFunc) *cobra.Command {
 	flags.StringVarP(&editor, "editor", "e", "", "Set the editor to use for editing config")
 	flags.StringVarP(&provider, "provider", "p", "", "Set the LLM provider: "+strings.Join(config.SupportedProviders(), ", "))
 	flags.StringVarP(&model, "model", "m", "", "Set the LLM model")
+	flags.Uint32Var(&maxDiffTokens, "max-diff-tokens", 0, fmt.Sprintf("Set the maximum number of diff tokens to include in the prompt, estimated at 2.5 characters a token; 0 disables the limit (default: %d)", config.DEFAULT_MAX_DIFF_TOKENS))
 	flags.Uint32VarP(&maxDiffLines, "max-diff-lines", "d", 0, fmt.Sprintf("Set the maximum number of diff lines to include in the prompt (default: %d)", config.DEFAULT_MAX_DIFF_LINES))
+	_ = flags.MarkDeprecated("max-diff-lines", "use --max-diff-tokens instead")
 	flags.BoolVar(&contextEnrichment, "context-enrichment", false, "Enable or disable enclosing-declaration context for reviews (default: false)")
 	flags.BoolVar(&structured, "structured-findings", false, "Enable or disable structured findings for reviews (default: false)")
 	flags.BoolVar(&checkFindings, "check-findings", true, "Enable or disable the second model call that checks structured findings against the code (default: true)")
@@ -121,7 +131,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 	for oldName, newName := range map[string]string{
 		config.LLMProviderKey:       "provider",
 		config.LLMModelKey:          "model",
-		config.MaxDiffLinesKey:      "max-diff-lines",
+		config.MaxDiffLinesKey:      "max-diff-tokens",
 		config.ContextEnrichmentKey: "context-enrichment",
 	} {
 		_ = flags.MarkDeprecated(oldName, "use --"+newName+" instead")
@@ -170,6 +180,10 @@ func initConfig(path string) (config.Config, error) {
 		if err := git.CheckIgnoreFile(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "bark: warning: %v\n(the other lines still apply)\n", err)
 		}
+	}
+
+	for _, warning := range cfg.Deprecations() {
+		fmt.Fprintf(os.Stderr, "bark: warning: %s\n", warning)
 	}
 
 	return cfg, nil

@@ -87,7 +87,7 @@ type reviewDiffLoadedMsg struct {
 type reviewDiffCmdParams struct {
 	prNumber          string
 	branch            string
-	maxLines          uint32
+	diffLimit         git.DiffLimit
 	selectCommit      bool
 	commitHash        string
 	stagedOnly        bool
@@ -104,16 +104,16 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 		var diffParams git.ReviewDiffParams
 		switch {
 		case params.prNumber != "":
-			diffParams = git.PRDiff(params.prNumber).WithMaxLines(params.maxLines)
+			diffParams = git.PRDiff(params.prNumber).WithLimit(params.diffLimit)
 			if params.withPRDescription {
 				diffParams = diffParams.WithPRDescription()
 			}
 		case params.branch != "":
-			diffParams = git.BranchDiff(params.branch).WithMaxLines(params.maxLines)
+			diffParams = git.BranchDiff(params.branch).WithLimit(params.diffLimit)
 		case params.selectCommit:
-			diffParams = git.CommitDiff(params.commitHash).WithMaxLines(params.maxLines)
+			diffParams = git.CommitDiff(params.commitHash).WithLimit(params.diffLimit)
 		default:
-			diffParams = git.WorkingTreeDiff(params.stagedOnly).WithMaxLines(params.maxLines)
+			diffParams = git.WorkingTreeDiff(params.stagedOnly).WithLimit(params.diffLimit)
 		}
 
 		result, err := git.GetReviewDiff(ctx, diffParams)
@@ -187,7 +187,7 @@ type prDataCmdParams struct {
 	fallbackInstructions string
 	prNumber             string
 	branch               string
-	maxLines             uint32
+	diffLimit            git.DiffLimit
 }
 
 func loadPRDataCmd(params prDataCmdParams) tea.Cmd {
@@ -207,7 +207,7 @@ func loadPRDataCmd(params prDataCmdParams) tea.Cmd {
 				return prDataLoadedMsg{err: err}
 			}
 		} else {
-			branchInfo, infoErr := git.GetBranchInfo(ctx, params.branch, params.maxLines)
+			branchInfo, infoErr := git.GetBranchInfo(ctx, params.branch, params.diffLimit)
 			if infoErr != nil {
 				return prDataLoadedMsg{err: infoErr}
 			}

@@ -873,7 +873,7 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 		reviewDiffCmdParams{
 			prNumber:          m.prNumber,
 			branch:            m.branch,
-			maxLines:          m.config.GetMaxDiffLines(),
+			diffLimit:         git.LimitFrom(m.config),
 			selectCommit:      m.selectCommit,
 			commitHash:        commitHash,
 			stagedOnly:        m.stagedOnly,
@@ -1010,7 +1010,7 @@ func (m *Model) prDataParams() prDataCmdParams {
 		fallbackInstructions: m.config.GetPRInstructions(),
 		prNumber:             m.prNumber,
 		branch:               m.branch,
-		maxLines:             m.config.GetMaxDiffLines(),
+		diffLimit:            git.LimitFrom(m.config),
 	}
 }
 

@@ -153,6 +153,7 @@ func TestNew_SettersWriteEveryValueToItsOwnPath(t *testing.T) {
 		Editor:             "nano",
 		LLMProvider:        "openai",
 		LLMModel:           "gpt-x",
+		MaxDiffTokens:      9000,
 		MaxDiffLines:       300,
 		RelativeNumber:     true,
 		ContextEnrichment:  true,
@@ -179,6 +180,11 @@ func TestNew_SettersWriteEveryValueToItsOwnPath(t *testing.T) {
 			name: "model",
 			set:  func(c Config) error { return c.SetLLMModel("claude-sonnet-5-5") },
 			want: func(d Data) Data { d.LLMModel = "claude-sonnet-5-5"; return d },
+		},
+		{
+			name: "max diff tokens",
+			set:  func(c Config) error { return c.SetMaxDiffTokens(0) },
+			want: func(d Data) Data { d.MaxDiffTokens = 0; return d },
 		},
 		{
 			name: "max diff lines",
@@ -241,6 +247,7 @@ func TestEnsureFile_CreatesDefaultsOnce(t *testing.T) {
 	assert.Equal(t, "gemini-2.5-pro", saved.LLMModel)
 	assert.Empty(t, saved.LLMProvider)
 	assert.NotEmpty(t, saved.Editor)
+	assert.Equal(t, uint32(DEFAULT_MAX_DIFF_TOKENS), saved.MaxDiffTokens)
 	assert.Equal(t, uint32(DEFAULT_MAX_DIFF_LINES), saved.MaxDiffLines)
 
 	const existing = "llm_model = 'kept'\n"
@@ -345,6 +352,14 @@ func TestNew_SetterReplacesOverride(t *testing.T) {
 			saved:    func(d Data) Data { d.LLMProvider = "ollama"; return d },
 		},
 		{
+			name:     "max diff tokens",
+			override: func(c Config) error { c.OverrideMaxDiffTokens(10); return nil },
+			set:      func(c Config) error { return c.SetMaxDiffTokens(0) },
+			get:      func(c Config) any { return c.GetMaxDiffTokens() },
+			want:     uint32(0),
+			saved:    func(d Data) Data { d.MaxDiffTokens = 0; return d },
+		},
+		{
 			name:     "max diff lines",
 			override: func(c Config) error { c.OverrideMaxDiffLines(10); return nil },
 			set:      func(c Config) error { return c.SetMaxDiffLines(0) },
@@ -422,4 +437,42 @@ func TestConfig_ConcurrentUse(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, cfg.GetRelativeNumber(), saved.RelativeNumber)
 	assert.Equal(t, model, saved.LLMModel)
+}
+
+func TestDeprecations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		data Data
+		repo RepoData
+		want []string
+	}{
+		{name: "none", data: Data{MaxDiffTokens: 9000}, repo: RepoData{MaxDiffTokens: new(uint32(9000))}},
+		{name: "user file sets 0 (old default)", data: Data{MaxDiffLines: 0}},
+		{name: "user file sets lines", data: Data{MaxDiffLines: 300}, want: []string{"/home/.bark/.config.toml sets max_diff_lines = 300"}},
+		{name: "repo sets lines, even 0", repo: RepoData{MaxDiffLines: new(uint32(0))}, want: []string{"/repo/.bark/config.toml sets max_diff_lines = 0"}},
+		{
+			name: "both",
+			data: Data{MaxDiffLines: 300},
+			repo: RepoData{MaxDiffLines: new(uint32(400))},
+			want: []string{"/home/.bark/.config.toml sets max_diff_lines = 300", "/repo/.bark/config.toml sets max_diff_lines = 400"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := New("/home/.bark/.config.toml", tt.data)
+			cfg.ApplyRepo("/repo/.bark/config.toml", tt.repo)
+
+			got := cfg.Deprecations()
+			require.Len(t, got, len(tt.want))
+			for i, want := range tt.want {
+				assert.Contains(t, got[i], want)
+				assert.Contains(t, got[i], "use max_diff_tokens")
+			}
+		})
+	}
 }
