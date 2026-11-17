@@ -91,3 +91,37 @@ func TestStreamTruncated(t *testing.T) {
 		})
 	}
 }
+
+// The API can send more than one message_delta; one without a stop reason
+// after the output limit was hit doesn't clear the truncation.
+func TestStreamTruncatedSurvivesLaterDelta(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(
+			"event: message_start\n" +
+				`data: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"claude-test","content":[],"stop_reason":null,"usage":{"input_tokens":100,"output_tokens":1}}}` + "\n\n" +
+				"event: content_block_delta\n" +
+				`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}` + "\n\n" +
+				"event: message_delta\n" +
+				`data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":50}}` + "\n\n" +
+				"event: message_delta\n" +
+				`data: {"type":"message_delta","delta":{"stop_reason":null},"usage":{"output_tokens":50}}` + "\n\n" +
+				"event: message_stop\n" +
+				`data: {"type":"message_stop"}` + "\n\n"))
+	}))
+	defer srv.Close()
+
+	a := &Anthropic{model: "claude-test", client: anthropic.NewClient(
+		option.WithAPIKey("test"), option.WithBaseURL(srv.URL), option.WithMaxRetries(0),
+	)}
+
+	out, errc := a.Stream(t.Context(), "", "prompt")
+	var truncated bool
+	for r := range out {
+		truncated = truncated || r.Truncated
+	}
+	require.NoError(t, <-errc)
+	assert.True(t, truncated)
+}

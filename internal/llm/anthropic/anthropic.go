@@ -85,7 +85,9 @@ func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan l
 				counts.input, counts.cacheRead, counts.cacheWrite = u.InputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens
 				usage = counts.usage()
 			case anthropic.MessageDeltaEvent:
-				truncated = atLimit(ev.Delta.StopReason)
+				// There can be more than one delta; a later one without a
+				// stop reason doesn't undo the cut.
+				truncated = truncated || atLimit(ev.Delta.StopReason)
 				counts.output = ev.Usage.OutputTokens
 				// The delta carries up-to-date cumulative input counts when
 				// the API sends them; otherwise keep the message_start values.
