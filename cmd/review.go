@@ -50,9 +50,9 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 }
 
 func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
-	storage, err := config.GetStorage()
+	dirs, err := config.Paths()
 	if err != nil {
-		return fmt.Errorf("error getting storage: %w", err)
+		return err
 	}
 
 	reviewerName, _ := cmd.Flags().GetString("as")
@@ -129,7 +129,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 			ReviewerName:      reviewerName,
 			Instructions:      instructions,
 			SkipInstruction:   skipInstruction,
-			Storage:           storage,
+			Paths:             dirs,
 			Config:            cfg,
 			Staged:            staged,
 			All:               changes,
@@ -158,7 +158,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 
 	m := tui.New(tui.Options{
 		Task:              tui.TaskReview,
-		Storage:           storage,
+		Paths:             dirs,
 		ReviewerName:      reviewerName,
 		Instructions:      instructions,
 		Branch:            branch,

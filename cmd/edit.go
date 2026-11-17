@@ -50,10 +50,11 @@ func handleEditCmd(cmd *cobra.Command, cfg config.Config, name string) error {
 		return fmt.Errorf("must specify either commit, reviewer or instruction to edit")
 	}
 
-	storage, err := config.GetStorage()
+	dirs, err := config.Paths()
 	if err != nil {
-		return fmt.Errorf("error getting storage: %w", err)
+		return err
 	}
+	storage := dirs.Config
 
 	if commit {
 		path := filepath.Join(storage, "commit.md")

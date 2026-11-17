@@ -46,6 +46,10 @@ func newRootCmd(load configLoader) *cobra.Command {
 		Use:  "bark",
 		Long: "Get your code reviewed by legends, generate commit messages and PR descriptions",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if migratingDirs(cmd) {
+				return nil
+			}
+
 			path, err := cmd.Flags().GetString(configFlag)
 			if err != nil {
 				return err
@@ -73,7 +77,7 @@ func newRootCmd(load configLoader) *cobra.Command {
 	rootCmd.AddCommand(pricesCmd())
 
 	// No -c shorthand: review (--changes) and edit (--commit) already use it.
-	rootCmd.PersistentFlags().String(configFlag, "", "Config file (default is $HOME/.bark/.config.toml)")
+	rootCmd.PersistentFlags().String(configFlag, "", "Config file (default is $XDG_CONFIG_HOME/bark/config.toml)")
 
 	return rootCmd
 }
@@ -81,14 +85,14 @@ func newRootCmd(load configLoader) *cobra.Command {
 func handleRootCmd(cfg config.Config) error {
 	warnRepoLLM(os.Stderr, cfg)
 
-	storage, err := config.GetStorage()
+	dirs, err := config.Paths()
 	if err != nil {
-		return fmt.Errorf("error getting storage: %w", err)
+		return err
 	}
 
 	m := tui.New(tui.Options{
-		Storage: storage,
-		Config:  cfg,
+		Paths:  dirs,
+		Config: cfg,
 	})
 
 	p := tea.NewProgram(m)

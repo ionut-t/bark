@@ -17,11 +17,11 @@ import (
 )
 
 // FileName is the prices file's name, in a repo's .bark directory or in
-// Bark's storage directory.
+// Bark's cache directory.
 const FileName = "prices.json"
 
 // RepoPath is the repo's own prices file, read before the one in Bark's
-// storage directory, so CI can use prices committed to the repo.
+// cache directory, so CI can use prices committed to the repo.
 var RepoPath = filepath.Join(".bark", FileName)
 
 // File is a saved prices file.
@@ -83,16 +83,16 @@ type Pricing struct {
 var ErrNotListed = errors.New("no price listed")
 
 // For returns the prices for provider's model from the repo's prices file
-// (RepoPath) or, without one, from storage's. It returns nil and no error
+// (RepoPath) or, without one, from cacheDir's. It returns nil and no error
 // when there is no prices file or the provider has no prices (Ollama). An
 // unreadable file is an error, and so is a model the file doesn't list
 // (wrapping ErrNotListed).
-func For(storage, provider, model string) (*Pricing, error) {
+func For(cacheDir, provider, model string) (*Pricing, error) {
 	id, ok := providerIDs[provider]
 	if !ok {
 		return nil, nil
 	}
-	file, path, err := Load(RepoPath, filepath.Join(storage, FileName))
+	file, path, err := Load(RepoPath, filepath.Join(cacheDir, FileName))
 	if err != nil || file == nil {
 		return nil, err
 	}

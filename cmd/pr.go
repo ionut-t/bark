@@ -76,14 +76,14 @@ func runPRCmd(cmd *cobra.Command, cfg config.Config) error {
 	}
 
 	// TUI mode
-	storage, err := config.GetStorage()
+	dirs, err := config.Paths()
 	if err != nil {
-		return fmt.Errorf("error getting storage: %w", err)
+		return err
 	}
 
 	m := tui.New(tui.Options{
 		Task:         tui.TaskPRDescription,
-		Storage:      storage,
+		Paths:        dirs,
 		Config:       cfg,
 		Branch:       branch,
 		PR:           pr,

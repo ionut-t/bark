@@ -28,10 +28,11 @@ func addCmd(getCfg configFunc) *cobra.Command {
 }
 
 func handleAddCmd(cfg config.Config, name string) error {
-	storage, err := config.GetStorage()
+	dirs, err := config.Paths()
 	if err != nil {
-		return fmt.Errorf("error getting storage path: %w", err)
+		return err
 	}
+	storage := dirs.Config
 
 	return instructions.Add(storage, name, cfg.GetEditor())
 }

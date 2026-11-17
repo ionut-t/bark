@@ -43,10 +43,11 @@ func handleDeleteCmd(cmd *cobra.Command, cfg config.Config, name string) error {
 		return fmt.Errorf("must specify either reviewer or instruction to delete")
 	}
 
-	storage, err := config.GetStorage()
+	dirs, err := config.Paths()
 	if err != nil {
-		return fmt.Errorf("error getting storage: %w", err)
+		return err
 	}
+	storage := dirs.Config
 
 	var assetType tui.AssetType
 

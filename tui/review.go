@@ -253,8 +253,8 @@ func (m *reviewModel) setCheck(r check.Review) {
 }
 
 // setLogInfo sets what the BARK_DEBUG log needs beyond the review itself.
-func (m *reviewModel) setLogInfo(storage, provider string) {
-	m.logDir = storage
+func (m *reviewModel) setLogInfo(logDir, provider string) {
+	m.logDir = logDir
 	m.provider = provider
 }
 

@@ -125,7 +125,17 @@ bark pr
 
 ## Configuration
 
-Bark uses a configuration file located at `$HOME/.bark/.config.toml`. Run `bark config` with no flags to open it in your editor.
+Bark uses a configuration file located at `$XDG_CONFIG_HOME/bark/config.toml` (`~/.config/bark/config.toml` by default, on macOS too). Run `bark config` with no flags to open it in your editor.
+
+Bark keeps its files in the [XDG base directories](https://specifications.freedesktop.org/basedir-spec/latest/):
+
+| Directory               | Default               | Contents                                                                                 |
+| ----------------------- | --------------------- | ---------------------------------------------------------------------------------------- |
+| `$XDG_CONFIG_HOME/bark` | `~/.config/bark`      | `config.toml`, `commit.md`, `pull_request_description.md`, `reviewers/`, `instructions/` |
+| `$XDG_CACHE_HOME/bark`  | `~/.cache/bark`       | `prices.json`                                                                            |
+| `$XDG_STATE_HOME/bark`  | `~/.local/state/bark` | `logs/` (`BARK_DEBUG` logs)                                                              |
+
+On Windows the defaults are `%AppData%\bark` for config and `%LocalAppData%\bark` for the cache and logs.
 
 To set your preferred editor, LLM provider, or model, use the `config` command with the appropriate flags:
 
@@ -183,7 +193,7 @@ A pattern without a slash matches at any depth, and a leading or middle slash an
 
 ## Costs
 
-Bark can show what each run's model calls cost. It needs a prices file, which `bark prices` downloads from [models.dev](https://models.dev) and saves to `$HOME/.bark/prices.json`:
+Bark can show what each run's model calls cost. It needs a prices file, which `bark prices` downloads from [models.dev](https://models.dev) and saves to `$XDG_CACHE_HOME/bark/prices.json` (`~/.cache/bark/prices.json` by default):
 
 ```bash
 bark prices
@@ -197,7 +207,7 @@ bark: cost $0.0234: review $0.0123, check $0.0101, verdict rewrite $0.0010 (pric
 
 In the TUI, the usage overlay (`ctrl+t`) shows the cost of the last task: for a review, the review and its check with each part (the TUI doesn't rewrite the verdict). `BARK_DEBUG=1` logs show each call's cost. Prices are in USD, for the standard paid tier: cached input, thinking and long-prompt prices are counted, but not batch, regional or free-tier pricing. Bark never downloads prices by itself; run `bark prices` again to update them, as providers change their prices. Without a prices file, for a model it doesn't list, and for Ollama, no cost is shown.
 
-Bark reads the repo's `.bark/prices.json` before `$HOME/.bark/prices.json`. To show costs in CI, save the prices to the repo from its top-level directory and commit them:
+Bark reads the repo's `.bark/prices.json` before the one in its cache directory. To show costs in CI, save the prices to the repo from its top-level directory and commit them:
 
 ```bash
 bark prices --repo
