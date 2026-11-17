@@ -53,6 +53,7 @@ func (g *GenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.R
 		stream := g.client.Models.GenerateContentStream(ctx, g.model, contents, systemConfig(system))
 
 		var usage *llm.Usage
+		var truncated bool
 		for resp, err := range stream {
 			select {
 			case <-ctx.Done():
@@ -71,6 +72,7 @@ func (g *GenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.R
 			}
 
 			if len(resp.Candidates) > 0 {
+				truncated = truncated || atLimit(resp)
 				if content := resp.Candidates[0].Content; content != nil {
 					for _, part := range content.Parts {
 						// Send response, but also watch for cancellation
@@ -88,9 +90,9 @@ func (g *GenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.R
 			}
 		}
 
-		if usage != nil {
+		if usage != nil || truncated {
 			select {
-			case out <- llm.Response{Usage: usage, Time: time.Now()}:
+			case out <- llm.Response{Usage: usage, Truncated: truncated, Time: time.Now()}:
 			case <-ctx.Done():
 				errChan <- ctx.Err()
 				return
@@ -116,10 +118,17 @@ func (g *GenAI) Generate(ctx context.Context, system, prompt string) (llm.Respon
 	}
 
 	return llm.Response{
-		Content: result.Text(),
-		Time:    time.Now(),
-		Usage:   usageOf(result.UsageMetadata),
+		Content:   result.Text(),
+		Time:      time.Now(),
+		Usage:     usageOf(result.UsageMetadata),
+		Truncated: atLimit(result),
 	}, nil
+}
+
+// atLimit says whether the answer stopped because it reached the output
+// token limit.
+func atLimit(resp *genai.GenerateContentResponse) bool {
+	return len(resp.Candidates) > 0 && resp.Candidates[0].FinishReason == genai.FinishReasonMaxTokens
 }
 
 // usageOf converts Gemini's usage, or returns nil without one. The prompt

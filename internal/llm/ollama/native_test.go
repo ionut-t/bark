@@ -206,3 +206,39 @@ func TestErrors(t *testing.T) {
 		})
 	}
 }
+
+// An answer cut off at the output limit is marked as truncated.
+func TestTruncated(t *testing.T) {
+	for _, tt := range []struct {
+		doneReason string
+		truncated  bool
+	}{
+		{"stop", false},
+		{"length", true},
+	} {
+		t.Run(tt.doneReason, func(t *testing.T) {
+			f := &fakeOllama{contextLength: 131072, chat: func(w http.ResponseWriter, stream bool) {
+				if stream {
+					_, _ = fmt.Fprintln(w, `{"message":{"content":"Hel"},"done":false}`)
+					_, _ = fmt.Fprintf(w, `{"message":{"content":""},"done":true,"done_reason":%q,"prompt_eval_count":4,"eval_count":2}`+"\n", tt.doneReason)
+					return
+				}
+				_, _ = fmt.Fprintf(w, `{"message":{"content":"Hel"},"done":true,"done_reason":%q,"prompt_eval_count":4,"eval_count":2}`+"\n", tt.doneReason)
+			}}
+			f.serve(t)
+			o := New("m")
+
+			resp, err := o.Generate(t.Context(), "", "p")
+			require.NoError(t, err)
+			assert.Equal(t, tt.truncated, resp.Truncated)
+
+			out, errc := o.Stream(t.Context(), "", "p")
+			var truncated bool
+			for r := range out {
+				truncated = truncated || r.Truncated
+			}
+			require.NoError(t, <-errc)
+			assert.Equal(t, tt.truncated, truncated)
+		})
+	}
+}

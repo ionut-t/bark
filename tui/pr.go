@@ -140,6 +140,8 @@ type prResponseMsg struct {
 	usage    llm.Usage
 	hasUsage bool
 	duration time.Duration
+	// truncated is true when the model stopped at its output limit.
+	truncated bool
 }
 
 type prModel struct {
@@ -245,6 +247,9 @@ func (m prModel) Update(msg tea.Msg) (prModel, tea.Cmd) {
 
 		m.response = msg.message
 		m.editor.SetContent(msg.message + "\n\n")
+		if msg.truncated {
+			return m, dispatchTruncatedWarning(&m.editor, "PR description")
+		}
 
 	case editor.QuitMsg:
 		return m, tea.Quit
@@ -306,9 +311,10 @@ func getPRMessage(ctx context.Context, llm llm.LLM, system, prompt string) tea.C
 		start := time.Now()
 		resp, err := llm.Generate(ctx, system, prompt)
 		msg := prResponseMsg{
-			message:  resp.Content,
-			error:    err,
-			duration: time.Since(start),
+			message:   resp.Content,
+			error:     err,
+			duration:  time.Since(start),
+			truncated: resp.Truncated,
 		}
 		if resp.Usage != nil {
 			msg.usage = *resp.Usage

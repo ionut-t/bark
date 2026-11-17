@@ -110,3 +110,9 @@ func getEditorMode(ctx editor.StatusLineContext) string {
 		return ""
 	}
 }
+
+// dispatchTruncatedWarning warns that the model stopped at its output limit,
+// so what it wrote may be cut off.
+func dispatchTruncatedWarning(e *editor.Model, what string) tea.Cmd {
+	return e.DispatchError(fmt.Errorf("the model reached its output limit; the %s may be cut off", what), 10*time.Second)
+}

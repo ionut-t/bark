@@ -141,15 +141,19 @@ type streamErrorMsg struct {
 	error error
 }
 
+// truncated in a stream message is true once the model said it stopped at
+// its output limit.
 type streamChunkMsg struct {
-	content  string
-	usage    llm.Usage
-	hasUsage bool
+	content   string
+	usage     llm.Usage
+	hasUsage  bool
+	truncated bool
 }
 
 type streamCompleteMsg struct {
-	usage    llm.Usage
-	hasUsage bool
+	usage     llm.Usage
+	hasUsage  bool
+	truncated bool
 }
 
 // checkDoneMsg carries the outcome of Bark's check for the review started
@@ -192,6 +196,9 @@ type reviewModel struct {
 	// checkSummary sums up what Bark's check kept, for the status line;
 	// empty until a check is done.
 	checkSummary string
+	// truncated is true when the model cut the review off at its output
+	// limit; the review then ends with findings.TruncatedNote.
+	truncated bool
 	// run counts the reviews started, so the result of a check for a
 	// review that was restarted is ignored.
 	run int
@@ -323,6 +330,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		}
 
 		m.raw.WriteString(msg.content)
+		m.truncated = m.truncated || msg.truncated
 		content := msg.content
 		if m.renderer != nil {
 			content = m.renderer.Write(content)
@@ -370,10 +378,11 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 			m.contentBuilder.WriteString(m.renderer.Close())
 			m.editor.SetContent(utils.NormaliseCodeFences(m.contentBuilder.String()))
 		}
+		m.truncated = m.truncated || msg.truncated
 		m.loading = false
 		m.loadingChunks = false
 		m.editor.SetExtraHighlightedContextLines(finalHighlightContextLines)
-		m.response = m.editor.GetCurrentContent() + "\n\n"
+		m.response = m.withTruncatedNote(m.editor.GetCurrentContent() + "\n\n")
 		m.editor.SetContent(m.response)
 		_ = m.editor.SetCursorPosition(0, 0)
 
@@ -399,7 +408,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 			// Shown again from the checked events, each finding where it
 			// streamed: set-aside ones get a note under their heading, and
 			// kept ones show the check's changes to them.
-			m.response = strings.TrimRight(utils.NormaliseCodeFences(findings.MarkedMarkdown(msg.events)), "\n") + "\n\n"
+			m.response = m.withTruncatedNote(strings.TrimRight(utils.NormaliseCodeFences(findings.MarkedMarkdown(msg.events)), "\n") + "\n\n")
 			m.checkSummary = checkSummary(msg.events, msg.checked)
 		}
 		m.setDoneStatusLine()
@@ -463,7 +472,7 @@ func watchStreamCmd(respChan <-chan llm.Response, errChan <-chan error) tea.Cmd 
 		var buf strings.Builder
 		var deadline <-chan time.Time
 		var usage llm.Usage
-		var hasUsage bool
+		var hasUsage, truncated bool
 
 		for {
 			select {
@@ -473,7 +482,7 @@ func watchStreamCmd(respChan <-chan llm.Response, errChan <-chan error) tea.Cmd 
 					// handler re-arms the watch, which then sees the closed
 					// channel and completes.
 					if buf.Len() > 0 {
-						return streamChunkMsg{content: buf.String(), usage: usage, hasUsage: hasUsage}
+						return streamChunkMsg{content: buf.String(), usage: usage, hasUsage: hasUsage, truncated: truncated}
 					}
 					// Providers buffer a late error before closing both
 					// channels, and select picks randomly between ready
@@ -486,7 +495,7 @@ func watchStreamCmd(respChan <-chan llm.Response, errChan <-chan error) tea.Cmd 
 						}
 					default:
 					}
-					return streamCompleteMsg{usage: usage, hasUsage: hasUsage}
+					return streamCompleteMsg{usage: usage, hasUsage: hasUsage, truncated: truncated}
 				}
 
 				if resp.Usage != nil {
@@ -495,13 +504,14 @@ func watchStreamCmd(respChan <-chan llm.Response, errChan <-chan error) tea.Cmd 
 					usage = *resp.Usage
 					hasUsage = true
 				}
+				truncated = truncated || resp.Truncated
 				buf.WriteString(resp.Content)
 				if deadline == nil {
 					deadline = time.After(streamCoalesceWindow)
 				}
 
 			case <-deadline:
-				return streamChunkMsg{content: buf.String(), usage: usage, hasUsage: hasUsage}
+				return streamChunkMsg{content: buf.String(), usage: usage, hasUsage: hasUsage, truncated: truncated}
 
 			case err, ok := <-errChan:
 				if !ok {
@@ -514,7 +524,7 @@ func watchStreamCmd(respChan <-chan llm.Response, errChan <-chan error) tea.Cmd 
 				if err != nil {
 					// Context cancellation is not an error to surface
 					if errors.Is(err, context.Canceled) {
-						return streamCompleteMsg{usage: usage, hasUsage: hasUsage}
+						return streamCompleteMsg{usage: usage, hasUsage: hasUsage, truncated: truncated}
 					}
 					return streamErrorMsg{error: err}
 				}
@@ -548,6 +558,7 @@ func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	m.run++
 	m.checking = false
 	m.checkSummary = ""
+	m.truncated = false
 	m.raw = &strings.Builder{}
 	m.contentBuilder = &strings.Builder{}
 	m.renderer = nil
@@ -611,6 +622,15 @@ func (m *reviewModel) setDoneStatusLine() {
 		return
 	}
 	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, m.checkSummary, reviewerInfo)
+}
+
+// withTruncatedNote ends review with findings.TruncatedNote if the model
+// cut it off.
+func (m *reviewModel) withTruncatedNote(review string) string {
+	if !m.truncated {
+		return review
+	}
+	return strings.TrimRight(review, "\n") + "\n\n" + findings.TruncatedNote + "\n"
 }
 
 // awaitsCheck reports whether msg is the result of the check the review is

@@ -136,3 +136,33 @@ func TestWatchStreamReportsError(t *testing.T) {
 	require.IsType(t, streamErrorMsg{}, msg)
 	require.ErrorIs(t, msg.(streamErrorMsg).error, boom)
 }
+
+// The truncated flag on the stream's last response reaches the model,
+// whether it ends a batch of content or comes on its own.
+func TestWatchStreamReportsTruncated(t *testing.T) {
+	for _, last := range []llm.Response{
+		{Content: "tail", Truncated: true},
+		{Truncated: true},
+	} {
+		respChan := make(chan llm.Response, 2)
+		errChan := make(chan error)
+		respChan <- llm.Response{Content: "head"}
+		respChan <- last
+		close(respChan)
+		close(errChan)
+
+		var truncated bool
+		for done := false; !done; {
+			switch msg := watchStreamCmd(respChan, errChan)().(type) {
+			case streamChunkMsg:
+				truncated = truncated || msg.truncated
+			case streamCompleteMsg:
+				truncated = truncated || msg.truncated
+				done = true
+			default:
+				t.Fatalf("unexpected message %#v", msg)
+			}
+		}
+		require.True(t, truncated, "last response %+v", last)
+	}
+}

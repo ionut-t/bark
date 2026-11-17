@@ -10,6 +10,7 @@ import (
 
 	"github.com/ionut-t/bark/v2/internal/check"
 	"github.com/ionut-t/bark/v2/internal/debuglog"
+	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/stretchr/testify/assert"
@@ -237,4 +238,24 @@ func TestReviewStructuredIgnoresStaleCheck(t *testing.T) {
 	m, _ = m.Update(stale)
 
 	assert.NotContains(t, m.response, "stale")
+}
+
+// A review the model cut off at its output limit ends with a note saying
+// so, also after Bark's check redraws it; a new review starts without it.
+func TestReviewTruncated(t *testing.T) {
+	t.Parallel()
+
+	m := newStructuredReview(t)
+	m, _ = m.Update(streamChunkMsg{content: `{"type":"intro","text":"Looks rough."}` + "\n" + `{"file":"a.go","title":"Lo`, truncated: true})
+	m, _ = m.Update(streamCompleteMsg{})
+	assert.True(t, strings.HasSuffix(strings.TrimRight(m.response, "\n"), strings.TrimRight(findings.TruncatedNote, "\n")), m.response)
+
+	m.checking = true
+	m, _ = m.Update(checkDoneMsg{run: m.run, events: findings.Parse(m.raw.String())})
+	assert.Contains(t, m.response, findings.TruncatedNote, "the check's redraw keeps the note")
+
+	_ = m.startReview(context.Background())
+	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Clean."}` + "\n"})
+	m, _ = m.Update(streamCompleteMsg{})
+	assert.NotContains(t, m.response, "Cut off")
 }

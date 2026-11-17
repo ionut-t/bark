@@ -101,6 +101,9 @@ func setAsideList(fs []Finding, why func(Finding) string) string {
 	return b.String()
 }
 
+// TruncatedNote ends a review the model cut off at its output limit.
+const TruncatedNote = "> **Cut off:** the model reached its output limit, so this review ends early and may be missing findings.\n"
+
 // CheckReport renders the outcome of Bark's check for a review that has
 // already been shown, so it can be appended to it: how many findings were
 // checked, which were doubted and which were raised before.
