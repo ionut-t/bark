@@ -83,17 +83,26 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
+        # Values reach the script through env: an expression in the script
+        # would be pasted in before bash parses it.
+        BARK_PROVIDER: ${{ inputs.provider }}
+        BARK_API_KEY: ${{ inputs.api-key }}
+        BARK_MODEL: ${{ inputs.model }}
+        BARK_INSTRUCTIONS: ${{ inputs.instructions }}
+        BARK_MAX_DIFF_TOKENS: ${{ inputs.max-diff-tokens }}
+        BARK_MAX_DIFF_LINES: ${{ inputs.max-diff-lines }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
-        PROVIDER=$(echo "${{ inputs.provider }}" | tr '[:upper:]' '[:lower:]')
+        PROVIDER=$(echo "$BARK_PROVIDER" | tr '[:upper:]' '[:lower:]')
         case "$PROVIDER" in
           "gemini")
-            export GEMINI_API_KEY="${{ inputs.api-key }}"
+            export GEMINI_API_KEY="$BARK_API_KEY"
             ;;
           "openai")
-            export OPENAI_API_KEY="${{ inputs.api-key }}"
+            export OPENAI_API_KEY="$BARK_API_KEY"
             ;;
           "anthropic")
-            export ANTHROPIC_API_KEY="${{ inputs.api-key }}"
+            export ANTHROPIC_API_KEY="$BARK_API_KEY"
             ;;
           "vertexai"|"ollama")
             echo "Error: provider '$PROVIDER' needs more than an API key (Vertex AI: service-account credentials; Ollama: a reachable server) and is not supported by this action. Use gemini, openai or anthropic." >&2
@@ -104,11 +113,12 @@ runs:
             exit 1
             ;;
         esac
+        unset BARK_API_KEY
 
-        ARGS=(pr --pr "${{ github.event.pull_request.number }}" --provider "$PROVIDER" --model "${{ inputs.model }}")
-        [ -n "${{ inputs.instructions }}" ] && ARGS+=(--instructions "${{ inputs.instructions }}")
-        [ -n "${{ inputs.max-diff-tokens }}" ] && ARGS+=(--max-diff-tokens "${{ inputs.max-diff-tokens }}")
-        [ -n "${{ inputs.max-diff-lines }}" ] && ARGS+=(--max-diff-lines "${{ inputs.max-diff-lines }}")
+        ARGS=(pr --pr "$PR_NUMBER" --provider "$PROVIDER" --model "$BARK_MODEL")
+        [ -n "$BARK_INSTRUCTIONS" ] && ARGS+=(--instructions "$BARK_INSTRUCTIONS")
+        [ -n "$BARK_MAX_DIFF_TOKENS" ] && ARGS+=(--max-diff-tokens "$BARK_MAX_DIFF_TOKENS")
+        [ -n "$BARK_MAX_DIFF_LINES" ] && ARGS+=(--max-diff-lines "$BARK_MAX_DIFF_LINES")
 
         bark "${ARGS[@]}" > /tmp/bark-pr.txt
 
