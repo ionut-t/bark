@@ -18,6 +18,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/llm/llm_factory"
+	"github.com/ionut-t/bark/v2/internal/paths"
 	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/ionut-t/bark/v2/internal/prompt"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
@@ -57,9 +58,9 @@ type Model struct {
 
 	currentView view
 
-	llm     llm.LLM
-	config  config.Config
-	storage string
+	llm    llm.LLM
+	config config.Config
+	paths  paths.Paths
 
 	tasks          tasksModel
 	selectedTask   Task
@@ -121,7 +122,7 @@ type Model struct {
 }
 
 type Options struct {
-	Storage           string
+	Paths             paths.Paths
 	ReviewerName      string
 	Instructions      []string
 	Branch            string
@@ -150,7 +151,7 @@ func New(options Options) *Model {
 	// The TUI has nowhere to warn about a prices file it can't use; it just
 	// shows no cost.
 	model, _ := options.Config.GetLLMModel()
-	pricing, _ := prices.For(options.Storage, provider, model)
+	pricing, _ := prices.For(options.Paths.Cache, provider, model)
 
 	if !git.IsGitRepo() {
 		return &Model{
@@ -178,7 +179,7 @@ func New(options Options) *Model {
 		llmProvider:          provider,
 		pricing:              pricing,
 		config:               options.Config,
-		storage:              options.Storage,
+		paths:                options.Paths,
 		selectCommit:         options.SelectCommit,
 		reviewerName:         options.ReviewerName,
 		instructionValues:    options.Instructions,
@@ -360,7 +361,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, utils.DispatchMsg(listReviewersMsg{})
 
 	case listReviewersMsg:
-		return m, loadReviewersCmd(m.storage)
+		return m, loadReviewersCmd(m.paths.Config)
 
 	case reviewersLoadedMsg:
 		listReviewers := msg.reviewers
@@ -836,7 +837,7 @@ func (m *Model) handleSelectedReviewer(reviewer *reviewers.Reviewer) (tea.Model,
 		return m, utils.DispatchMsg(instructionSelectedMsg{instruction: ""})
 	}
 
-	return m, loadReviewInstructionsCmd(m.storage)
+	return m, loadReviewInstructionsCmd(m.paths.Config)
 }
 
 func (m *Model) handleSelectedReviewOption(option ReviewOption) (tea.Model, tea.Cmd) {
@@ -930,14 +931,14 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	m.review.setUsedModel(m.getLlmModelName())
 	m.review.setStructured(structured)
 	m.review.minSeverity = findings.Severity(m.config.GetMinSeverity())
-	m.review.setLogInfo(m.storage, m.llmProvider)
+	m.review.setLogInfo(m.paths.State, m.llmProvider)
 	m.review.setPricing(m.pricing)
 	if structured && m.config.GetCheckFindings() {
 		m.review.setCheck(check.Review{
 			Client:     m.llm,
 			ReviewDiff: msg.reviewDiff,
 			Diff:       diff,
-			LogDir:     m.storage,
+			LogDir:     m.paths.State,
 			Provider:   m.llmProvider,
 			Model:      m.getLlmModelName(),
 			Pricing:    m.pricing,

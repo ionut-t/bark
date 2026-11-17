@@ -24,8 +24,9 @@ func pricesCmd() *cobra.Command {
 		Long: `Download model prices from models.dev and save the ones for Bark's providers.
 
 With a prices file, review, commit and pr print what their model calls cost on
-stderr. Bark reads the repo's .bark/prices.json first, then ~/.bark/prices.json;
-it never downloads prices on its own. Commit .bark/prices.json (bark prices
+stderr. Bark reads the repo's .bark/prices.json first, then the one in its cache
+directory ($XDG_CACHE_HOME/bark, ~/.cache/bark by default); it never downloads
+prices on its own. Commit .bark/prices.json (bark prices
 --repo) to show costs in CI. Run it again to update them.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -38,11 +39,11 @@ it never downloads prices on its own. Commit .bark/prices.json (bark prices
 				}
 			}
 			if output == "" {
-				storage, err := config.GetStorage()
+				dirs, err := config.Paths()
 				if err != nil {
-					return fmt.Errorf("error getting storage: %w", err)
+					return err
 				}
-				output = filepath.Join(storage, prices.FileName)
+				output = filepath.Join(dirs.Cache, prices.FileName)
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), pricesTimeout)
 			defer cancel()
@@ -50,7 +51,7 @@ it never downloads prices on its own. Commit .bark/prices.json (bark prices
 		},
 	}
 
-	cmd.Flags().StringP("output", "o", "", "Where to save the prices (default is $HOME/.bark/prices.json)")
+	cmd.Flags().StringP("output", "o", "", "Where to save the prices (default is $XDG_CACHE_HOME/bark/prices.json)")
 	// No -r shorthand: reset uses it for --reviewers.
 	cmd.Flags().Bool("repo", false, "Save the prices to the repo's .bark/prices.json, which Bark reads first")
 	cmd.MarkFlagsMutuallyExclusive("output", "repo")

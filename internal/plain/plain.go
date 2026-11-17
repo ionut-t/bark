@@ -18,6 +18,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/llm/llm_factory"
+	"github.com/ionut-t/bark/v2/internal/paths"
 	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/ionut-t/bark/v2/internal/prompt"
 	"github.com/ionut-t/bark/v2/internal/prreview"
@@ -33,7 +34,7 @@ type ReviewOptions struct {
 	ReviewerName      string
 	Instructions      []string
 	SkipInstruction   bool
-	Storage           string
+	Paths             paths.Paths
 	Config            config.Config
 	Stream            bool
 	WithPRDescription bool
@@ -107,7 +108,7 @@ func RunReview(opts ReviewOptions) error {
 		return fmt.Errorf("no diff content available")
 	}
 
-	reviewer, err := resolveReviewer(opts.ReviewerName, opts.Storage)
+	reviewer, err := resolveReviewer(opts.ReviewerName, opts.Paths.Config)
 	if err != nil {
 		return err
 	}
@@ -115,7 +116,7 @@ func RunReview(opts ReviewOptions) error {
 	var reviewInstructions string
 	if !opts.SkipInstruction {
 		var err error
-		reviewInstructions, err = resolveInstructions(opts.Instructions, opts.Storage)
+		reviewInstructions, err = resolveInstructions(opts.Instructions, opts.Paths.Config)
 		if err != nil {
 			return err
 		}
@@ -154,10 +155,10 @@ func RunReview(opts ReviewOptions) error {
 	defer llmCancel()
 
 	model, _ := opts.Config.GetLLMModel()
-	client, meter := meterCalls(client, opts.Storage, provider, model)
+	client, meter := meterCalls(client, opts.Paths.Cache, provider, model)
 	defer printCost(meter)
 
-	debugLog, err := debuglog.Start(opts.Storage, "review", debuglog.Meta{
+	debugLog, err := debuglog.Start(opts.Paths.State, "review", debuglog.Meta{
 		Fields: []debuglog.Field{
 			{Key: "provider", Value: provider},
 			{Key: "model", Value: model},
@@ -189,7 +190,7 @@ func RunReview(opts ReviewOptions) error {
 
 	var checkFn func([]findings.Event) ([]findings.Event, int)
 	if structured && opts.Config.GetCheckFindings() {
-		r := check.Review{Client: client, ReviewDiff: reviewDiff, Diff: diff, LogDir: opts.Storage, Provider: provider, Model: model, Pricing: meter.Pricing()}
+		r := check.Review{Client: client, ReviewDiff: reviewDiff, Diff: diff, LogDir: opts.Paths.State, Provider: provider, Model: model, Pricing: meter.Pricing()}
 		if !opts.Stream {
 			// Nothing is shown before the check, so the intro and verdict
 			// can still be rewritten to match it.
@@ -513,21 +514,21 @@ func newMeteredClient(cfg config.Config) (llm.LLM, *prices.Meter, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating LLM client: %w", err)
 	}
-	storage, err := config.GetStorage()
+	p, err := config.Paths()
 	if err != nil {
 		return client, nil, nil
 	}
 	model, _ := cfg.GetLLMModel()
-	client, meter := meterCalls(client, storage, provider, model)
+	client, meter := meterCalls(client, p.Cache, provider, model)
 	return client, meter, nil
 }
 
 // meterCalls wraps client to count what its calls cost, if the repo's or
-// storage's prices file lists the model. Otherwise it returns client and a
+// cacheDir's prices file lists the model. Otherwise it returns client and a
 // nil Meter (which does nothing). A prices file that can't be read, or
 // doesn't list the model, is a warning: the command goes on without costs.
-func meterCalls(client llm.LLM, storage, provider, model string) (llm.LLM, *prices.Meter) {
-	pricing, err := prices.For(storage, provider, model)
+func meterCalls(client llm.LLM, cacheDir, provider, model string) (llm.LLM, *prices.Meter) {
+	pricing, err := prices.For(cacheDir, provider, model)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bark: %v; costs won't be shown\n", err)
 		return client, nil

@@ -35,10 +35,11 @@ This does not affect any files that you may have created or modified outside of 
 }
 
 func handleReset(cmd *cobra.Command) (string, error) {
-	storage, err := config.GetStorage()
+	dirs, err := config.Paths()
 	if err != nil {
-		return "", fmt.Errorf("error getting storage path: %w", err)
+		return "", err
 	}
+	storage := dirs.Config
 
 	resetReviewers, _ := cmd.Flags().GetBool("reviewers")
 	resetInstructions, _ := cmd.Flags().GetBool("instructions")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/bark/v2/internal/instructions"
+	"github.com/ionut-t/bark/v2/internal/paths"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
 	"github.com/pelletier/go-toml/v2"
@@ -30,12 +32,20 @@ func configCmd(getCfg configFunc) *cobra.Command {
 		structured        bool
 		checkFindings     bool
 		minSeverity       string
+		migrate           bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Manage configuration",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if migrate {
+				if err := migrateAlone(cmd.Flags()); err != nil {
+					return err
+				}
+				return migrateDirs(paths.System(), time.Now(), cmd.OutOrStdout())
+			}
+
 			cfg := getCfg()
 			flagsSet := false
 
@@ -120,6 +130,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 	flags.BoolVar(&contextEnrichment, "context-enrichment", false, "Enable or disable enclosing-declaration context for reviews (default: false)")
 	flags.BoolVar(&structured, "structured-findings", false, "Enable or disable structured findings for reviews (default: false)")
 	flags.BoolVar(&checkFindings, "check-findings", true, "Enable or disable the second model call that checks structured findings against the code (default: true)")
+	flags.BoolVar(&migrate, migrateFlag, false, "Move Bark's files from ~/.bark to the XDG directories (~/.config/bark, ~/.cache/bark and ~/.local/state/bark by default)")
 	flags.StringVar(&minSeverity, "min-severity", "", "Set the lowest severity structured reviews show: "+strings.Join(config.Severities(), ", ")+` ("" shows every finding)`)
 
 	// Old names, matching the config file keys. Kept so existing scripts keep
@@ -146,17 +157,69 @@ func anyChanged(flags *pflag.FlagSet, names ...string) bool {
 	return slices.ContainsFunc(names, flags.Changed)
 }
 
-// initConfig sets up Bark's files in $HOME/.bark and loads the config file
-// at path (the --config flag), or the default one when path is empty.
+const migrateFlag = "migrate"
+
+// migrateAlone returns an error if any flag other than --migrate is set:
+// migrating doesn't load the config, so it can't apply settings, and a
+// --config file has nothing to do with Bark's own directories.
+func migrateAlone(flags *pflag.FlagSet) error {
+	var others []string
+	flags.Visit(func(f *pflag.Flag) {
+		if f.Name != migrateFlag {
+			others = append(others, "--"+f.Name)
+		}
+	})
+	if len(others) > 0 {
+		return fmt.Errorf("--%s can't be combined with %s", migrateFlag, strings.Join(others, ", "))
+	}
+	return nil
+}
+
+// migratingDirs reports whether cmd is `bark config --migrate`, which must
+// run before (and instead of) loading the config: loading creates files.
+func migratingDirs(cmd *cobra.Command) bool {
+	if cmd.Name() != "config" {
+		return false
+	}
+	migrate, err := cmd.Flags().GetBool(migrateFlag)
+	return err == nil && migrate
+}
+
+// migrateDirs moves ~/.bark to the XDG directories and reports what it did
+// to w.
+func migrateDirs(env paths.Env, now time.Time, w io.Writer) error {
+	result, err := env.Migrate(now)
+	if errors.Is(err, paths.ErrNothingToMigrate) {
+		_, _ = fmt.Fprintln(w, "Nothing to migrate: there is no ~/.bark directory.")
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("migration failed, nothing was changed: %w", err)
+	}
+
+	for _, m := range result.Moved {
+		_, _ = fmt.Fprintf(w, "Moved %s -> %s\n", m.From, m.To)
+	}
+	for _, name := range result.Skipped {
+		_, _ = fmt.Fprintf(w, "Skipped %s: Bark doesn't use it\n", name)
+	}
+	_, _ = fmt.Fprintf(w, "Renamed %s to %s. Delete it once you've checked Bark works.\n", result.From, result.Backup)
+	return nil
+}
+
+// initConfig sets up Bark's files in its config directory and loads the
+// config file at path (the --config flag), or the default one when path is
+// empty.
 func initConfig(path string) (config.Config, error) {
+	dirs, err := config.Paths()
+	if err != nil {
+		return nil, err
+	}
+	storage := dirs.Config
+
 	cfg, err := loadConfigFrom(path)
 	if err != nil {
 		return nil, fmt.Errorf("error initializing config: %w", err)
-	}
-
-	storage, err := config.GetStorage()
-	if err != nil {
-		return nil, fmt.Errorf("error getting storage path: %w", err)
 	}
 
 	if err := reviewers.Config(storage, false); err != nil {
@@ -186,7 +249,21 @@ func initConfig(path string) (config.Config, error) {
 		fmt.Fprintf(os.Stderr, "bark: warning: %s\n", warning)
 	}
 
+	if dirs.Legacy {
+		fmt.Fprintln(os.Stderr, legacyWarning(paths.System()))
+	}
+
 	return cfg, nil
+}
+
+// legacyWarning tells a user still on ~/.bark how to move to the XDG
+// directories.
+func legacyWarning(env paths.Env) string {
+	target := "the XDG directories"
+	if xdg, err := env.XDG(); err == nil {
+		target = xdg.Config
+	}
+	return fmt.Sprintf("bark: warning: using ~/.bark; run 'bark config --migrate' to move Bark's files to %s", target)
 }
 
 // applyRepoConfig layers the config of the repository at root over cfg for

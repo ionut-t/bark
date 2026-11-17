@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ionut-t/bark/v2/internal/paths"
 	"github.com/ionut-t/bark/v2/internal/templates"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -24,8 +25,9 @@ const (
 	CheckFindingsKey      = "check_findings"
 	MinSeverityKey        = "min_severity"
 
+	// rootDir is a repository's Bark directory.
 	rootDir                    = ".bark"
-	configFileName             = ".config.toml"
+	configFileName             = "config.toml"
 	commitInstructionsFileName = "commit.md"
 	prInstructionsFileName     = "pull_request_description.md"
 
@@ -568,15 +570,15 @@ func DefaultEditor() string {
 	return "vim"
 }
 
-// DefaultFilePath returns the config file path, $HOME/.bark/.config.toml,
+// DefaultFilePath returns the config file path (see paths.Paths.ConfigFile),
 // creating its directory if needed.
 func DefaultFilePath() (string, error) {
-	dir, err := GetStorage()
+	p, err := Paths()
 	if err != nil {
 		return "", err
 	}
 
-	return filepath.Join(dir, configFileName), nil
+	return p.ConfigFile(), nil
 }
 
 // EnsureFile writes DefaultData to path if no file exists there, and reports
@@ -598,6 +600,9 @@ func EnsureFile(path string) (bool, error) {
 func InitialiseCommitInstructions() error {
 	commitPath := GetCommitFilePath()
 	prPath := GetPRFilePath()
+	if commitPath == "" || prPath == "" {
+		return nil
+	}
 
 	if _, err := os.Stat(commitPath); os.IsNotExist(err) {
 		if err := os.WriteFile(commitPath, []byte(templates.GetDefaultCommitInstructions()), 0o644); err != nil {
@@ -614,45 +619,47 @@ func InitialiseCommitInstructions() error {
 	return nil
 }
 
-func GetStorage() (string, error) {
-	home, err := os.UserHomeDir()
+// Paths returns Bark's user directories (see package paths), creating the
+// config directory if needed. The cache and state directories are created
+// when something is written to them.
+func Paths() (paths.Paths, error) {
+	p, err := paths.Resolve()
 	if err != nil {
-		return "", err
+		return paths.Paths{}, fmt.Errorf("error getting Bark's directories: %w", err)
 	}
 
-	dir := filepath.Join(home, rootDir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
+	if err := os.MkdirAll(p.Config, 0o755); err != nil {
+		return paths.Paths{}, fmt.Errorf("error creating Bark's config directory: %w", err)
 	}
 
-	return dir, nil
+	return p, nil
 }
 
 func GetCommitFilePath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-
-	return filepath.Join(home, rootDir, commitInstructionsFileName)
+	return configDirFile(commitInstructionsFileName)
 }
 
 func GetPRFilePath() string {
-	home, err := os.UserHomeDir()
+	return configDirFile(prInstructionsFileName)
+}
+
+// configDirFile returns the path of name in the config directory, or ""
+// if it can't be found.
+func configDirFile(name string) string {
+	p, err := paths.Resolve()
 	if err != nil {
 		return ""
 	}
 
-	return filepath.Join(home, rootDir, prInstructionsFileName)
+	return filepath.Join(p.Config, name)
 }
 
-func getInstructions(filePath, defaultContent string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+func getInstructions(fileName, defaultContent string) string {
+	path := configDirFile(fileName)
+	if path == "" {
 		return defaultContent
 	}
 
-	path := filepath.Join(home, rootDir, filePath)
 	content, err := os.ReadFile(path)
 	if err != nil || len(content) == 0 {
 		return defaultContent
