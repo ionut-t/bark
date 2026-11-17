@@ -14,6 +14,7 @@ func TestParseRepo(t *testing.T) {
 	content := `
 llm_provider = "anthropic"
 llm_model = "claude-sonnet-5-5"
+max_diff_tokens = 9000
 max_diff_lines = 0
 context_enrichment = true
 structured_findings = true
@@ -25,6 +26,7 @@ min_severity = "High"
 	assert.Equal(t, RepoData{
 		LLMProvider:        new("anthropic"),
 		LLMModel:           new("claude-sonnet-5-5"),
+		MaxDiffTokens:      new(uint32(9000)),
 		MaxDiffLines:       new(uint32(0)),
 		ContextEnrichment:  new(true),
 		StructuredFindings: new(true),
@@ -103,6 +105,7 @@ func TestApplyRepo_RepoBeatsSavedAndRunOverridesBeatRepo(t *testing.T) {
 	saved := Data{
 		LLMProvider:        "gemini",
 		LLMModel:           "gemini-2.5-pro",
+		MaxDiffTokens:      20000,
 		MaxDiffLines:       500,
 		ContextEnrichment:  false,
 		StructuredFindings: false,
@@ -112,6 +115,7 @@ func TestApplyRepo_RepoBeatsSavedAndRunOverridesBeatRepo(t *testing.T) {
 	repo := RepoData{
 		LLMProvider:        new("anthropic"),
 		LLMModel:           new("claude-sonnet-5-5"),
+		MaxDiffTokens:      new(uint32(0)),
 		MaxDiffLines:       new(uint32(0)),
 		ContextEnrichment:  new(true),
 		StructuredFindings: new(true),
@@ -126,6 +130,7 @@ func TestApplyRepo_RepoBeatsSavedAndRunOverridesBeatRepo(t *testing.T) {
 	model, _ := cfg.GetLLMModel()
 	assert.Equal(t, "anthropic", provider)
 	assert.Equal(t, "claude-sonnet-5-5", model)
+	assert.Equal(t, uint32(0), cfg.GetMaxDiffTokens(), "a repo can set a zero value")
 	assert.Equal(t, uint32(0), cfg.GetMaxDiffLines(), "a repo can set a zero value")
 	assert.True(t, cfg.GetContextEnrichment())
 	assert.True(t, cfg.GetStructuredFindings())
@@ -134,6 +139,7 @@ func TestApplyRepo_RepoBeatsSavedAndRunOverridesBeatRepo(t *testing.T) {
 
 	require.NoError(t, cfg.OverrideProvider("openai"))
 	cfg.OverrideModel("gpt-x")
+	cfg.OverrideMaxDiffTokens(100)
 	cfg.OverrideMaxDiffLines(10)
 	cfg.OverrideContextEnrichment(false)
 	cfg.OverrideStructuredFindings(false)
@@ -144,6 +150,7 @@ func TestApplyRepo_RepoBeatsSavedAndRunOverridesBeatRepo(t *testing.T) {
 	model, _ = cfg.GetLLMModel()
 	assert.Equal(t, "openai", provider)
 	assert.Equal(t, "gpt-x", model)
+	assert.Equal(t, uint32(100), cfg.GetMaxDiffTokens())
 	assert.Equal(t, uint32(10), cfg.GetMaxDiffLines())
 	assert.False(t, cfg.GetContextEnrichment())
 	assert.False(t, cfg.GetStructuredFindings())

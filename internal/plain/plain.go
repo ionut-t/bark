@@ -78,20 +78,20 @@ func RunReview(opts ReviewOptions) error {
 		gitCtx, gitCancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer gitCancel()
 
-		maxLines := opts.Config.GetMaxDiffLines()
+		limit := git.LimitFrom(opts.Config)
 		var diffParams git.ReviewDiffParams
 		switch {
 		case opts.PR != "":
-			diffParams = git.PRDiff(opts.PR).WithMaxLines(maxLines)
+			diffParams = git.PRDiff(opts.PR).WithLimit(limit)
 			if opts.WithPRDescription {
 				diffParams = diffParams.WithPRDescription()
 			}
 		case opts.Branch != "":
-			diffParams = git.BranchDiff(opts.Branch).WithMaxLines(maxLines)
+			diffParams = git.BranchDiff(opts.Branch).WithLimit(limit)
 		case opts.Hash != "":
-			diffParams = git.CommitDiff(opts.Hash).WithMaxLines(maxLines)
+			diffParams = git.CommitDiff(opts.Hash).WithLimit(limit)
 		default:
-			diffParams = git.WorkingTreeDiff(opts.Staged).WithMaxLines(maxLines)
+			diffParams = git.WorkingTreeDiff(opts.Staged).WithLimit(limit)
 		}
 
 		var err error
@@ -291,7 +291,7 @@ func RunPR(opts PROptions) error {
 			content, err = git.GetPRInfo(gitCtx, opts.PR)
 		} else {
 			var branchInfo *git.BranchInfo
-			branchInfo, err = git.GetBranchInfo(gitCtx, opts.Branch, opts.Config.GetMaxDiffLines())
+			branchInfo, err = git.GetBranchInfo(gitCtx, opts.Branch, git.LimitFrom(opts.Config))
 			if err == nil {
 				content = git.FormatBranchInfo(branchInfo)
 			}

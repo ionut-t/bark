@@ -304,12 +304,13 @@ func GetCurrentBranch(ctx context.Context) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// GetBranchDiff returns the changes on the current branch since it forked from branch.
-func GetBranchDiff(ctx context.Context, branch string, maxLines uint32) (string, error) {
+// GetBranchDiff returns the changes on the current branch since it forked
+// from branch, cut to limit.
+func GetBranchDiff(ctx context.Context, branch string, limit DiffLimit) (string, error) {
 	args := append([]string{"diff", branchRange(branch), "--"}, excludes(ctx)...)
 	cmd := exec.CommandContext(ctx, "git", args...)
 
-	if maxLines == 0 {
+	if limit == (DiffLimit{}) {
 		output, err := cmd.Output()
 		if err != nil {
 			return "", fmt.Errorf("failed to get branch diff: %w", err)
@@ -326,16 +327,17 @@ func GetBranchDiff(ctx context.Context, branch string, maxLines uint32) (string,
 	}
 
 	var sb strings.Builder
+	budget := diffBudget{limit: limit}
 	truncated := false
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for lineCount := uint32(0); scanner.Scan(); lineCount++ {
-		if lineCount >= maxLines {
+	for scanner.Scan() {
+		kept, stop := budget.take(scanner.Text() + "\n")
+		sb.WriteString(kept)
+		if stop {
 			truncated = true
 			break
 		}
-		sb.WriteString(scanner.Text())
-		sb.WriteByte('\n')
 	}
 
 	_ = stdout.Close()
@@ -350,7 +352,7 @@ func GetBranchDiff(ctx context.Context, branch string, maxLines uint32) (string,
 	}
 
 	if truncated {
-		sb.WriteString("... (truncated)\n")
+		sb.WriteString(truncatedMarker)
 	}
 
 	return sb.String(), nil
@@ -537,7 +539,7 @@ func GetBranchStats(ctx context.Context, baseBranch string) (filesChanged, addit
 }
 
 // GetBranchInfo gets comprehensive info about the current branch for PR description
-func GetBranchInfo(ctx context.Context, baseBranch string, maxLines uint32) (*BranchInfo, error) {
+func GetBranchInfo(ctx context.Context, baseBranch string, limit DiffLimit) (*BranchInfo, error) {
 	currentBranch, err := GetCurrentBranch(ctx)
 	if err != nil {
 		return nil, err
@@ -559,7 +561,7 @@ func GetBranchInfo(ctx context.Context, baseBranch string, maxLines uint32) (*Br
 		return nil, fmt.Errorf("no commits found on branch %s", currentBranch)
 	}
 
-	diffs, err := GetBranchDiff(ctx, baseBranch, maxLines)
+	diffs, err := GetBranchDiff(ctx, baseBranch, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -674,7 +676,7 @@ func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
 type ReviewDiffParams struct {
 	pr         string
 	branch     string
-	maxLines   uint32
+	limit      DiffLimit
 	commitHash string
 	stagedOnly bool
 	withBody   bool
@@ -688,11 +690,11 @@ func BranchDiff(branch string) ReviewDiffParams {
 	return ReviewDiffParams{branch: branch}
 }
 
-// WithMaxLines returns a copy of the params with a line-count limit applied to the diff.
-// For branch diffs the limit is enforced during streaming; for all other sources it is
-// applied as a post-processing step inside GetReviewDiff.
-func (p ReviewDiffParams) WithMaxLines(n uint32) ReviewDiffParams {
-	p.maxLines = n
+// WithLimit returns a copy of the params with limit applied to the diff.
+// For branch diffs the limit is enforced while git's output is read; for
+// all other sources the diff is cut after it is fetched.
+func (p ReviewDiffParams) WithLimit(limit DiffLimit) ReviewDiffParams {
+	p.limit = limit
 	return p
 }
 
@@ -917,7 +919,7 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		if err != nil {
 			return r, err
 		}
-		r.Diff = truncateDiff(r.Diff, params.maxLines)
+		r.Diff = truncateDiff(r.Diff, params.limit)
 		if meta, metaErr := GetPRMeta(ctx, params.pr); metaErr == nil {
 			if !params.withBody {
 				meta.Body = ""
@@ -929,7 +931,7 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 
 	case params.branch != "":
 		var err error
-		r.Diff, err = GetBranchDiff(ctx, params.branch, params.maxLines)
+		r.Diff, err = GetBranchDiff(ctx, params.branch, params.limit)
 		if err != nil {
 			return r, &BranchDiffError{Branch: params.branch, Err: err}
 		}
@@ -945,7 +947,7 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		if err != nil {
 			return r, err
 		}
-		r.Diff = truncateDiff(r.Diff, params.maxLines)
+		r.Diff = truncateDiff(r.Diff, params.limit)
 		r.Stat = GetCommitStat(ctx, params.commitHash)
 
 	default:
@@ -959,7 +961,7 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		if err != nil {
 			return r, err
 		}
-		r.Diff = truncateDiff(r.Diff, params.maxLines)
+		r.Diff = truncateDiff(r.Diff, params.limit)
 		r.Stat = GetWorkingTreeStat(ctx, all)
 		branch, _ := GetCurrentBranch(ctx)
 		r.ContextHeader = FormatBranchHeader(branch)
@@ -982,23 +984,6 @@ func goVersionHeader(ctx context.Context, diff string) string {
 		return ""
 	}
 	return FormatGoVersionHeader(goMod, diff)
-}
-
-func truncateDiff(diff string, maxLines uint32) string {
-	if maxLines == 0 || diff == "" {
-		return diff
-	}
-
-	var count uint32
-	for i := 0; i < len(diff); i++ {
-		if diff[i] == '\n' {
-			count++
-			if count >= maxLines {
-				return diff[:i+1] + "... (truncated)\n"
-			}
-		}
-	}
-	return diff
 }
 
 // GetPRInfo returns a formatted string with commit messages and diff for a GitHub PR.

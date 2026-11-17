@@ -9,6 +9,7 @@ import (
 
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/pelletier/go-toml/v2"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,6 +18,7 @@ type savedConfig struct {
 	Editor             string `toml:"editor"`
 	LLMProvider        string `toml:"llm_provider"`
 	LLMModel           string `toml:"llm_model"`
+	MaxDiffTokens      uint32 `toml:"max_diff_tokens"`
 	MaxDiffLines       uint32 `toml:"max_diff_lines"`
 	ContextEnrichment  bool   `toml:"context_enrichment"`
 	StructuredFindings bool   `toml:"structured_findings"`
@@ -63,30 +65,46 @@ func runConfigCmd(t *testing.T, existing string, args ...string) savedConfig {
 func TestConfigCmd_SetsValues(t *testing.T) {
 	t.Parallel()
 
-	want := savedConfig{
+	base := savedConfig{
 		LLMProvider:        "anthropic",
 		LLMModel:           "claude-sonnet-5-5",
-		MaxDiffLines:       500,
 		ContextEnrichment:  true,
 		StructuredFindings: true,
 		CheckFindings:      true,
 	}
+	withTokens, withLines := base, base
+	withTokens.MaxDiffTokens = 8000
+	withLines.MaxDiffLines = 500
 
 	tests := []struct {
 		name string
 		args []string
+		want savedConfig
 	}{
 		{
 			name: "long flags",
-			args: []string{"--provider", "anthropic", "--model", "claude-sonnet-5-5", "--max-diff-lines", "500", "--context-enrichment", "--structured-findings", "--check-findings"},
+			args: []string{"--provider", "anthropic", "--model", "claude-sonnet-5-5", "--max-diff-tokens", "8000", "--context-enrichment", "--structured-findings", "--check-findings"},
+			want: withTokens,
 		},
 		{
 			name: "short flags",
-			args: []string{"-p", "anthropic", "-m", "claude-sonnet-5-5", "-d", "500", "--context-enrichment", "--structured-findings", "--check-findings"},
+			args: []string{"-p", "anthropic", "-m", "claude-sonnet-5-5", "--max-diff-tokens", "8000", "--context-enrichment", "--structured-findings", "--check-findings"},
+			want: withTokens,
 		},
 		{
 			name: "deprecated flags still work",
 			args: []string{"--llm_provider", "anthropic", "--llm_model", "claude-sonnet-5-5", "--max_diff_lines", "500", "--context_enrichment", "--structured-findings", "--check-findings"},
+			want: withLines,
+		},
+		{
+			name: "deprecated --max-diff-lines still works",
+			args: []string{"-p", "anthropic", "-m", "claude-sonnet-5-5", "--max-diff-lines", "500", "--context-enrichment", "--structured-findings", "--check-findings"},
+			want: withLines,
+		},
+		{
+			name: "deprecated -d still works",
+			args: []string{"-p", "anthropic", "-m", "claude-sonnet-5-5", "-d", "500", "--context-enrichment", "--structured-findings", "--check-findings"},
+			want: withLines,
 		},
 	}
 
@@ -94,7 +112,7 @@ func TestConfigCmd_SetsValues(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			assert.Equal(t, want, runConfigCmd(t, "", tt.args...))
+			assert.Equal(t, tt.want, runConfigCmd(t, "", tt.args...))
 		})
 	}
 }
@@ -104,8 +122,8 @@ func TestConfigCmd_SetsValues(t *testing.T) {
 func TestConfigCmd_SetsZeroValues(t *testing.T) {
 	t.Parallel()
 
-	const existing = "max_diff_lines = 300\ncontext_enrichment = true\nstructured_findings = true\ncheck_findings = true\n"
-	base := savedConfig{LLMModel: config.DefaultData().LLMModel, MaxDiffLines: 300, ContextEnrichment: true, StructuredFindings: true, CheckFindings: true}
+	const existing = "max_diff_tokens = 9000\nmax_diff_lines = 300\ncontext_enrichment = true\nstructured_findings = true\ncheck_findings = true\n"
+	base := savedConfig{LLMModel: config.DefaultData().LLMModel, MaxDiffTokens: 9000, MaxDiffLines: 300, ContextEnrichment: true, StructuredFindings: true, CheckFindings: true}
 	with := func(change func(*savedConfig)) savedConfig {
 		c := base
 		change(&c)
@@ -117,6 +135,7 @@ func TestConfigCmd_SetsZeroValues(t *testing.T) {
 		args []string
 		want savedConfig
 	}{
+		{name: "--max-diff-tokens 0", args: []string{"--max-diff-tokens", "0"}, want: with(func(c *savedConfig) { c.MaxDiffTokens = 0 })},
 		{name: "-d 0", args: []string{"-d", "0"}, want: with(func(c *savedConfig) { c.MaxDiffLines = 0 })},
 		{name: "--max-diff-lines 0", args: []string{"--max-diff-lines", "0"}, want: with(func(c *savedConfig) { c.MaxDiffLines = 0 })},
 		{name: "--max_diff_lines 0", args: []string{"--max_diff_lines", "0"}, want: with(func(c *savedConfig) { c.MaxDiffLines = 0 })},
@@ -152,7 +171,7 @@ func TestConfigCmd_OldFlagNamesAreHiddenAndDeprecated(t *testing.T) {
 	renamed := map[string]string{
 		config.LLMProviderKey:       "provider",
 		config.LLMModelKey:          "model",
-		config.MaxDiffLinesKey:      "max-diff-lines",
+		config.MaxDiffLinesKey:      "max-diff-tokens",
 		config.ContextEnrichmentKey: "context-enrichment",
 	}
 
@@ -166,6 +185,39 @@ func TestConfigCmd_OldFlagNamesAreHiddenAndDeprecated(t *testing.T) {
 
 		require.NotNil(t, flags.Lookup(newName), newName)
 	}
+}
+
+// --max-diff-lines is deprecated in favour of --max-diff-tokens: hidden from
+// help, with a notice pointing at the new flag.
+func TestMaxDiffLinesFlagIsDeprecated(t *testing.T) {
+	t.Parallel()
+
+	getCfg := staticConfig(config.New("", config.Data{}))
+	for name, cmd := range map[string]*cobra.Command{
+		"config": configCmd(getCfg),
+		"review": reviewCmd(getCfg),
+		"pr":     prCmd(getCfg),
+	} {
+		old := cmd.Flags().Lookup("max-diff-lines")
+		require.NotNil(t, old, name)
+		assert.True(t, old.Hidden, "%s: --max-diff-lines should be hidden", name)
+		assert.Contains(t, old.Deprecated, "--max-diff-tokens", name)
+		require.NotNil(t, cmd.Flags().Lookup("max-diff-tokens"), name)
+	}
+}
+
+// A new config file doesn't mention the deprecated max_diff_lines.
+func TestLoadConfig_NewFileLeavesOutMaxDiffLines(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	_, err := loadConfig(path)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), config.MaxDiffTokensKey)
+	assert.NotContains(t, string(content), config.MaxDiffLinesKey)
 }
 
 // Setting the editor saves it alongside the other values.
@@ -194,6 +246,7 @@ func TestReadConfigData_ReadsEveryField(t *testing.T) {
 		Editor:             "nano",
 		LLMProvider:        "anthropic",
 		LLMModel:           "claude-sonnet-5-5",
+		MaxDiffTokens:      9000,
 		MaxDiffLines:       300,
 		RelativeNumber:     true,
 		ContextEnrichment:  true,
@@ -276,6 +329,7 @@ func TestConfigCmd_PartialFileSavesDefaults(t *testing.T) {
 	assert.Equal(t, savedConfig{
 		LLMProvider:       want.LLMProvider,
 		LLMModel:          want.LLMModel,
+		MaxDiffTokens:     want.MaxDiffTokens,
 		MaxDiffLines:      want.MaxDiffLines,
 		ContextEnrichment: want.ContextEnrichment,
 		CheckFindings:     want.CheckFindings,
@@ -297,6 +351,7 @@ func TestLoadConfig_ReadsFile(t *testing.T) {
 	const contents = `editor = 'nano'
 llm_provider = 'anthropic'
 llm_model = 'claude-sonnet-5-5'
+max_diff_tokens = 9000
 max_diff_lines = 300
 relative_number = true
 context_enrichment = true
@@ -315,6 +370,7 @@ structured_findings = true
 	model, err := cfg.GetLLMModel()
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-5-5", model)
+	assert.Equal(t, uint32(9000), cfg.GetMaxDiffTokens())
 	assert.Equal(t, uint32(300), cfg.GetMaxDiffLines())
 	assert.True(t, cfg.GetRelativeNumber())
 	assert.True(t, cfg.GetStructuredFindings())

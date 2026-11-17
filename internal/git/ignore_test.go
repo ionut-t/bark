@@ -252,7 +252,7 @@ func TestBarkignoreAppliesToDiffs(t *testing.T) {
 	assert.Contains(t, stat, "Cargo.lock")
 	assert.NotContains(t, stat, "x.snap")
 
-	branch, err := GetBranchDiff(t.Context(), "main", 0)
+	branch, err := GetBranchDiff(t.Context(), "main", DiffLimit{})
 	require.NoError(t, err)
 	assert.Contains(t, branch, "Cargo.lock")
 	assert.NotContains(t, branch, "x.snap")

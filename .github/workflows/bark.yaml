@@ -36,7 +36,7 @@ jobs:
           BARK_PROVIDER: ${{ vars.BARK_PROVIDER }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BARK_MODEL: ${{ vars.BARK_DESCRIPTION_MODEL || vars.BARK_MODEL }}
-          BARK_MAX_DIFF_LINES: ${{ vars.BARK_MAX_DIFF_LINES }}
+          BARK_MAX_DIFF_TOKENS: ${{ vars.BARK_MAX_DIFF_TOKENS }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           PROVIDER=$(echo "$BARK_PROVIDER" | tr '[:upper:]' '[:lower:]')
@@ -52,7 +52,7 @@ jobs:
 
           ARGS=(pr --pr "$PR_NUMBER" --provider "$PROVIDER")
           [ -n "$BARK_MODEL" ] && ARGS+=(--model "$BARK_MODEL")
-          [ -n "$BARK_MAX_DIFF_LINES" ] && ARGS+=(--max-diff-lines "$BARK_MAX_DIFF_LINES")
+          [ -n "$BARK_MAX_DIFF_TOKENS" ] && ARGS+=(--max-diff-tokens "$BARK_MAX_DIFF_TOKENS")
           /tmp/bark "${ARGS[@]}" > /tmp/bark-pr.txt
 
           if [ ! -s /tmp/bark-pr.txt ]; then
@@ -107,7 +107,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           BARK_MODEL: ${{ vars.BARK_MODEL }}
           BARK_REVIEWER: ${{ vars.BARK_REVIEWER }}
-          BARK_MAX_DIFF_LINES: ${{ vars.BARK_MAX_DIFF_LINES }}
+          BARK_MAX_DIFF_TOKENS: ${{ vars.BARK_MAX_DIFF_TOKENS }}
           BARK_WITH_CONTEXT: ${{ vars.BARK_WITH_CONTEXT }}
           BARK_INLINE_COMMENTS: ${{ vars.BARK_INLINE_COMMENTS }}
           WITH_DESCRIPTION: ${{ needs.pr-description.result == 'success' }}
@@ -126,7 +126,7 @@ jobs:
           ARGS=(review --pr "${{ github.event.pull_request.number }}" --provider "$PROVIDER")
           [ -n "$BARK_REVIEWER" ] && ARGS+=(--as "$BARK_REVIEWER")
           [ -n "$BARK_MODEL" ] && ARGS+=(--model "$BARK_MODEL")
-          [ -n "$BARK_MAX_DIFF_LINES" ] && ARGS+=(--max-diff-lines "$BARK_MAX_DIFF_LINES")
+          [ -n "$BARK_MAX_DIFF_TOKENS" ] && ARGS+=(--max-diff-tokens "$BARK_MAX_DIFF_TOKENS")
           [ "$BARK_WITH_CONTEXT" = "true" ] && ARGS+=(--with-context)
           [ "$WITH_DESCRIPTION" = "true" ] && ARGS+=(--with-description)
           # Posts a review with inline comments itself; the next step is skipped.

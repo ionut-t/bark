@@ -29,8 +29,13 @@ inputs:
   model:
     description: LLM model to use (e.g. gemini-2.5-pro, gpt-5.4-mini).
     required: true
+  max-diff-tokens:
+    description: Maximum number of diff tokens to include in the prompt, estimated at 2.5 characters a token (0 disables the limit).
+    required: false
+    default: ""
   max-diff-lines:
     description: Maximum number of diff lines to include in the prompt (0 disables the limit).
+    deprecationMessage: max-diff-lines is deprecated; use max-diff-tokens.
     required: false
     default: ""
   with-description:
@@ -136,6 +141,7 @@ runs:
         fi
 
         ARGS+=(--model "${{ inputs.model }}")
+        [ -n "${{ inputs.max-diff-tokens }}" ] && ARGS+=(--max-diff-tokens "${{ inputs.max-diff-tokens }}")
         [ -n "${{ inputs.max-diff-lines }}" ] && ARGS+=(--max-diff-lines "${{ inputs.max-diff-lines }}")
         [ "${{ inputs.with-context }}" = "true" ] && ARGS+=(--with-context)
         [ "${{ inputs.with-description }}" = "true" ] && ARGS+=(--with-description)

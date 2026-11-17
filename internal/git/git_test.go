@@ -57,18 +57,19 @@ func newDivergedRepo(t *testing.T) string {
 
 func TestGetBranchDiff_UsesMergeBase(t *testing.T) {
 	tests := []struct {
-		name     string
-		maxLines uint32
+		name  string
+		limit DiffLimit
 	}{
-		{name: "unlimited", maxLines: 0},
-		{name: "line limited", maxLines: 1000},
+		{name: "unlimited"},
+		{name: "line limited", limit: DiffLimit{Lines: 1000}},
+		{name: "token limited", limit: DiffLimit{Tokens: 100_000}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			newDivergedRepo(t)
 
-			diff, err := GetBranchDiff(t.Context(), "main", tt.maxLines)
+			diff, err := GetBranchDiff(t.Context(), "main", tt.limit)
 			require.NoError(t, err)
 
 			assert.Contains(t, diff, "feature.txt", "branch's own change should be in the diff")
@@ -306,7 +307,7 @@ func TestGetBaseBranch(t *testing.T) {
 func TestGetBranchInfo_WithoutOriginHead(t *testing.T) {
 	newDivergedRepo(t)
 
-	info, err := GetBranchInfo(t.Context(), "", 1000)
+	info, err := GetBranchInfo(t.Context(), "", DiffLimit{Tokens: 100_000})
 	require.NoError(t, err)
 
 	assert.Equal(t, "main", info.BaseBranch)
