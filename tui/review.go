@@ -14,6 +14,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/check"
 	"github.com/ionut-t/bark/v2/internal/debuglog"
 	"github.com/ionut-t/bark/v2/internal/findings"
+	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
@@ -199,6 +200,9 @@ type reviewModel struct {
 	// truncated is true when the model cut the review off at its output
 	// limit; the review then ends with findings.TruncatedNote.
 	truncated bool
+	// diffNote starts the review when the diff was cut to fit its limit;
+	// empty otherwise.
+	diffNote string
 	// run counts the reviews started, so the result of a check for a
 	// review that was restarted is ignored.
 	run int
@@ -408,7 +412,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 			// Shown again from the checked events, each finding where it
 			// streamed: set-aside ones get a note under their heading, and
 			// kept ones show the check's changes to them.
-			m.response = m.withTruncatedNote(strings.TrimRight(utils.NormaliseCodeFences(findings.MarkedMarkdown(msg.events)), "\n") + "\n\n")
+			m.response = m.withTruncatedNote(m.withDiffNote(strings.TrimRight(utils.NormaliseCodeFences(findings.MarkedMarkdown(msg.events)), "\n") + "\n\n"))
 			m.checkSummary = checkSummary(msg.events, msg.checked)
 		}
 		m.setDoneStatusLine()
@@ -561,6 +565,9 @@ func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	m.truncated = false
 	m.raw = &strings.Builder{}
 	m.contentBuilder = &strings.Builder{}
+	if m.diffNote != "" {
+		m.contentBuilder.WriteString(m.diffNote + "\n")
+	}
 	m.renderer = nil
 	if m.structured {
 		m.renderer = &findings.Renderer{Min: m.minSeverity}
@@ -622,6 +629,24 @@ func (m *reviewModel) setDoneStatusLine() {
 		return
 	}
 	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, m.checkSummary, reviewerInfo)
+}
+
+// setDiffCut makes the review start with a note saying how much of the
+// diff it covers, if cut is not nil.
+func (m *reviewModel) setDiffCut(cut *git.DiffCut) {
+	m.diffNote = ""
+	if cut != nil {
+		m.diffNote = findings.PartialReviewNote(cut.Summary())
+	}
+}
+
+// withDiffNote starts review with the note about the cut diff, if there is
+// one.
+func (m *reviewModel) withDiffNote(review string) string {
+	if m.diffNote == "" {
+		return review
+	}
+	return m.diffNote + "\n" + review
 }
 
 // withTruncatedNote ends review with findings.TruncatedNote if the model

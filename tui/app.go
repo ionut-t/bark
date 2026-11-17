@@ -930,6 +930,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	m.review.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.review.setUsedModel(m.getLlmModelName())
 	m.review.setStructured(structured)
+	m.review.setDiffCut(msg.reviewDiff.Cut)
 	m.review.minSeverity = findings.Severity(m.config.GetMinSeverity())
 	m.review.setLogInfo(m.paths.State, m.llmProvider)
 	m.review.setPricing(m.pricing)
