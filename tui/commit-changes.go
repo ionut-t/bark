@@ -142,6 +142,8 @@ type commitResponseMsg struct {
 	usage    llm.Usage
 	hasUsage bool
 	duration time.Duration
+	// truncated is true when the model stopped at its output limit.
+	truncated bool
 }
 
 type commitChangesModel struct {
@@ -305,6 +307,9 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 		m.response = utils.RemoveCodeFences(msg.message)
 		m.editor.SetContent(m.response)
 		m.editor.SetSize(m.width, max(10, m.height-lipgloss.Height(m.getHeader())-1))
+		if msg.truncated {
+			return m, dispatchTruncatedWarning(&m.editor, "commit message")
+		}
 
 	case editor.SearchResultsMsg:
 		if len(msg.Positions) == 0 {
@@ -485,9 +490,10 @@ func getCommitMessage(ctx context.Context, llm llm.LLM, system, prompt string) t
 		start := time.Now()
 		resp, err := llm.Generate(ctx, system, prompt)
 		msg := commitResponseMsg{
-			message:  resp.Content,
-			error:    err,
-			duration: time.Since(start),
+			message:   resp.Content,
+			error:     err,
+			duration:  time.Since(start),
+			truncated: resp.Truncated,
 		}
 		if resp.Usage != nil {
 			msg.usage = *resp.Usage

@@ -32,6 +32,9 @@ type Response struct {
 	Content string
 	Time    time.Time
 	Usage   *Usage
+	// Truncated is true when the model stopped at its output limit, so the
+	// answer ends early. A stream sets it on its last response.
+	Truncated bool
 }
 
 type LLM interface {

@@ -62,6 +62,7 @@ func (o *OpenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 		}()
 
 		var usage *llm.Usage
+		var truncated bool
 		for stream.Next() {
 			select {
 			case <-ctx.Done():
@@ -71,8 +72,14 @@ func (o *OpenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 			}
 
 			event := stream.Current()
-			if event.Type == "response.completed" {
+			switch event.Type {
+			case "response.completed":
 				usage = usageOf(event.AsResponseCompleted().Response.Usage)
+				continue
+			case "response.incomplete":
+				resp := event.AsResponseIncomplete().Response
+				usage = usageOf(resp.Usage)
+				truncated = atLimit(resp)
 				continue
 			}
 
@@ -98,9 +105,9 @@ func (o *OpenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 
 		if err := stream.Err(); err != nil {
 			errChan <- err
-		} else if usage != nil {
+		} else if usage != nil || truncated {
 			select {
-			case out <- llm.Response{Usage: usage, Time: time.Now()}:
+			case out <- llm.Response{Usage: usage, Truncated: truncated, Time: time.Now()}:
 			case <-ctx.Done():
 				errChan <- ctx.Err()
 				return
@@ -133,10 +140,17 @@ func (o *OpenAI) Generate(ctx context.Context, system, prompt string) (llm.Respo
 	}
 
 	return llm.Response{
-		Content: text,
-		Time:    time.Now(),
-		Usage:   usageOf(resp.Usage),
+		Content:   text,
+		Time:      time.Now(),
+		Usage:     usageOf(resp.Usage),
+		Truncated: atLimit(*resp),
 	}, nil
+}
+
+// atLimit says whether the response stopped because it reached the output
+// token limit.
+func atLimit(r responses.Response) bool {
+	return r.Status == responses.ResponseStatusIncomplete && r.IncompleteDetails.Reason == "max_output_tokens"
 }
 
 // usageOf converts OpenAI's usage. Its input count includes cached tokens,

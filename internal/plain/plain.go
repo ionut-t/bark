@@ -178,14 +178,18 @@ func RunReview(opts ReviewOptions) error {
 
 	out := io.Writer(os.Stdout)
 	var output string
+	var truncated bool
 	if opts.Stream {
-		output, err = streamResponse(llmCtx, client, system, promptText, out, structured, minSeverity, debugLog)
+		output, truncated, err = streamResponse(llmCtx, client, system, promptText, out, structured, minSeverity, debugLog)
 	} else {
-		output, err = fullResponse(llmCtx, client, system, promptText, debugLog)
+		output, truncated, err = fullResponse(llmCtx, client, system, promptText, debugLog)
 	}
 	meter.Mark("review")
 	if err != nil {
 		return err
+	}
+	if truncated {
+		warnTruncated("review", "it ends early and may be missing findings")
 	}
 
 	var checkFn func([]findings.Event) ([]findings.Event, int)
@@ -203,7 +207,7 @@ func RunReview(opts ReviewOptions) error {
 			return checkFindings(r, events, meter)
 		}
 	}
-	events := finishReview(out, output, opts.Stream, structured, minSeverity, checkFn)
+	events := finishReview(out, output, truncated, opts.Stream, structured, minSeverity, checkFn)
 	if !opts.Comment {
 		return nil
 	}
@@ -264,6 +268,9 @@ func RunCommit(opts CommitOptions) error {
 	if err != nil {
 		return fmt.Errorf("error generating commit message: %w", err)
 	}
+	if result.Truncated {
+		warnTruncated("commit message", "it may be incomplete")
+	}
 
 	fmt.Print(utils.RemoveCodeFences(result.Content))
 	fmt.Println()
@@ -317,6 +324,9 @@ func RunPR(opts PROptions) error {
 	if err != nil {
 		return fmt.Errorf("error generating PR description: %w", err)
 	}
+	if result.Truncated {
+		warnTruncated("PR description", "it may be incomplete")
+	}
 
 	fmt.Print(result.Content)
 	fmt.Println()
@@ -324,16 +334,18 @@ func RunPR(opts PROptions) error {
 	return nil
 }
 
-// streamResponse streams the review to out and returns the raw model output.
+// streamResponse streams the review to out and returns the raw model output,
+// and whether the model cut it off at its output limit.
 // A structured review is rendered to Markdown as it arrives, without the
 // findings less severe than minSeverity.
-func streamResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool, minSeverity findings.Severity, debugLog *debuglog.Log) (string, error) {
+func streamResponse(ctx context.Context, client llm.LLM, system, promptText string, out io.Writer, structured bool, minSeverity findings.Severity, debugLog *debuglog.Log) (output string, truncated bool, err error) {
 	responseChan, errChan := client.Stream(ctx, system, promptText)
 
 	renderer := findings.Renderer{Min: minSeverity}
-	var output strings.Builder
+	var text strings.Builder
 	for chunk := range responseChan {
-		output.WriteString(chunk.Content)
+		text.WriteString(chunk.Content)
+		truncated = truncated || chunk.Truncated
 		debugLog.Write(chunk.Content, chunk.Usage)
 		if structured {
 			_, _ = fmt.Fprint(out, renderer.Write(chunk.Content))
@@ -346,13 +358,13 @@ func streamResponse(ctx context.Context, client llm.LLM, system, promptText stri
 	}
 	_, _ = fmt.Fprintln(out)
 
-	err := <-errChan
+	err = <-errChan
 	debugLog.Finish(err)
 	if err != nil {
-		return "", fmt.Errorf("error during review: %w", err)
+		return "", false, fmt.Errorf("error during review: %w", err)
 	}
 
-	return output.String(), nil
+	return text.String(), truncated, nil
 }
 
 // finishReview writes what's left of the review to out once the model is
@@ -361,11 +373,16 @@ func streamResponse(ctx context.Context, client llm.LLM, system, promptText stri
 // runs Bark's check on a structured review's findings: a whole review shows
 // the doubted findings in a section of their own, a streamed one gets a
 // report of them appended. Findings less severe than minSeverity are left
-// out before the check, so they cost nothing to check.
-func finishReview(out io.Writer, output string, stream, structured bool, minSeverity findings.Severity, checkFn func([]findings.Event) ([]findings.Event, int)) []findings.Event {
+// out before the check, so they cost nothing to check. A truncated review
+// ends with findings.TruncatedNote; a structured one also gets it as its last
+// event, so a posted review says so too.
+func finishReview(out io.Writer, output string, truncated, stream, structured bool, minSeverity findings.Severity, checkFn func([]findings.Event) ([]findings.Event, int)) []findings.Event {
 	if !structured {
 		if !stream {
 			_, _ = fmt.Fprintln(out, output)
+		}
+		if truncated {
+			_, _ = fmt.Fprint(out, "\n"+findings.TruncatedNote)
 		}
 		return nil
 	}
@@ -378,23 +395,30 @@ func finishReview(out io.Writer, output string, stream, structured bool, minSeve
 	if checkFn != nil {
 		events, checked = checkFn(events)
 	}
+	if truncated {
+		events = append(events, findings.Event{Text: findings.TruncatedNote})
+	}
 	if stream {
 		_, _ = fmt.Fprint(out, findings.CheckReport(events, checked))
+		if truncated {
+			_, _ = fmt.Fprint(out, findings.TruncatedNote)
+		}
 	} else {
 		_, _ = fmt.Fprintln(out, findings.Markdown(events))
 	}
 	return events
 }
 
-// fullResponse returns the whole review once it is complete.
-func fullResponse(ctx context.Context, client llm.LLM, system, promptText string, debugLog *debuglog.Log) (string, error) {
+// fullResponse returns the whole review once it is complete, and whether the
+// model cut it off at its output limit.
+func fullResponse(ctx context.Context, client llm.LLM, system, promptText string, debugLog *debuglog.Log) (output string, truncated bool, err error) {
 	response, err := client.Generate(ctx, system, promptText)
 	debugLog.Write(response.Content, response.Usage)
 	debugLog.Finish(err)
 	if err != nil {
-		return "", fmt.Errorf("error during review: %w", err)
+		return "", false, fmt.Errorf("error during review: %w", err)
 	}
-	return response.Content, nil
+	return response.Content, response.Truncated, nil
 }
 
 // checkFindings runs Bark's check on the findings in events and returns the
@@ -545,4 +569,10 @@ func printCost(meter *prices.Meter) {
 	if s := meter.Summary(); s != "" {
 		fmt.Fprintf(os.Stderr, "bark: %s\n", s)
 	}
+}
+
+// warnTruncated tells the user on stderr, which stays out of pipes, that the
+// model cut what off at its output limit.
+func warnTruncated(what, consequence string) {
+	fmt.Fprintf(os.Stderr, "bark: warning: the model reached its output limit, so the %s was cut off; %s\n", what, consequence)
 }

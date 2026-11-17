@@ -121,9 +121,16 @@ type chatChunk struct {
 		Content string `json:"content"`
 	} `json:"message"`
 	Done            bool   `json:"done"`
+	DoneReason      string `json:"done_reason"`
 	PromptEvalCount int64  `json:"prompt_eval_count"`
 	EvalCount       int64  `json:"eval_count"`
 	Error           string `json:"error"`
+}
+
+// truncated says whether the answer stopped because it reached the output
+// limit or filled the context.
+func (c chatChunk) truncated() bool {
+	return c.DoneReason == "length"
 }
 
 func (c chatChunk) usage() *llm.Usage {
@@ -231,8 +238,8 @@ func (o *Ollama) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 				return
 			}
 			if chunk.Done {
-				if u := chunk.usage(); u != nil {
-					send(llm.Response{Usage: u, Time: time.Now()})
+				if u := chunk.usage(); u != nil || chunk.truncated() {
+					send(llm.Response{Usage: u, Truncated: chunk.truncated(), Time: time.Now()})
 				}
 				return
 			}
@@ -265,8 +272,9 @@ func (o *Ollama) Generate(ctx context.Context, system, prompt string) (llm.Respo
 	}
 
 	return llm.Response{
-		Content: resp.Message.Content,
-		Time:    time.Now(),
-		Usage:   resp.usage(),
+		Content:   resp.Message.Content,
+		Time:      time.Now(),
+		Usage:     resp.usage(),
+		Truncated: resp.truncated(),
 	}, nil
 }

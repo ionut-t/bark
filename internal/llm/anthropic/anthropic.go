@@ -69,6 +69,7 @@ func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan l
 
 		var usage *llm.Usage
 		var counts usageCounts
+		var truncated bool
 		for stream.Next() {
 			select {
 			case <-ctx.Done():
@@ -84,6 +85,7 @@ func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan l
 				counts.input, counts.cacheRead, counts.cacheWrite = u.InputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens
 				usage = counts.usage()
 			case anthropic.MessageDeltaEvent:
+				truncated = atLimit(ev.Delta.StopReason)
 				counts.output = ev.Usage.OutputTokens
 				// The delta carries up-to-date cumulative input counts when
 				// the API sends them; otherwise keep the message_start values.
@@ -114,9 +116,9 @@ func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan l
 
 		if err := stream.Err(); err != nil {
 			errChan <- err
-		} else if usage != nil {
+		} else if usage != nil || truncated {
 			select {
-			case out <- llm.Response{Usage: usage, Time: time.Now()}:
+			case out <- llm.Response{Usage: usage, Truncated: truncated, Time: time.Now()}:
 			case <-ctx.Done():
 				errChan <- ctx.Err()
 				return
@@ -173,7 +175,14 @@ func (a *Anthropic) Generate(ctx context.Context, system, prompt string) (llm.Re
 			cacheWrite: resp.Usage.CacheCreationInputTokens,
 			output:     resp.Usage.OutputTokens,
 		}.usage(),
+		Truncated: atLimit(resp.StopReason),
 	}, nil
+}
+
+// atLimit says whether the model stopped because it ran out of room for
+// its answer.
+func atLimit(r anthropic.StopReason) bool {
+	return r == anthropic.StopReasonMaxTokens || r == anthropic.StopReasonModelContextWindowExceeded
 }
 
 // usageCounts are Anthropic's token counts. Its input count leaves out the
