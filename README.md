@@ -75,6 +75,20 @@ bark review --pr 42 --comment
 
 `--comment` turns on structured findings. Each finding on a line the pull request changes becomes an inline comment, and its fix becomes a suggestion that can be applied with one click. The reviewer's intro and verdict, and findings about other lines, go in the review body.
 
+When Bark has posted a review on the pull request before, `--comment` reviews only the changes since the commit that review was made at, which each posted review records in a hidden comment. Bark diffs those commits locally, so it needs them in the repository (in CI, check out with `fetch-depth: 0`). It reviews the whole pull request instead, and says why on stderr, when:
+
+- no earlier Bark review recorded the commit it reviewed;
+- that commit is no longer in the pull request's history, or isn't in the local repository (after a rebase or force-push);
+- the branch merged other commits since, such as the base branch;
+- the pull request's base changed (retargeted at another branch);
+- the last review didn't see all of its diff (cut to fit `max_diff_tokens`, or the model's output ended early), so the next one covers the same changes again.
+
+Bark only trusts earlier reviews posted by a bot (GitHub Actions) or by someone with write access to the repository. If nothing changed since the last review, Bark posts nothing. To review the whole pull request anyway:
+
+```bash
+bark review --pr 42 --comment --full
+```
+
 #### Checking findings
 
 Before a structured review (`--structured` or `--comment`) is shown in full or posted, Bark checks its findings with a second model call. The check reads the files the findings point to (whole, or only the lines around each finding for files over 1,500 lines) and must quote the code each finding rests on. Two kinds of finding are set aside:

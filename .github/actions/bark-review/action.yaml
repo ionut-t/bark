@@ -54,6 +54,17 @@ inputs:
       call that reads the code around them; those that don't hold up are listed in
       a collapsed block instead of inline. When false, the review is posted
       as one comment.
+
+      A pull request Bark reviewed before with inline comments is reviewed
+      only from the commit the last review was made at. It falls back to the
+      whole pull request when there's no earlier review, when that commit is
+      no longer in the branch (rebase or force-push), when the branch merged
+      other commits since, or when its base changed (retargeted). When
+      nothing changed, nothing is posted.
+    required: false
+    default: "false"
+  full-review:
+    description: Review the whole pull request, not only the changes since Bark's last review of it. Only matters with inline-comments.
     required: false
     default: "false"
   github-token:
@@ -67,6 +78,8 @@ runs:
     - name: Checkout code
       uses: actions/checkout@v7
       with:
+        # The whole history: a review of only the changes since the last
+        # one diffs the commits locally.
         fetch-depth: 0
 
     - name: Install bark
@@ -120,6 +133,7 @@ runs:
         BARK_WITH_CONTEXT: ${{ inputs.with-context }}
         BARK_WITH_DESCRIPTION: ${{ inputs.with-description }}
         BARK_INLINE_COMMENTS: ${{ inputs.inline-comments }}
+        BARK_FULL_REVIEW: ${{ inputs.full-review }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         PROVIDER=$(echo "$BARK_PROVIDER" | tr '[:upper:]' '[:lower:]')
@@ -160,9 +174,13 @@ runs:
         [ "$BARK_WITH_CONTEXT" = "true" ] && ARGS+=(--with-context)
         [ "$BARK_WITH_DESCRIPTION" = "true" ] && ARGS+=(--with-description)
         [ "$BARK_INLINE_COMMENTS" = "true" ] && ARGS+=(--comment)
+        # Only when set, so a pinned older Bark doesn't get a flag it lacks.
+        [ "$BARK_FULL_REVIEW" = "true" ] && ARGS+=(--full)
 
         bark "${ARGS[@]}" > /tmp/bark-review.txt
 
+        # Bark prints a line even when nothing changed since its last
+        # review, so empty output means something went wrong.
         if [ ! -s /tmp/bark-review.txt ]; then
           echo "Review output is empty. See Bark's output above." >&2
           exit 1

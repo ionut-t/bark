@@ -2,6 +2,7 @@ package plain
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -245,4 +246,98 @@ func TestWarnReviewDiff(t *testing.T) {
 	stderr.Reset()
 	warnReviewDiff(&stderr, git.ReviewDiff{})
 	assert.Empty(t, stderr.String())
+}
+
+// A pull request review says on stderr whether it reviews the whole pull
+// request or only what changed since the last review, and why.
+func TestNoteReviewScope(t *testing.T) {
+	t.Parallel()
+
+	reviewed := "0123456789abcdef0123456789abcdef01234567"
+	tests := []struct {
+		name     string
+		full     bool
+		recorded string
+		r        git.ReviewDiff
+		want     string
+	}{
+		{"incremental", false, reviewed,
+			git.ReviewDiff{Since: reviewed, Diff: "d", Commits: []git.Commit{{}, {}}},
+			"bark: reviewing only the changes since the last review at 0123456 (2 commit(s))\n"},
+		{"no record", false, "", git.ReviewDiff{Diff: "d"},
+			"bark: full review: no earlier Bark review of this pull request recorded the commit it reviewed\n"},
+		{"fallback", false, reviewed, git.ReviewDiff{Diff: "d", FullReason: "0123456 is no longer in the pull request's history (rebase or force-push)"},
+			"bark: full review: 0123456 is no longer in the pull request's history (rebase or force-push)\n"},
+		{"--full", true, reviewed, git.ReviewDiff{Diff: "d"},
+			"bark: full review (--full)\n"},
+		{"nothing new", false, reviewed, git.ReviewDiff{Since: reviewed},
+			"bark: nothing changed since the last review at 0123456, so there's nothing to review (--full reviews the whole pull request)\n"},
+		{"only ignored files", false, reviewed, git.ReviewDiff{Since: reviewed, Commits: []git.Commit{{}, {}}},
+			"bark: the 2 commit(s) since the last review at 0123456 change only files Bark ignores, so there's nothing to review (--full reviews the whole pull request)\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var stderr strings.Builder
+			noteReviewScope(&stderr, tt.full, tt.recorded, tt.r)
+			assert.Equal(t, tt.want, stderr.String())
+		})
+	}
+}
+
+// With nothing to review, the output still says why, so CI can tell it
+// from a review that failed to produce anything.
+func TestNothingToReview(t *testing.T) {
+	t.Parallel()
+
+	reviewed := "0123456789abcdef0123456789abcdef01234567"
+	assert.Equal(t, "Nothing to review: nothing changed since the last review at `0123456`.",
+		nothingToReview(git.ReviewDiff{Since: reviewed}))
+	assert.Equal(t, "Nothing to review: the changes since the last review at `0123456` touch only files Bark ignores.",
+		nothingToReview(git.ReviewDiff{Since: reviewed, Commits: []git.Commit{{}}}))
+}
+
+// What a posted review records: where the next review starts from.
+func TestPostScope(t *testing.T) {
+	t.Parallel()
+
+	var r git.ReviewDiff
+	r.Since = "0001111"
+	assert.Equal(t, prreview.Scope{Since: "0001111"}, postScope(r, false))
+	assert.True(t, postScope(r, true).Partial, "the model's output ended early")
+	r.Cut = &git.DiffCut{Files: 3, Kept: 1}
+	assert.True(t, postScope(r, false).Partial, "the diff was cut")
+}
+
+// Reading earlier reviews says only what applies to this review.
+func TestHistoryNote(t *testing.T) {
+	t.Parallel()
+
+	failed := errors.New("failed to read earlier reviews: HTTP 502")
+	two := prreview.History{Findings: []findings.Finding{{}, {}}}
+	tests := []struct {
+		name                  string
+		h                     prreview.History
+		err                   error
+		checking, incremental bool
+		want                  string
+	}{
+		{"failed, both", prreview.History{}, failed, true, true,
+			"bark: failed to read earlier reviews: HTTP 502; repeats of earlier findings won't be set aside, and the whole pull request is reviewed\n"},
+		{"failed, no check", prreview.History{}, failed, false, true,
+			"bark: failed to read earlier reviews: HTTP 502; the whole pull request is reviewed\n"},
+		{"failed, not incremental", prreview.History{}, failed, true, false,
+			"bark: failed to read earlier reviews: HTTP 502; repeats of earlier findings won't be set aside\n"},
+		{"findings, check", two, nil, true, true,
+			"bark: earlier reviews of this pull request raised 2 finding(s)\n"},
+		{"findings, no check", two, nil, false, true, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var stderr strings.Builder
+			historyNote(&stderr, tt.h, tt.err, tt.checking, tt.incremental)
+			assert.Equal(t, tt.want, stderr.String())
+		})
+	}
 }

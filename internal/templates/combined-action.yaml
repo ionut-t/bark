@@ -40,5 +40,12 @@ jobs:
           reviewer: ${{ vars.BARK_REVIEWER }}
           max-diff-tokens: ${{ vars.BARK_MAX_DIFF_TOKENS }}
           with-context: ${{ vars.BARK_WITH_CONTEXT }}
+          # Posts a pull request review with inline comments. A pull request
+          # Bark reviewed before is then reviewed only from the commit the
+          # last review was made at. Set BARK_INLINE_COMMENTS to false to post
+          # one comment with the whole review instead.
+          inline-comments: ${{ vars.BARK_INLINE_COMMENTS || 'true' }}
+          # Review the whole pull request on every run, not only the new commits.
+          # full-review: true
           with-description: ${{ needs.pr-description.result == 'success' }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

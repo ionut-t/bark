@@ -42,6 +42,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().Bool("check", true, "Check structured findings with a second model call that reads the code around them, and set aside the ones that don't hold up (overrides config)")
 	cmd.Flags().String("min-severity", "", "Show only structured findings of this severity or higher: "+strings.Join(config.Severities(), ", ")+" (overrides config)")
 	cmd.Flags().Bool("comment", false, "Post the review to the pull request, with findings as inline comments and fixes as suggestions (requires --pr; implies --structured)")
+	cmd.Flags().Bool("full", false, "Review the whole pull request, not only the changes since Bark's last posted review of it (requires --pr; matters with --comment)")
 	addPlainFlag(cmd)
 
 	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged", "hash", "pr")
@@ -69,6 +70,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	model, _ := cmd.Flags().GetString("model")
 	provider, _ := cmd.Flags().GetString("provider")
 	comment, _ := cmd.Flags().GetBool("comment")
+	full, _ := cmd.Flags().GetBool("full")
 
 	if withDescription && pr == "" {
 		return fmt.Errorf("--with-description requires --pr")
@@ -76,6 +78,10 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 
 	if comment && pr == "" {
 		return fmt.Errorf("--comment requires --pr")
+	}
+
+	if full && pr == "" {
+		return fmt.Errorf("--full requires --pr")
 	}
 
 	stdinDiff, err := readStdinIfPiped()
@@ -139,6 +145,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 			PR:                pr,
 			WithPRDescription: withDescription,
 			Comment:           comment,
+			Full:              full,
 		})
 	}
 

@@ -2,8 +2,10 @@ name: Bark
 
 # Reviews run when a PR is opened (except from chore/, docs/ and build/
 # branches) and when the "bark: review" label is added
-# (the review job removes it again). "bark: describe" regenerates the PR
-# description. Pushes to an open PR don't trigger anything.
+# (the review job removes it again). With inline comments, "bark: review"
+# reviews only the commits since Bark's last review; "bark: full review"
+# reviews the whole PR. "bark: describe" regenerates the PR description.
+# Pushes to an open PR don't trigger anything.
 on:
   pull_request:
     types: [opened, labeled]
@@ -79,7 +81,8 @@ jobs:
           && !startsWith(github.head_ref, 'chore/')
           && !startsWith(github.head_ref, 'docs/')
           && !startsWith(github.head_ref, 'build/'))
-        || (github.event.action == 'labeled' && github.event.label.name == 'bark: review')
+        || (github.event.action == 'labeled'
+          && (github.event.label.name == 'bark: review' || github.event.label.name == 'bark: full review'))
       )
     runs-on: ubuntu-latest
     permissions:
@@ -89,6 +92,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          # The whole history: a review of only the changes since the last
+          # one diffs the commits locally.
           fetch-depth: 0
 
       - name: Set up Go
@@ -111,6 +116,7 @@ jobs:
           BARK_WITH_CONTEXT: ${{ vars.BARK_WITH_CONTEXT }}
           BARK_INLINE_COMMENTS: ${{ vars.BARK_INLINE_COMMENTS }}
           WITH_DESCRIPTION: ${{ needs.pr-description.result == 'success' }}
+          FULL_REVIEW: "${{ github.event.label.name == 'bark: full review' }}"
         run: |
           PROVIDER=$(echo "$BARK_PROVIDER" | tr '[:upper:]' '[:lower:]')
           case "$PROVIDER" in
@@ -131,6 +137,7 @@ jobs:
           [ "$WITH_DESCRIPTION" = "true" ] && ARGS+=(--with-description)
           # Posts a review with inline comments itself; the next step is skipped.
           [ "$BARK_INLINE_COMMENTS" = "true" ] && ARGS+=(--comment)
+          [ "$FULL_REVIEW" = "true" ] && ARGS+=(--full)
           /tmp/bark "${ARGS[@]}" > /tmp/bark-review.txt
 
       - name: Post or update PR comment
@@ -176,5 +183,6 @@ jobs:
         if: always() && github.event.action == 'labeled'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LABEL: ${{ github.event.label.name }}
         run: |
-          gh pr edit "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --remove-label "bark: review" || true
+          gh pr edit "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --remove-label "$LABEL" || true

@@ -39,8 +39,13 @@ type ReviewOptions struct {
 	Stream            bool
 	WithPRDescription bool
 	// Comment posts the review to PR, with inline comments on the lines its
-	// findings are about. It needs PR and a structured review.
+	// findings are about. It needs PR and a structured review. A pull
+	// request Bark reviewed before is reviewed only from the commit the
+	// last review was made at, unless Full is set.
 	Comment bool
+	// Full reviews the whole pull request even when Bark reviewed part of
+	// it before.
+	Full bool
 
 	// Diff source flags (used when Diff is empty)
 	Staged bool
@@ -73,6 +78,19 @@ func RunReview(opts ReviewOptions) error {
 		return fmt.Errorf("posting the review needs a pull request diff (--pr), not a diff from stdin")
 	}
 
+	structured := opts.Config.GetStructuredFindings() || opts.Comment
+	checking := structured && opts.Config.GetCheckFindings()
+
+	// What Bark's earlier reviews of the pull request recorded: the
+	// findings the check sets repeats of aside, and the commit to review
+	// from when posting.
+	incremental := opts.Comment && opts.Diff == nil && !opts.Full
+	var hist prreview.History
+	histOK := false
+	if opts.PR != "" && (incremental || checking) {
+		hist, histOK = readHistory(opts.PR, checking, incremental)
+	}
+
 	var reviewDiff git.ReviewDiff
 
 	if opts.Diff == nil {
@@ -86,6 +104,9 @@ func RunReview(opts ReviewOptions) error {
 			diffParams = git.PRDiff(opts.PR).WithLimit(limit)
 			if opts.WithPRDescription {
 				diffParams = diffParams.WithPRDescription()
+			}
+			if incremental && hist.Head != "" {
+				diffParams = diffParams.Since(hist.Head, hist.Base)
 			}
 		case opts.Branch != "":
 			diffParams = git.BranchDiff(opts.Branch).WithLimit(limit)
@@ -101,6 +122,15 @@ func RunReview(opts ReviewOptions) error {
 			return err
 		}
 		warnReviewDiff(os.Stderr, reviewDiff)
+		if opts.Comment && (histOK || opts.Full) {
+			noteReviewScope(os.Stderr, opts.Full, hist.Head, reviewDiff)
+		}
+		if reviewDiff.Since != "" && reviewDiff.Diff == "" {
+			// On stdout too, so CI can tell it from a review that failed
+			// to produce anything.
+			fmt.Println(nothingToReview(reviewDiff))
+			return nil
+		}
 	} else {
 		reviewDiff.Diff = *opts.Diff
 	}
@@ -122,7 +152,6 @@ func RunReview(opts ReviewOptions) error {
 			return err
 		}
 	}
-	structured := opts.Config.GetStructuredFindings() || opts.Comment
 	minSeverity := findings.Severity(opts.Config.GetMinSeverity())
 	system := prompt.FormatReviewSystem(reviewer.Prompt, reviewInstructions)
 	if structured {
@@ -199,16 +228,14 @@ func RunReview(opts ReviewOptions) error {
 	}
 
 	var checkFn func([]findings.Event) ([]findings.Event, int)
-	if structured && opts.Config.GetCheckFindings() {
+	if checking {
 		r := check.Review{Client: client, ReviewDiff: reviewDiff, Diff: diff, LogDir: opts.Paths.State, Provider: provider, Model: model, Pricing: meter.Pricing()}
 		if !opts.Stream {
 			// Nothing is shown before the check, so the intro and verdict
 			// can still be rewritten to match it.
 			r.Persona = reviewer.Prompt
 		}
-		if opts.PR != "" {
-			r.Prior = earlierFindings(opts.PR)
-		}
+		r.Prior = hist.Findings
 		checkFn = func(events []findings.Event) ([]findings.Event, int) {
 			return checkFindings(r, events, meter)
 		}
@@ -220,7 +247,8 @@ func RunReview(opts ReviewOptions) error {
 
 	postCtx, postCancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer postCancel()
-	result, err := prreview.Post(postCtx, opts.PR, withPartialNote(events, reviewDiff.Cut), reviewDiff.Diff)
+	result, err := prreview.Post(postCtx, opts.PR, withPartialNote(events, reviewDiff.Cut), reviewDiff.CommentDiff(),
+		postScope(reviewDiff, truncated))
 	if err != nil {
 		return err
 	}
@@ -473,21 +501,82 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter)
 	return revised, res.Checked
 }
 
-// earlierFindings returns what Bark's earlier reviews of pull request pr
-// raised, for the check to drop repeats of. If they can't be read, the
-// review goes on without them.
-func earlierFindings(pr string) []findings.Finding {
+// readHistory returns what Bark's earlier reviews of pull request pr
+// recorded: the findings they raised, for the check to drop repeats of
+// (when checking), and where the last one says the next review can start
+// (when incremental). If they can't be read, the review goes on without
+// them, and ok is false.
+func readHistory(pr string, checking, incremental bool) (h prreview.History, ok bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
-	prior, err := prreview.Earlier(ctx, pr)
+	h, err := prreview.ReadHistory(ctx, pr)
+	historyNote(os.Stderr, h, err, checking, incremental)
+	return h, err == nil
+}
+
+// historyNote says on w what reading the earlier reviews of a pull request
+// means for this review, mentioning only what it uses them for.
+func historyNote(w io.Writer, h prreview.History, err error, checking, incremental bool) {
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "bark: %v; repeats of earlier findings won't be set aside\n", err)
-		return nil
+		var without []string
+		if checking {
+			without = append(without, "repeats of earlier findings won't be set aside")
+		}
+		if incremental {
+			without = append(without, "the whole pull request is reviewed")
+		}
+		if len(without) == 0 {
+			_, _ = fmt.Fprintf(w, "bark: %v\n", err)
+			return
+		}
+		_, _ = fmt.Fprintf(w, "bark: %v; %s\n", err, strings.Join(without, ", and "))
+		return
 	}
-	if len(prior) > 0 {
-		fmt.Fprintf(os.Stderr, "bark: earlier reviews of this pull request raised %d finding(s)\n", len(prior))
+	if checking && len(h.Findings) > 0 {
+		_, _ = fmt.Fprintf(w, "bark: earlier reviews of this pull request raised %d finding(s)\n", len(h.Findings))
 	}
-	return prior
+}
+
+// postScope is what a posted review of r covered. truncated says the
+// model's output ended early.
+func postScope(r git.ReviewDiff, truncated bool) prreview.Scope {
+	return prreview.Scope{
+		Head:    r.PRHead(),
+		Base:    r.PRMergeBase(),
+		Since:   r.Since,
+		Partial: r.Cut != nil || truncated,
+	}
+}
+
+// nothingToReview is the output of a review with nothing to review: no
+// changes since the last review of r's pull request, or only to files
+// Bark ignores.
+func nothingToReview(r git.ReviewDiff) string {
+	short := r.Since[:min(7, len(r.Since))]
+	if len(r.Commits) > 0 {
+		return fmt.Sprintf("Nothing to review: the changes since the last review at `%s` touch only files Bark ignores.", short)
+	}
+	return fmt.Sprintf("Nothing to review: nothing changed since the last review at `%s`.", short)
+}
+
+// noteReviewScope says on w whether the review of a pull request covers it
+// all or only what changed since the last review at recorded, and why.
+func noteReviewScope(w io.Writer, full bool, recorded string, r git.ReviewDiff) {
+	short := func(sha string) string { return sha[:min(7, len(sha))] }
+	switch {
+	case r.Since != "" && r.Diff == "" && len(r.Commits) > 0:
+		_, _ = fmt.Fprintf(w, "bark: the %d commit(s) since the last review at %s change only files Bark ignores, so there's nothing to review (--full reviews the whole pull request)\n", len(r.Commits), short(r.Since))
+	case r.Since != "" && r.Diff == "":
+		_, _ = fmt.Fprintf(w, "bark: nothing changed since the last review at %s, so there's nothing to review (--full reviews the whole pull request)\n", short(r.Since))
+	case r.Since != "":
+		_, _ = fmt.Fprintf(w, "bark: reviewing only the changes since the last review at %s (%d commit(s))\n", short(r.Since), len(r.Commits))
+	case full:
+		_, _ = fmt.Fprintln(w, "bark: full review (--full)")
+	case recorded == "":
+		_, _ = fmt.Fprintln(w, "bark: full review: no earlier Bark review of this pull request recorded the commit it reviewed")
+	case r.FullReason != "":
+		_, _ = fmt.Fprintf(w, "bark: full review: %s\n", r.FullReason)
+	}
 }
 
 // resolveReviewer loads a reviewer from a file path, by name, or from .bark/reviewer.md.
