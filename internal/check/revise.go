@@ -21,30 +21,35 @@ func ReviseSystem(persona string) string {
 }
 
 // NeedsRevision reports whether events, after the check, have an intro or
-// verdict that may rest on findings the check set aside (doubted, or raised
-// before on the pull request).
+// verdict that may rest on findings the check doubted. Repeats of points
+// raised before on the pull request don't need one: they're still in the
+// code, so a verdict asking for them to be fixed still holds.
 func NeedsRevision(events []findings.Event) bool {
 	doubted, persona := false, false
 	for _, e := range events {
-		doubted = doubted || (e.Finding != nil && e.Finding.SetAside())
+		doubted = doubted || (e.Finding != nil && e.Finding.Doubt != "")
 		persona = persona || e.Intro != "" || e.Verdict != ""
 	}
 	return doubted && persona
 }
 
 // RevisePrompt builds the user prompt for Revise: the review's intro and
-// verdict, the findings that remain and those the check set aside.
+// verdict, the findings that remain, those still open from earlier reviews
+// of the pull request (repeats, not posted again) and those the check
+// doubted.
 func RevisePrompt(events []findings.Event) string {
 	var b strings.Builder
-	var kept, doubted strings.Builder
+	var kept, open, doubted strings.Builder
 	for _, e := range events {
 		switch {
 		case e.Intro != "":
 			fmt.Fprintf(&b, "## Original intro\n\n%s\n\n", e.Intro)
 		case e.Verdict != "":
 			fmt.Fprintf(&b, "## Original verdict\n\n%s\n\n", e.Verdict)
-		case e.Finding != nil && e.Finding.SetAside():
+		case e.Finding != nil && e.Finding.Doubt != "":
 			fmt.Fprintf(&doubted, "- %s\n", summary(*e.Finding))
+		case e.Finding != nil && e.Finding.RaisedBefore != "":
+			fmt.Fprintf(&open, "- %s\n", summary(*e.Finding))
 		case e.Finding != nil:
 			fmt.Fprintf(&kept, "- %s: %s\n", summary(*e.Finding), oneLine(e.Finding.Body))
 		}
@@ -54,6 +59,10 @@ func RevisePrompt(events []findings.Event) string {
 		b.WriteString("None.\n")
 	}
 	b.WriteString(kept.String())
+	if open.Len() > 0 {
+		b.WriteString("\n## Still open from earlier reviews\n\n")
+		b.WriteString(open.String())
+	}
 	b.WriteString("\n## Findings set aside\n\n")
 	b.WriteString(doubted.String())
 	return b.String()

@@ -37,15 +37,16 @@ func DropBelow(events []Event, min Severity) ([]Event, int) {
 }
 
 // Blocking returns the findings in events at or above threshold that Bark's
-// check didn't set aside (doubted, or raised before). An empty threshold
-// blocks nothing.
+// check didn't doubt. A repeat of a point raised before on the pull request
+// counts: it isn't posted again, but the model found it again in the code,
+// so it's still there. An empty threshold blocks nothing.
 func Blocking(events []Event, threshold Severity) []Finding {
 	if threshold == "" {
 		return nil
 	}
 	var out []Finding
 	for _, e := range events {
-		if e.Finding != nil && !e.Finding.SetAside() && e.Finding.Severity.AtLeast(threshold) {
+		if e.Finding != nil && e.Finding.Doubt == "" && e.Finding.Severity.AtLeast(threshold) {
 			out = append(out, *e.Finding)
 		}
 	}

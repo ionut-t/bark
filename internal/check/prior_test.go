@@ -151,11 +151,13 @@ func TestSystemAsksForRaisedBeforePrefix(t *testing.T) {
 	assert.True(t, strings.Contains(System(), "the points earlier reviews of this pull request raised"))
 }
 
+// A repeat is still in the code: a verdict asking to fix it still holds, so
+// it needs no rewrite, and a rewrite lists it as still open, not set aside.
 func TestNeedsRevisionWithRaisedBefore(t *testing.T) {
 	t.Parallel()
 
 	repeat := findings.Event{Finding: &findings.Finding{File: "b.go", Severity: findings.Low, Title: "Again", RaisedBefore: "Earlier"}}
 
-	assert.True(t, NeedsRevision([]findings.Event{repeat, {Verdict: "Fix it again."}}))
-	assert.Contains(t, RevisePrompt([]findings.Event{repeat, {Verdict: "v"}}), "## Findings set aside\n\n- [LOW] Again (b.go)\n")
+	assert.False(t, NeedsRevision([]findings.Event{repeat, {Verdict: "Fix it again."}}))
+	assert.Contains(t, RevisePrompt([]findings.Event{repeat, {Verdict: "v"}}), "## Still open from earlier reviews\n\n- [LOW] Again (b.go)\n")
 }

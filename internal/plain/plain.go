@@ -296,9 +296,9 @@ func concludeReview(w io.Writer, events []findings.Event, failOn findings.Severi
 }
 
 // gate returns a *FailOnError if events hold findings at or above failOn
-// that Bark's check didn't set aside, and lists them on w. Doubted findings
-// and repeats of points raised before don't count; when the check didn't
-// run or failed, every finding counts.
+// that Bark's check didn't doubt, and lists them on w. Repeats of points
+// raised before count, since they're still in the code; when the check
+// didn't run or failed, every finding counts.
 func gate(w io.Writer, events []findings.Event, failOn findings.Severity) error {
 	blocking := findings.Blocking(events, failOn)
 	if len(blocking) == 0 {
@@ -314,7 +314,11 @@ func gate(w io.Writer, events []findings.Event, failOn findings.Severity) error 
 		if where != "" {
 			where += " "
 		}
-		_, _ = fmt.Fprintf(w, "bark:   [%s] %s%s\n", strings.ToLower(strings.TrimSpace(string(f.Severity))), where, f.Title)
+		note := ""
+		if f.RaisedBefore != "" {
+			note = " (raised before, still there)"
+		}
+		_, _ = fmt.Fprintf(w, "bark:   [%s] %s%s%s\n", strings.ToLower(strings.TrimSpace(string(f.Severity))), where, f.Title, note)
 	}
 	return err
 }
@@ -552,12 +556,7 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter)
 		fmt.Fprintf(os.Stderr, "bark: %v; the findings are unchecked\n", err)
 		return events, 0
 	}
-	kept := res.Checked - res.Doubted - res.RaisedBefore
-	if res.RaisedBefore > 0 {
-		fmt.Fprintf(os.Stderr, "bark: the check kept %d of %d finding(s); %d raised before on this pull request\n", kept, res.Checked, res.RaisedBefore)
-	} else {
-		fmt.Fprintf(os.Stderr, "bark: the check kept %d of %d finding(s)\n", kept, res.Checked)
-	}
+	fmt.Fprint(os.Stderr, checkSummary(res))
 
 	// The intro and verdict were written before the check; rewrite them so
 	// they don't demand fixes for doubted findings.
@@ -570,6 +569,17 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter)
 		fmt.Fprintln(os.Stderr, "bark: rewrote the intro and verdict to match the checked findings")
 	}
 	return revised, res.Checked
+}
+
+// checkSummary is the stderr line saying what the check kept. Kept means
+// not doubted, as for fail_on: repeats of points raised before are still
+// in the code, only not posted again.
+func checkSummary(res check.Result) string {
+	s := fmt.Sprintf("bark: the check kept %d of %d finding(s)", res.Checked-res.Doubted, res.Checked)
+	if res.RaisedBefore > 0 {
+		s += fmt.Sprintf("; %d raised before on this pull request, not posted again", res.RaisedBefore)
+	}
+	return s + "\n"
 }
 
 // readHistory returns what Bark's earlier reviews of pull request pr

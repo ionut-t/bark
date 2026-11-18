@@ -71,14 +71,14 @@ inputs:
     description: |
       Fail the job when the review keeps a finding of this severity or
       higher: critical, high, medium or low. Leave empty to never fail.
-      Turns on structured findings. Findings Bark's check doubts, and
-      repeats of points raised in an earlier review of the pull request,
-      don't count. The review is posted first, so it's on the pull request
-      when the job fails.
+      Turns on structured findings. Findings Bark's check doubts don't
+      count; repeats of points raised in an earlier review of the pull
+      request do, since they're still in the code. The review is posted
+      first, so it's on the pull request when the job fails.
 
       With inline-comments, only the commits since Bark's last review are
-      reviewed, so the job fails only on the run that found the issue: the
-      next push passes unless it adds new findings.
+      reviewed, so a push that doesn't touch an unfixed issue's code can
+      pass. Set full-review to review the whole pull request every time.
     required: false
     default: ""
   github-token:

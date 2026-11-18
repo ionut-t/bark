@@ -86,7 +86,9 @@ func TestRendererLeavesOutFindingsBelowMin(t *testing.T) {
 	}
 }
 
-// Blocking counts only findings the check kept, at or above the threshold.
+// Blocking counts findings at or above the threshold that the check didn't
+// doubt. A repeat of a point raised before counts: the model found it again
+// in the code, so it's still there.
 func TestBlocking(t *testing.T) {
 	t.Parallel()
 
@@ -108,8 +110,8 @@ func TestBlocking(t *testing.T) {
 		return out
 	}
 
-	assert.Equal(t, []string{"Kept critical", "Kept high"}, titles(Blocking(events, High)))
-	assert.Equal(t, []string{"Kept critical"}, titles(Blocking(events, Critical)))
-	assert.Equal(t, []string{"Kept critical", "Kept high", "Kept medium"}, titles(Blocking(events, Low)))
+	assert.Equal(t, []string{"Kept critical", "Kept high", "Repeat"}, titles(Blocking(events, High)))
+	assert.Equal(t, []string{"Kept critical", "Repeat"}, titles(Blocking(events, Critical)))
+	assert.Equal(t, []string{"Kept critical", "Kept high", "Repeat", "Kept medium"}, titles(Blocking(events, Low)))
 	assert.Empty(t, Blocking(events, ""), "no threshold blocks nothing")
 }

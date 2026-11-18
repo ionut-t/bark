@@ -342,8 +342,9 @@ func TestHistoryNote(t *testing.T) {
 	}
 }
 
-// The gate fails on findings at or above fail_on that the check kept, and
-// says on stderr which ones.
+// The gate fails on findings at or above fail_on that the check didn't
+// doubt, repeats of points raised before included, and says on stderr which
+// ones.
 func TestGate(t *testing.T) {
 	t.Parallel()
 
@@ -363,12 +364,13 @@ func TestGate(t *testing.T) {
 		err := gate(&w, events, findings.High)
 		var failErr *FailOnError
 		require.ErrorAs(t, err, &failErr)
-		assert.Len(t, failErr.Findings, 3)
+		assert.Len(t, failErr.Findings, 4)
 		assert.Equal(t, findings.High, failErr.Threshold)
-		assert.Equal(t, "3 finding(s) at or above high severity (fail_on high)", err.Error())
-		assert.Equal(t, "bark: failing: 3 finding(s) at or above high severity (fail_on high):\n"+
+		assert.Equal(t, "4 finding(s) at or above high severity (fail_on high)", err.Error())
+		assert.Equal(t, "bark: failing: 4 finding(s) at or above high severity (fail_on high):\n"+
 			"bark:   [critical] internal/x.go:42 Nil map write\n"+
 			"bark:   [high] cmd/y.go:10 Missing timeout\n"+
+			"bark:   [critical] cmd/r.go:4 Repeat (raised before, still there)\n"+
 			"bark:   [high] No file\n", w.String())
 	})
 
@@ -376,7 +378,7 @@ func TestGate(t *testing.T) {
 		t.Parallel()
 
 		var w strings.Builder
-		require.NoError(t, gate(&w, events[2:4], findings.Low), "doubted and repeated findings don't count")
+		require.NoError(t, gate(&w, events[2:3], findings.Low), "doubted findings don't count")
 		assert.Empty(t, w.String())
 		require.NoError(t, gate(&w, events, ""), "no threshold")
 		assert.Empty(t, w.String())
@@ -445,5 +447,23 @@ func TestWarnFailOnBelowMin(t *testing.T) {
 		var w strings.Builder
 		warnFailOnBelowMin(&w, tt.failOn, tt.min)
 		assert.Equal(t, tt.want, w.String(), "fail_on %q, min_severity %q", tt.failOn, tt.min)
+	}
+}
+
+// "Kept" means not doubted, as for --fail-on: repeats of points raised
+// before are kept, just not posted again.
+func TestCheckSummary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		res  check.Result
+		want string
+	}{
+		{check.Result{Checked: 3, Doubted: 1}, "bark: the check kept 2 of 3 finding(s)\n"},
+		{check.Result{Checked: 2, RaisedBefore: 2}, "bark: the check kept 2 of 2 finding(s); 2 raised before on this pull request, not posted again\n"},
+		{check.Result{Checked: 4, Doubted: 1, RaisedBefore: 2}, "bark: the check kept 3 of 4 finding(s); 2 raised before on this pull request, not posted again\n"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, checkSummary(tt.res))
 	}
 }
