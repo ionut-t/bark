@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -102,6 +103,13 @@ type Model struct {
 
 	showHelp bool
 	message  string
+
+	// preparing is set while the diff and instructions load for a review,
+	// commit message or PR description, before the LLM call starts. The
+	// loader shows over the current view meanwhile, then moves to the
+	// screen it was loading.
+	preparing bool
+	loader    loader
 
 	reviewCancelFunc    context.CancelFunc
 	operationCancelFunc context.CancelFunc
@@ -266,6 +274,7 @@ func (m *Model) setDarkMode(isDarkMode bool) {
 		m.commits.setStyles(m.styles, isDarkMode)
 	}
 
+	m.loader.SetStyles(m.styles)
 	if m.review.llm != nil {
 		m.review.setStyles(m.styles, isDarkMode)
 	}
@@ -304,6 +313,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case spinner.TickMsg, loaderMessageMsg:
+		// Other loaders' messages go on to the screens below.
+		if m.preparing && m.loader.Owns(msg) {
+			var cmd tea.Cmd
+			m.loader, cmd = m.loader.Update(msg)
+			return m, cmd
+		}
+
 	case tea.BackgroundColorMsg:
 		m.setDarkMode(msg.IsDark())
 		return m, nil
@@ -455,6 +472,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case commitStatusMsg:
 		m.commitChanges.loading = false
+		m.commitChanges.loader.Stop()
 
 		if msg.error != nil {
 			m.commitErr = msg.error
@@ -463,18 +481,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-	case prInitReadyMsg:
-		return m.handlePRDescription()
-
 	case prDescriptionOptionSelectedMsg:
 		if msg.useGitHubPR {
 			m.currentView = viewPRNumberInput
 		} else {
-			m.pr = newPRModel(m.llm, m.width, m.height)
-			m.pr.setStyles(m.styles, m.isDarkMode)
-			m.pr.displayUsedModel(m.getLlmModelName())
-			m.currentView = viewPRDescription
-			return m, tea.Batch(m.pr.Init(), utils.DispatchMsg(prInitReadyMsg{}))
+			return m.handlePRDescription()
 		}
 
 	case cancelPRDescriptionOptionsMsg:
@@ -494,11 +505,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prNumberSelectedMsg:
 		m.prNumber = msg.prNumber
 		if m.selectedTask == TaskPRDescription {
-			m.pr = newPRModel(m.llm, m.width, m.height)
-			m.pr.setStyles(m.styles, m.isDarkMode)
-			m.pr.displayUsedModel(m.getLlmModelName())
-			m.currentView = viewPRDescription
-			return m, tea.Batch(m.pr.Init(), utils.DispatchMsg(prInitReadyMsg{}))
+			return m.handlePRDescription()
 		}
 		return m, utils.DispatchMsg(listReviewersMsg{})
 
@@ -536,6 +543,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectedInstruction = ""
 
 	case tea.KeyMsg:
+		if m.preparing && msg.String() != "ctrl+c" {
+			return m, nil
+		}
+
 		if m.showStats {
 			switch msg.String() {
 			case "esc", "ctrl+t":
@@ -760,6 +771,12 @@ func (m Model) createView() string {
 		return m.message
 	}
 
+	if m.preparing {
+		return lipgloss.NewStyle().Padding(2).Render(
+			m.loader.View(),
+		)
+	}
+
 	switch m.currentView {
 	case viewTasks:
 		return m.tasks.View()
@@ -818,11 +835,7 @@ func (m *Model) handleSelectedTask(task Task) (tea.Model, tea.Cmd) {
 
 	case TaskPRDescription:
 		if m.prNumber != "" || m.branch != "" {
-			m.pr = newPRModel(m.llm, m.width, m.height)
-			m.pr.setStyles(m.styles, m.isDarkMode)
-			m.pr.displayUsedModel(m.getLlmModelName())
-			m.currentView = viewPRDescription
-			return m, tea.Batch(m.pr.Init(), utils.DispatchMsg(prInitReadyMsg{}))
+			return m.handlePRDescription()
 		}
 		m.currentView = viewPRDescriptionOptions
 	}
@@ -870,7 +883,7 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 		commitHash = m.selectedCommit.Hash
 	}
 
-	return m, loadReviewDiffCmd(
+	return m, tea.Batch(m.startPreparing(loadingMessages[:]), loadReviewDiffCmd(
 		reviewDiffCmdParams{
 			prNumber:          m.prNumber,
 			branch:            m.branch,
@@ -882,10 +895,12 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 			withPRDescription: m.withPRDescription,
 			contextEnrichment: m.config.GetContextEnrichment(),
 		},
-	)
+	))
 }
 
 func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.Cmd) {
+	prepared := m.stopPreparing()
+
 	if msg.branchErr != nil {
 		m.branchErr = msg.branchErr
 		m.message = fmt.Sprintf(
@@ -927,6 +942,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 
 	m.review = newReviewModel(*m.selectedReviewer, system, reviewPrompt, m.width, m.height, m.llm)
 	m.review.setStyles(m.styles, m.isDarkMode)
+	m.review.loader.TakeOver(prepared)
 	m.review.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.review.setUsedModel(m.getLlmModelName())
 	m.review.setStructured(structured)
@@ -951,10 +967,29 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 }
 
 func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {
-	return m, loadCommitDataCmd(m.config.GetCommitInstructions(), commitAll)
+	return m, tea.Batch(m.startPreparing(generationPhaseLoadingMessages[:]), loadCommitDataCmd(m.config.GetCommitInstructions(), commitAll))
+}
+
+// startPreparing shows the loader, with the next screen's loading
+// messages, until that screen's data is loaded.
+func (m *Model) startPreparing(messages []string) tea.Cmd {
+	m.preparing = true
+	m.loader.SetStyles(m.styles)
+	return m.loader.Start(messages)
+}
+
+// stopPreparing ends the loading screen and returns its loader for the
+// screen that was loading to take over.
+func (m *Model) stopPreparing() loader {
+	m.preparing = false
+	l := m.loader
+	m.loader = loader{}
+	return l
 }
 
 func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.Cmd) {
+	prepared := m.stopPreparing()
+
 	if msg.err != nil {
 		m.error = msg.err
 		return m, nil
@@ -989,6 +1024,7 @@ func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.
 	commitContent := prompt.FormatCommitContent(msg.branch, msg.diff)
 	m.commitChanges = newCommitChangesModel(m.llm, commitSystem, commitContent, msg.commitAll, m.width, m.height)
 	m.commitChanges.setStyles(m.styles, m.isDarkMode)
+	m.commitChanges.loader.TakeOver(prepared)
 	m.commitChanges.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.commitChanges.displayUsedModel(m.getLlmModelName())
 	m.currentView = viewCommitChanges
@@ -1003,7 +1039,7 @@ func (m *Model) handleCommitMessageRetry() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handlePRDescription() (tea.Model, tea.Cmd) {
-	return m, loadPRDataCmd(m.prDataParams())
+	return m, tea.Batch(m.startPreparing(prLoadingMessages[:]), loadPRDataCmd(m.prDataParams()))
 }
 
 func (m *Model) prDataParams() prDataCmdParams {
@@ -1017,11 +1053,17 @@ func (m *Model) prDataParams() prDataCmdParams {
 }
 
 func (m *Model) handlePRDataLoaded(msg prDataLoadedMsg) (tea.Model, tea.Cmd) {
+	prepared := m.stopPreparing()
+
 	if msg.err != nil {
 		m.error = msg.err
 		return m, nil
 	}
 
+	m.pr = newPRModel(m.llm, m.width, m.height)
+	m.pr.setStyles(m.styles, m.isDarkMode)
+	m.pr.loader.TakeOver(prepared)
+	m.pr.displayUsedModel(m.getLlmModelName())
 	m.pr.setContent(
 		prompt.FormatPRSystem(msg.instructions),
 		msg.content,
@@ -1033,6 +1075,7 @@ func (m *Model) handlePRDataLoaded(msg prDataLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.operationCancelFunc = cancel
 
+	m.currentView = viewPRDescription
 	return m, m.pr.startPRDescriptionGeneration(ctx)
 }
 
