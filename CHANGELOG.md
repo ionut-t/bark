@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.31.0](https://github.com/ionut-t/bark/compare/v2.30.0...v2.31.0) (2026-11-18)
+
+
+### Features
+
+* **config:** support XDG base directories and migration ([#133](https://github.com/ionut-t/bark/issues/133)) ([09d6e54](https://github.com/ionut-t/bark/commit/09d6e54ac196492b618f5cb9a359e69946e43a2c))
+* **git:** add token-based diff limiting and deprecate line limits ([#131](https://github.com/ionut-t/bark/issues/131)) ([35cabfa](https://github.com/ionut-t/bark/commit/35cabfa1befd271272a104bc9fb11c43e5945f24))
+
+
+### Bug Fixes
+
+* **actions:** pass inputs via environment variables ([#134](https://github.com/ionut-t/bark/issues/134)) ([601b421](https://github.com/ionut-t/bark/commit/601b421bf3d2bacf464c93808abdcdae8bbd8656))
+* **ci:** paginate review comment lookup to prevent duplicates ([#135](https://github.com/ionut-t/bark/issues/135)) ([357b7f9](https://github.com/ionut-t/bark/commit/357b7f959a0b332f86bf4f355bfcdad1f6a65168))
+* **git:** enhance pull request context and diff fallback handling ([#138](https://github.com/ionut-t/bark/issues/138)) ([44ae089](https://github.com/ionut-t/bark/commit/44ae089a67aa5c214e5141ccc910ea132a159b47))
+* **git:** report truncated diffs in code reviews ([#137](https://github.com/ionut-t/bark/issues/137)) ([a7b563c](https://github.com/ionut-t/bark/commit/a7b563c86c356e0de456bf40b1e7f2f9b0388b45))
+* **llm:** detect and signal truncated model output ([#136](https://github.com/ionut-t/bark/issues/136)) ([2771b4d](https://github.com/ionut-t/bark/commit/2771b4d57c257c7ca55f5f19736a898d1b85bcf2))
+* **tui:** show loading spinner while preparing data ([#139](https://github.com/ionut-t/bark/issues/139)) ([023e93d](https://github.com/ionut-t/bark/commit/023e93d0abff7c62806e3b985839908b2ce336a6))
+
 ## [2.30.0](https://github.com/ionut-t/bark/compare/v2.29.1...v2.30.0) (2026-11-15)
 
 
