@@ -81,6 +81,11 @@ func TestCommandErrors_ExitNonZeroAndPrintToStderr(t *testing.T) {
 			wantErr: "--with-description requires --pr",
 		},
 		{
+			name:    "review: --full without --pr",
+			args:    []string{"review", "--plain", "--full"},
+			wantErr: "--full requires --pr",
+		},
+		{
 			name:    "commit: invalid provider",
 			args:    []string{"commit", "--plain", "--provider", "bogus"},
 			wantErr: "error overriding provider",

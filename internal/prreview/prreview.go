@@ -50,6 +50,40 @@ type Comment struct {
 // the comment moves to the match nearest the line the model gave. Without a
 // match, the suggestion is shown as plain code.
 func Build(events []findings.Event, diff string) Review {
+	return build(events, diff, Scope{})
+}
+
+// Scope says what a review covered.
+type Scope struct {
+	// Head is the pull request's head commit the review was made at.
+	Head string
+	// Base is the pull request's merge base then, if known.
+	Base string
+	// Since is the commit the review started from when it covered only
+	// what changed since an earlier review, and "" when it covered the
+	// whole pull request.
+	Since string
+	// Partial is true when the review didn't see all of its diff: the diff
+	// was cut to fit its limit, or the model's output ended early.
+	Partial bool
+}
+
+// recordedHead is the commit the next review can start from: Head, or,
+// after a partial review, where this one started, so the next one covers
+// what this one missed again.
+func (s Scope) recordedHead() string {
+	if s.Partial {
+		return s.Since
+	}
+	return s.Head
+}
+
+// shortHash is how many characters of a commit hash a review shows.
+const shortHash = 7
+
+// build is Build for a review of scope. The head is recorded in the
+// review's hidden block, so the next review can start from it.
+func build(events []findings.Event, diff string, scope Scope) Review {
 	lines := commentableLines(diff)
 
 	// Not nil: GitHub rejects "comments": null ("nil is not an array"), and
@@ -82,8 +116,12 @@ func Build(events []findings.Event, diff string) Review {
 	rest = beforeVerdict(rest, setAsideBlock(repeats, "Raised before on this pull request: %d finding(s)",
 		"An earlier review of this pull request already raised these, so they aren't posted again.", findings.RaisedBeforeList))
 
-	body := Marker + "\n## Bark AI Code Review\n\n" + strings.TrimSpace(findings.Markdown(rest))
-	body = strings.TrimSpace(body) + "\n" + record(events)
+	body := Marker + "\n## Bark AI Code Review\n\n"
+	if scope.Since != "" {
+		body += fmt.Sprintf("_Reviewed only the changes since the last review, at `%s`._\n\n", scope.Since[:min(shortHash, len(scope.Since))])
+	}
+	body += strings.TrimSpace(findings.Markdown(rest))
+	body = strings.TrimSpace(body) + "\n" + record(events, scope)
 	return Review{
 		Body:     body,
 		Event:    "COMMENT",

@@ -814,6 +814,8 @@ type ReviewDiffParams struct {
 	commitHash string
 	stagedOnly bool
 	withBody   bool
+	since      string
+	sinceBase  string
 }
 
 func PRDiff(prNumber string) ReviewDiffParams {
@@ -836,6 +838,19 @@ func (p ReviewDiffParams) WithLimit(limit DiffLimit) ReviewDiffParams {
 // Only has effect when used with PRDiff.
 func (p ReviewDiffParams) WithPRDescription() ReviewDiffParams {
 	p.withBody = true
+	return p
+}
+
+// Since returns a copy of the params that, for a pull request, diff only
+// from sha, the commit an earlier review was made at, to the pull
+// request's head. base is the pull request's merge base then, if known.
+// When that can't be done from the local repository (sha or the head
+// isn't there, sha is no longer in the pull request's history, the branch
+// merged other commits since, or the merge base changed), the whole pull
+// request is diffed and ReviewDiff.FullReason says why. Only has effect
+// with PRDiff.
+func (p ReviewDiffParams) Since(sha, base string) ReviewDiffParams {
+	p.since, p.sinceBase = sha, base
 	return p
 }
 
@@ -872,12 +887,49 @@ type ReviewDiff struct {
 	// from when that isn't the usual place, e.g. a pull request whose
 	// metadata couldn't be read.
 	Warnings []string
+	// Since is the commit the diff starts at when it holds only what
+	// changed in a pull request since an earlier review
+	// (ReviewDiffParams.Since), and "" when it's the whole pull request.
+	Since string
+	// FullReason says why the whole pull request was diffed although
+	// ReviewDiffParams.Since asked for less.
+	FullReason string
 
 	// source is where NewSideFile reads files from: a revision, or a pull
 	// request's head (prHead). A ReviewDiff not made by GetReviewDiff has
 	// no source.
 	source string
 	prHead string
+	// prMergeBase is where the pull request's head branched off its base,
+	// if both commits are local.
+	prMergeBase string
+	// prDiff is the whole pull request's diff when Diff holds only what
+	// changed since an earlier review.
+	prDiff string
+}
+
+// PRHead returns the pull request's head commit the diff was made at, or ""
+// if it isn't a pull request's diff or its metadata couldn't be read.
+func (r ReviewDiff) PRHead() string {
+	return r.prHead
+}
+
+// PRMergeBase returns the commit the pull request's head branched off its
+// base at, or "" if it isn't a pull request's diff or the commits aren't
+// in the local repository. It changes when the pull request is retargeted
+// or rebased, not when its base branch moves on.
+func (r ReviewDiff) PRMergeBase() string {
+	return r.prMergeBase
+}
+
+// CommentDiff returns the diff whose lines GitHub accepts review comments
+// on: the whole pull request's, which is more than Diff when Diff holds
+// only what changed since an earlier review.
+func (r ReviewDiff) CommentDiff() string {
+	if r.prDiff != "" {
+		return r.prDiff
+	}
+	return r.Diff
 }
 
 // sourceWorkingTree is the source of a working-tree diff; "" means none.
@@ -1127,6 +1179,14 @@ func (r *ReviewDiff) loadPR(ctx context.Context, params ReviewDiffParams) error 
 	var local string
 	if meta != nil && hasCommit(ctx, meta.BaseSHA) && hasCommit(ctx, meta.HeadSHA) {
 		local = meta.BaseSHA + "..." + meta.HeadSHA
+		r.prMergeBase = mergeBase(ctx, meta.BaseSHA, meta.HeadSHA)
+	}
+
+	if params.since != "" {
+		r.FullReason = r.loadSince(ctx, params.since, params.sinceBase, meta, params.limit)
+		if r.FullReason == "" {
+			return nil
+		}
 	}
 
 	diff, err := GetPRDiff(ctx, params.pr)
@@ -1154,6 +1214,81 @@ func (r *ReviewDiff) loadPR(ctx context.Context, params ReviewDiffParams) error 
 		r.Stat = formatPRFileStat(meta, loadIgnore(ctx))
 	}
 	return nil
+}
+
+// loadSince fills r with what changed in the pull request of meta since
+// commit since, and returns "", or returns why it can't and leaves r as it
+// was.
+func (r *ReviewDiff) loadSince(ctx context.Context, since, base string, meta *PRMeta, limit DiffLimit) string {
+	short := since[:min(7, len(since))]
+	if meta == nil {
+		return "could not read the pull request's head commit"
+	}
+	head := meta.HeadSHA
+	if !hasCommit(ctx, head) {
+		return fmt.Sprintf("the pull request's head commit %s isn't in the local repository (check out with fetch-depth: 0)", head[:min(7, len(head))])
+	}
+	if !hasCommit(ctx, since) {
+		return fmt.Sprintf("%s, the commit the last review was made at, isn't in the local repository: it was rebased or force-pushed away, or the checkout is shallow", short)
+	}
+	if !isAncestor(ctx, since, head) {
+		return fmt.Sprintf("%s is no longer in the pull request's history (rebase or force-push)", short)
+	}
+	// A retargeted pull request (say, a stacked one whose base was merged)
+	// changes more than its commits show.
+	if base != "" && r.prMergeBase == "" {
+		return fmt.Sprintf("could not tell whether the pull request's base changed since %s: its base commit isn't in the local repository", short)
+	}
+	if base != "" && r.prMergeBase != base {
+		return fmt.Sprintf("the pull request's base changed since %s (retargeted at another branch)", short)
+	}
+	rng := since + ".." + head
+	// A merge brings in the changes of another branch, usually the base,
+	// which aren't the pull request's.
+	merges, err := exec.CommandContext(ctx, "git", "rev-list", "--merges", "-n", "1", rng).Output()
+	if err != nil {
+		return fmt.Sprintf("could not list the commits since %s: %s", short, oneLine(err))
+	}
+	if strings.TrimSpace(string(merges)) != "" {
+		return fmt.Sprintf("the branch merged other commits since %s", short)
+	}
+	out, err := exec.CommandContext(ctx, "git", "log", "--reverse", "-z", commitFormat, rng).Output()
+	if err != nil {
+		return fmt.Sprintf("could not list the commits since %s: %s", short, oneLine(err))
+	}
+	diff, cut, err := rangeDiff(ctx, rng, limit)
+	if err != nil {
+		return fmt.Sprintf("could not diff the changes since %s: %s", short, oneLine(err))
+	}
+
+	if r.prMergeBase != "" {
+		// Not cut: it only says which lines can take comments.
+		if whole, _, err := rangeDiff(ctx, r.prMergeBase+".."+head, DiffLimit{}); err == nil {
+			r.prDiff = whole
+		}
+	}
+
+	r.Diff, r.Cut, r.Since = diff, cut, since
+	r.Commits = parseCommits(out)
+	r.Stat = rangeStat(ctx, rng)
+	r.ContextHeader += fmt.Sprintf("### Scope\n\nThis diff holds only the changes since Bark's last review of this pull request, at %s; the rest of the pull request was reviewed then.\n\n", short)
+	return ""
+}
+
+// mergeBase returns the best common ancestor of commits a and b, or "" if
+// git can't find one.
+func mergeBase(ctx context.Context, a, b string) string {
+	out, err := exec.CommandContext(ctx, "git", "merge-base", a, b).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// isAncestor reports whether commit a is an ancestor of commit b, or b
+// itself.
+func isAncestor(ctx context.Context, a, b string) bool {
+	return exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", a, b).Run() == nil
 }
 
 // oneLine is err's message on one line.

@@ -306,3 +306,161 @@ func TestFormatPRFileStatMatchesGit(t *testing.T) {
 	require.Len(t, bars(string(want)), len(files))
 	assert.Equal(t, bars(string(want)), bars(formatPRFileStat(&PRMeta{Files: files}, ignoreRules{})))
 }
+
+// newReviewedPR is newPRRepo after a review of the pull request at its
+// head (reviewed), followed by one more commit on feature (second.txt).
+func newReviewedPR(t *testing.T) (dir string, view *prView, diff, reviewed string) {
+	t.Helper()
+	dir, view, _ = newPRRepo(t)
+	reviewed = view.HeadRefOid
+	runGit(t, dir, "checkout", "feature")
+	commitFile(t, dir, "second.txt", "second\n")
+	runGit(t, dir, "checkout", "main")
+	view.HeadRefOid = revParse(t, dir, "feature")
+	cmd := exec.Command("git", "diff", "main...feature")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	return dir, view, string(out), reviewed
+}
+
+// A pull request reviewed before is reviewed from the commit the last
+// review was at.
+func TestGetReviewDiff_PRSince(t *testing.T) {
+	t.Run("only the new changes", func(t *testing.T) {
+		dir, view, diff, reviewed := newReviewedPR(t)
+		fakeGH(t, view, diff)
+
+		r, err := GetReviewDiff(t.Context(), PRDiff("7").Since(reviewed, ""))
+		require.NoError(t, err)
+		assert.Equal(t, reviewed, r.Since)
+		assert.Empty(t, r.FullReason)
+		assert.Contains(t, r.Diff, "second.txt")
+		assert.NotContains(t, r.Diff, "feature.txt", "reviewed before")
+		assert.Contains(t, r.Stat, "second.txt")
+		assert.NotContains(t, r.Stat, "feature.txt")
+		require.Len(t, r.Commits, 1, "only the new commits")
+		assert.Equal(t, "add second.txt", r.Commits[0].Message)
+		assert.Equal(t, view.HeadRefOid, r.PRHead())
+		assert.Contains(t, r.ContextHeader, "Add feature", "the pull request header stays")
+		assert.Equal(t, revParse(t, dir, "feature~2"), r.PRMergeBase(), "where feature branched off main")
+
+		// Comments can go on any line of the whole pull request's diff,
+		// which GitHub accepts; not on lines only the new changes show.
+		assert.Contains(t, r.CommentDiff(), "feature.txt")
+		assert.Contains(t, r.CommentDiff(), "second.txt")
+	})
+
+	t.Run("same base as recorded", func(t *testing.T) {
+		dir, view, diff, reviewed := newReviewedPR(t)
+		fakeGH(t, view, diff)
+		r, err := GetReviewDiff(t.Context(), PRDiff("7").Since(reviewed, revParse(t, dir, "feature~2")))
+		require.NoError(t, err)
+		assert.Equal(t, reviewed, r.Since)
+	})
+
+	t.Run("with the excludes and the limit", func(t *testing.T) {
+		dir, view, diff, reviewed := newReviewedPR(t)
+		runGit(t, dir, "checkout", "feature")
+		commitFile(t, dir, "x.snap", "snapshot\n")
+		commitFile(t, dir, "b.txt", strings.Repeat("a line of the big file\n", 100))
+		view.HeadRefOid = revParse(t, dir, "feature")
+		runGit(t, dir, "checkout", "main")
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".barkignore"), []byte("*.snap\n"), 0o644))
+		fakeGH(t, view, diff)
+
+		r, err := GetReviewDiff(t.Context(), PRDiff("7").Since(reviewed, "").WithLimit(DiffLimit{Tokens: 100}))
+		require.NoError(t, err)
+		assert.NotContains(t, r.Diff, "x.snap")
+		require.NotNil(t, r.Cut)
+		assert.Equal(t, 2, r.Cut.Files, "b.txt and second.txt")
+	})
+
+	t.Run("nothing changed", func(t *testing.T) {
+		_, view, diff, _ := newReviewedPR(t)
+		fakeGH(t, view, diff)
+
+		r, err := GetReviewDiff(t.Context(), PRDiff("7").Since(view.HeadRefOid, ""))
+		require.NoError(t, err)
+		assert.Equal(t, view.HeadRefOid, r.Since)
+		assert.Empty(t, r.Diff)
+		assert.Empty(t, r.Commits)
+	})
+
+	full := func(t *testing.T, view *prView, diff, since, base, reason string) {
+		t.Helper()
+		fakeGH(t, view, diff)
+		r, err := GetReviewDiff(t.Context(), PRDiff("7").Since(since, base))
+		require.NoError(t, err)
+		assert.Empty(t, r.Since)
+		assert.Equal(t, diff, r.Diff, "the whole pull request")
+		assert.Contains(t, r.FullReason, reason)
+		assert.Equal(t, r.Diff, r.CommentDiff(), "comments go on the diff reviewed")
+	}
+
+	t.Run("rebased", func(t *testing.T) {
+		dir, view, _, reviewed := newReviewedPR(t)
+		runGit(t, dir, "checkout", "feature")
+		runGit(t, dir, "rebase", "main")
+		view.HeadRefOid = revParse(t, dir, "feature")
+		view.BaseRefOid = revParse(t, dir, "main")
+		runGit(t, dir, "checkout", "main")
+		full(t, view, "diff --git a/x b/x\n", reviewed, "", "no longer in the pull request's history (rebase or force-push)")
+	})
+
+	t.Run("base changed", func(t *testing.T) {
+		// A stacked pull request retargeted at another branch: the commits
+		// are the same, but what it changes isn't.
+		dir, view, diff, reviewed := newReviewedPR(t)
+		recordedBase := revParse(t, dir, "feature~2")
+		view.BaseRefOid = revParse(t, dir, "feature~1")
+		full(t, view, diff, reviewed, recordedBase, "the pull request's base changed since")
+	})
+
+	t.Run("reviewed commit isn't local", func(t *testing.T) {
+		_, view, diff, _ := newReviewedPR(t)
+		full(t, view, diff, strings.Repeat("c", 40), "", "isn't in the local repository")
+	})
+
+	t.Run("head isn't local", func(t *testing.T) {
+		_, view, diff, reviewed := newReviewedPR(t)
+		view.HeadRefOid = strings.Repeat("a", 40)
+		full(t, view, diff, reviewed, "", "head commit")
+	})
+
+	t.Run("base merged in", func(t *testing.T) {
+		dir, view, _, reviewed := newReviewedPR(t)
+		runGit(t, dir, "checkout", "feature")
+		runGit(t, dir, "merge", "--no-edit", "main")
+		view.HeadRefOid = revParse(t, dir, "feature")
+		runGit(t, dir, "checkout", "main")
+		full(t, view, "diff --git a/x b/x\n", reviewed, "", "merged other commits")
+	})
+
+	t.Run("no metadata", func(t *testing.T) {
+		_, _, diff, reviewed := newReviewedPR(t)
+		fakeGH(t, nil, diff)
+		r, err := GetReviewDiff(t.Context(), PRDiff("7").Since(reviewed, ""))
+		require.NoError(t, err)
+		assert.Empty(t, r.Since)
+		assert.Equal(t, diff, r.Diff)
+		assert.Contains(t, r.FullReason, "head commit")
+	})
+}
+
+// A whole pull request's review knows its merge base, so the next review
+// can tell whether the base changed.
+func TestGetReviewDiff_PRMergeBase(t *testing.T) {
+	dir, view, diff := newPRRepo(t)
+	fakeGH(t, view, diff)
+	r, err := GetReviewDiff(t.Context(), PRDiff("7"))
+	require.NoError(t, err)
+	assert.Equal(t, revParse(t, dir, "main~1"), r.PRMergeBase())
+	assert.Equal(t, r.Diff, r.CommentDiff())
+
+	view.BaseRefOid = strings.Repeat("b", 40)
+	fakeGH(t, view, diff)
+	r, err = GetReviewDiff(t.Context(), PRDiff("7"))
+	require.NoError(t, err)
+	assert.Empty(t, r.PRMergeBase(), "the base commit isn't local")
+}
