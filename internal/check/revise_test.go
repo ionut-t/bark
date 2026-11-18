@@ -30,6 +30,32 @@ func TestNeedsRevision(t *testing.T) {
 	assert.False(t, NeedsRevision([]findings.Event{{Intro: "i"}, kept, {Verdict: "v"}}), "nothing doubted")
 	assert.False(t, NeedsRevision([]findings.Event{doubted}), "no intro or verdict to rewrite")
 	assert.True(t, NeedsRevision([]findings.Event{doubted, {Verdict: "v"}}))
+
+	// The original verdict asks for repeats to be fixed, which is still
+	// right: they're still in the code. No call needed.
+	repeat := findings.Event{Finding: &findings.Finding{Title: "r", RaisedBefore: "Nil map (`a.go:4`)"}}
+	assert.False(t, NeedsRevision([]findings.Event{{Intro: "i"}, repeat, {Verdict: "v"}}), "only repeats")
+	assert.True(t, NeedsRevision([]findings.Event{{Intro: "i"}, repeat, doubted, {Verdict: "v"}}))
+}
+
+// A finding that repeats a point raised before is still in the code, so
+// the rewrite is told it's still open, not set aside: the verdict must not
+// call the change clean while it's there.
+func TestRevisePrompt_RaisedBeforeIsStillOpen(t *testing.T) {
+	t.Parallel()
+
+	events := []findings.Event{
+		{Intro: "A crash waiting to happen."},
+		{Finding: &findings.Finding{File: "a.go", Line: 4, Severity: findings.Critical, Title: "Nil map", Body: "m is nil.", RaisedBefore: "Nil map (`a.go:3`)"}},
+		{Finding: &findings.Finding{File: "b.go", Severity: findings.Low, Title: "Allocations", Body: "b", Doubt: "A preference."}},
+		{Verdict: "Fix the nil map and the allocations."},
+	}
+
+	assert.Equal(t, "## Original intro\n\nA crash waiting to happen.\n\n"+
+		"## Original verdict\n\nFix the nil map and the allocations.\n\n"+
+		"## Findings that remain\n\nNone.\n"+
+		"\n## Still open from earlier reviews\n\n- [CRITICAL] Nil map (a.go)\n"+
+		"\n## Findings set aside\n\n- [LOW] Allocations (b.go)\n", RevisePrompt(events))
 }
 
 func TestRevisePrompt(t *testing.T) {
@@ -132,4 +158,5 @@ func TestReviseSystem(t *testing.T) {
 	got := ReviseSystem("You are Linus.")
 	assert.Contains(t, got, `{"type":"verdict","text":"..."}`)
 	assert.Contains(t, got, "# Persona\n\nYou are Linus.")
+	assert.Contains(t, got, `"Still open from earlier reviews"`, "the prompt explains the section RevisePrompt writes")
 }

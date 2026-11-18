@@ -41,6 +41,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().Bool("structured", false, "Ask for structured findings (file, line, severity, suggestion); the reviewer persona voices the intro, remarks and verdict")
 	cmd.Flags().Bool("check", true, "Check structured findings with a second model call that reads the code around them, and set aside the ones that don't hold up (overrides config)")
 	cmd.Flags().String("min-severity", "", "Show only structured findings of this severity or higher: "+strings.Join(config.Severities(), ", ")+" (overrides config)")
+	cmd.Flags().String("fail-on", "", "Exit with status 3 when the review keeps a structured finding of this severity or higher: "+strings.Join(config.Severities(), ", ")+"; doubted findings don't count, repeats of points raised before do (overrides config; implies --structured and plain output)")
 	cmd.Flags().Bool("comment", false, "Post the review to the pull request, with findings as inline comments and fixes as suggestions (requires --pr; implies --structured)")
 	cmd.Flags().Bool("full", false, "Review the whole pull request, not only the changes since Bark's last posted review of it (requires --pr; matters with --comment)")
 	addPlainFlag(cmd)
@@ -126,10 +127,20 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 			return err
 		}
 	}
+	// failOn is the --fail-on flag only: a fail_on from a config file
+	// applies when the run is plain anyway, and the TUI ignores it.
+	failOn := ""
+	if cmd.Flags().Changed("fail-on") {
+		failOn, _ = cmd.Flags().GetString("fail-on")
+		if err := cfg.OverrideFailOn(failOn); err != nil {
+			return err
+		}
+	}
 	warnRepoLLM(os.Stderr, cfg)
 
-	// Posting runs in plain mode: the TUI has no step for it.
-	if stdinDiff != nil || comment || isPlainMode(cmd) {
+	// Posting and failing on findings run in plain mode: the TUI has no
+	// step for posting, and its exit status means nothing.
+	if stdinDiff != nil || comment || failOn != "" || isPlainMode(cmd) {
 		return plain.RunReview(plain.ReviewOptions{
 			Diff:              stdinDiff,
 			ReviewerName:      reviewerName,

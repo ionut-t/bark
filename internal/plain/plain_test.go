@@ -341,3 +341,129 @@ func TestHistoryNote(t *testing.T) {
 		})
 	}
 }
+
+// The gate fails on findings at or above fail_on that the check didn't
+// doubt, repeats of points raised before included, and says on stderr which
+// ones.
+func TestGate(t *testing.T) {
+	t.Parallel()
+
+	events := []findings.Event{
+		{Finding: &findings.Finding{File: "internal/x.go", Line: 42, Severity: findings.Critical, Title: "Nil map write"}},
+		{Finding: &findings.Finding{File: "cmd/y.go", Line: 10, Severity: findings.High, Title: "Missing timeout"}},
+		{Finding: &findings.Finding{File: "cmd/z.go", Line: 3, Severity: findings.High, Title: "Doubted", Doubt: "No."}},
+		{Finding: &findings.Finding{File: "cmd/r.go", Line: 4, Severity: findings.Critical, Title: "Repeat", RaisedBefore: "x"}},
+		{Finding: &findings.Finding{Severity: findings.High, Title: "No file"}},
+		{Finding: &findings.Finding{File: "go.mod", Severity: findings.Low, Title: "Low one"}},
+	}
+
+	t.Run("fails", func(t *testing.T) {
+		t.Parallel()
+
+		var w strings.Builder
+		err := gate(&w, events, findings.High)
+		var failErr *FailOnError
+		require.ErrorAs(t, err, &failErr)
+		assert.Len(t, failErr.Findings, 4)
+		assert.Equal(t, findings.High, failErr.Threshold)
+		assert.Equal(t, "4 finding(s) at or above high severity (fail_on high)", err.Error())
+		assert.Equal(t, "bark: failing: 4 finding(s) at or above high severity (fail_on high):\n"+
+			"bark:   [critical] internal/x.go:42 Nil map write\n"+
+			"bark:   [high] cmd/y.go:10 Missing timeout\n"+
+			"bark:   [critical] cmd/r.go:4 Repeat (raised before, still there)\n"+
+			"bark:   [high] No file\n", w.String())
+	})
+
+	t.Run("passes", func(t *testing.T) {
+		t.Parallel()
+
+		var w strings.Builder
+		require.NoError(t, gate(&w, events[2:3], findings.Low), "doubted findings don't count")
+		assert.Empty(t, w.String())
+		require.NoError(t, gate(&w, events, ""), "no threshold")
+		assert.Empty(t, w.String())
+	})
+}
+
+// With --comment, the review is posted before the gate fails the run, and a
+// failed post wins over the gate.
+func TestConcludeReview(t *testing.T) {
+	t.Parallel()
+
+	events := []findings.Event{{Finding: &findings.Finding{File: "a.go", Line: 2, Severity: findings.High, Title: "Nil map"}}}
+
+	t.Run("posts, then fails", func(t *testing.T) {
+		t.Parallel()
+
+		var w strings.Builder
+		posted := false
+		err := concludeReview(&w, events, findings.High, func() error {
+			assert.Empty(t, w.String(), "the review is posted before the gate reports")
+			posted = true
+			return nil
+		})
+		assert.True(t, posted)
+		var failErr *FailOnError
+		require.ErrorAs(t, err, &failErr)
+		assert.Contains(t, w.String(), "Nil map")
+	})
+
+	t.Run("no post", func(t *testing.T) {
+		t.Parallel()
+
+		var w strings.Builder
+		var failErr *FailOnError
+		require.ErrorAs(t, concludeReview(&w, events, findings.High, nil), &failErr)
+		require.NoError(t, concludeReview(&w, events, findings.Critical, nil))
+	})
+
+	t.Run("failed post", func(t *testing.T) {
+		t.Parallel()
+
+		var w strings.Builder
+		postErr := errors.New("gh failed")
+		err := concludeReview(&w, events, findings.High, func() error { return postErr })
+		require.ErrorIs(t, err, postErr)
+		var failErr *FailOnError
+		assert.NotErrorAs(t, err, &failErr, "a post failure is a Bark error, not a gate failure")
+	})
+}
+
+// fail_on below min_severity can never see the findings in between.
+func TestWarnFailOnBelowMin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		failOn, min findings.Severity
+		want        string
+	}{
+		{findings.Low, findings.High, "bark: warning: fail_on low is below min_severity high; findings below high are left out, so only those at high or above can fail the review\n"},
+		{findings.High, findings.High, ""},
+		{findings.Critical, findings.High, ""},
+		{findings.Low, "", ""},
+		{"", findings.High, ""},
+	}
+	for _, tt := range tests {
+		var w strings.Builder
+		warnFailOnBelowMin(&w, tt.failOn, tt.min)
+		assert.Equal(t, tt.want, w.String(), "fail_on %q, min_severity %q", tt.failOn, tt.min)
+	}
+}
+
+// "Kept" means not doubted, as for --fail-on: repeats of points raised
+// before are kept, just not posted again.
+func TestCheckSummary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		res  check.Result
+		want string
+	}{
+		{check.Result{Checked: 3, Doubted: 1}, "bark: the check kept 2 of 3 finding(s)\n"},
+		{check.Result{Checked: 2, RaisedBefore: 2}, "bark: the check kept 2 of 2 finding(s); 2 raised before on this pull request, not posted again\n"},
+		{check.Result{Checked: 4, Doubted: 1, RaisedBefore: 2}, "bark: the check kept 3 of 4 finding(s); 2 raised before on this pull request, not posted again\n"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, checkSummary(tt.res))
+	}
+}

@@ -20,6 +20,7 @@ context_enrichment = true
 structured_findings = true
 check_findings = false
 min_severity = "High"
+fail_on = "Critical"
 `
 	got, err := ParseRepo("/repo/.bark/config.toml", []byte(content))
 	require.NoError(t, err)
@@ -32,6 +33,7 @@ min_severity = "High"
 		StructuredFindings: new(true),
 		CheckFindings:      new(false),
 		MinSeverity:        new("high"),
+		FailOn:             new("critical"),
 	}, got)
 
 	empty, err := ParseRepo("/repo/.bark/config.toml", nil)
@@ -75,6 +77,11 @@ func TestParseRepoErrors(t *testing.T) {
 			want:    []string{"config.toml", "nuclear", "critical, high, medium, low"},
 		},
 		{
+			name:    "unknown fail_on severity",
+			content: "fail_on = 'nuclear'\n",
+			want:    []string{"config.toml", "fail_on", "nuclear", "critical, high, medium, low"},
+		},
+		{
 			name:    "wrong type",
 			content: "max_diff_lines = 'many'\n",
 			want:    []string{"config.toml:1"},
@@ -111,6 +118,7 @@ func TestApplyRepo_RepoBeatsSavedAndRunOverridesBeatRepo(t *testing.T) {
 		StructuredFindings: false,
 		CheckFindings:      true,
 		MinSeverity:        "low",
+		FailOn:             "low",
 	}
 	repo := RepoData{
 		LLMProvider:        new("anthropic"),
@@ -121,6 +129,7 @@ func TestApplyRepo_RepoBeatsSavedAndRunOverridesBeatRepo(t *testing.T) {
 		StructuredFindings: new(true),
 		CheckFindings:      new(false),
 		MinSeverity:        new("high"),
+		FailOn:             new("high"),
 	}
 
 	cfg := New("", saved)
@@ -136,6 +145,7 @@ func TestApplyRepo_RepoBeatsSavedAndRunOverridesBeatRepo(t *testing.T) {
 	assert.True(t, cfg.GetStructuredFindings())
 	assert.False(t, cfg.GetCheckFindings())
 	assert.Equal(t, "high", cfg.GetMinSeverity())
+	assert.Equal(t, "high", cfg.GetFailOn())
 
 	require.NoError(t, cfg.OverrideProvider("openai"))
 	cfg.OverrideModel("gpt-x")
@@ -145,6 +155,7 @@ func TestApplyRepo_RepoBeatsSavedAndRunOverridesBeatRepo(t *testing.T) {
 	cfg.OverrideStructuredFindings(false)
 	cfg.OverrideCheckFindings(true)
 	require.NoError(t, cfg.OverrideMinSeverity("medium"))
+	require.NoError(t, cfg.OverrideFailOn(""))
 
 	provider, _ = cfg.GetLLMProvider()
 	model, _ = cfg.GetLLMModel()
@@ -156,6 +167,7 @@ func TestApplyRepo_RepoBeatsSavedAndRunOverridesBeatRepo(t *testing.T) {
 	assert.False(t, cfg.GetStructuredFindings())
 	assert.True(t, cfg.GetCheckFindings())
 	assert.Equal(t, "medium", cfg.GetMinSeverity())
+	assert.Empty(t, cfg.GetFailOn(), "an empty run override turns off the repository's fail_on")
 }
 
 func TestApplyRepo_UnsetKeysUseSavedValues(t *testing.T) {
@@ -172,6 +184,7 @@ func TestApplyRepo_UnsetKeysUseSavedValues(t *testing.T) {
 	assert.True(t, cfg.GetCheckFindings())
 	assert.True(t, cfg.GetStructuredFindings())
 	assert.Empty(t, cfg.GetMinSeverity())
+	assert.Empty(t, cfg.GetFailOn())
 }
 
 func TestApplyRepo_SettersSaveTheUserFileOnly(t *testing.T) {
@@ -384,4 +397,29 @@ func TestLLMProviderChoice(t *testing.T) {
 			assert.Equal(t, tt.wantPinned, pinned)
 		})
 	}
+}
+
+func TestFailOn(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), configFileName)
+	cfg := New(path, Data{Editor: "vi"})
+	assert.Empty(t, cfg.GetFailOn(), "no threshold by default")
+
+	require.NoError(t, cfg.SetFailOn("High"))
+	assert.Equal(t, "high", cfg.GetFailOn())
+	assert.Equal(t, "high", readSaved(t, path).FailOn)
+
+	err := cfg.SetFailOn("nuclear")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fail_on", "the error names the setting")
+	assert.Error(t, cfg.OverrideFailOn("nuclear"))
+	assert.Equal(t, "high", cfg.GetFailOn())
+
+	require.NoError(t, cfg.OverrideFailOn("critical"))
+	assert.Equal(t, "critical", cfg.GetFailOn())
+	assert.Equal(t, "high", readSaved(t, path).FailOn, "an override isn't saved")
+
+	require.NoError(t, cfg.SetFailOn(""))
+	assert.Empty(t, cfg.GetFailOn(), "an empty value turns the threshold off")
 }

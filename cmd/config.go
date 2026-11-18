@@ -32,6 +32,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 		structured        bool
 		checkFindings     bool
 		minSeverity       string
+		failOn            string
 		migrate           bool
 	)
 
@@ -112,6 +113,13 @@ func configCmd(getCfg configFunc) *cobra.Command {
 				flagsSet = true
 			}
 
+			if cmd.Flags().Changed("fail-on") {
+				if err := cfg.SetFailOn(failOn); err != nil {
+					return err
+				}
+				flagsSet = true
+			}
+
 			if !flagsSet {
 				return utils.OpenEditor(cfg.GetEditor(), cfg.Path())
 			}
@@ -132,6 +140,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 	flags.BoolVar(&checkFindings, "check-findings", true, "Enable or disable the second model call that checks structured findings against the code (default: true)")
 	flags.BoolVar(&migrate, migrateFlag, false, "Move Bark's files from ~/.bark to the XDG directories (~/.config/bark, ~/.cache/bark and ~/.local/state/bark by default)")
 	flags.StringVar(&minSeverity, "min-severity", "", "Set the lowest severity structured reviews show: "+strings.Join(config.Severities(), ", ")+` ("" shows every finding)`)
+	flags.StringVar(&failOn, "fail-on", "", "Set the severity at or above which a plain review exits with status 3: "+strings.Join(config.Severities(), ", ")+` ("" never fails)`)
 
 	// Old names, matching the config file keys. Kept so existing scripts keep
 	// working; hidden from help, and pflag prints a deprecation notice.
@@ -345,6 +354,9 @@ func readConfigData(path string) (config.Data, error) {
 	}
 
 	if data.MinSeverity, err = config.NormaliseMinSeverity(data.MinSeverity); err != nil {
+		return config.Data{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if data.FailOn, err = config.NormaliseFailOn(data.FailOn); err != nil {
 		return config.Data{}, fmt.Errorf("%s: %w", path, err)
 	}
 

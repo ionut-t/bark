@@ -67,6 +67,20 @@ inputs:
     description: Review the whole pull request, not only the changes since Bark's last review of it. Only matters with inline-comments.
     required: false
     default: "false"
+  fail-on:
+    description: |
+      Fail the job when the review keeps a finding of this severity or
+      higher: critical, high, medium or low. Leave empty to never fail.
+      Turns on structured findings. Findings Bark's check doubts don't
+      count; repeats of points raised in an earlier review of the pull
+      request do, since they're still in the code. The review is posted
+      first, so it's on the pull request when the job fails.
+
+      With inline-comments, only the commits since Bark's last review are
+      reviewed, so a push that doesn't touch an unfixed issue's code can
+      pass. Set full-review to review the whole pull request every time.
+    required: false
+    default: ""
   github-token:
     description: GitHub token for posting PR comments
     required: false
@@ -118,6 +132,7 @@ runs:
         echo "$DEST" >> "$GITHUB_PATH"
 
     - name: Run bark review
+      id: review
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
@@ -134,6 +149,7 @@ runs:
         BARK_WITH_DESCRIPTION: ${{ inputs.with-description }}
         BARK_INLINE_COMMENTS: ${{ inputs.inline-comments }}
         BARK_FULL_REVIEW: ${{ inputs.full-review }}
+        BARK_FAIL_ON: ${{ inputs.fail-on }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         PROVIDER=$(echo "$BARK_PROVIDER" | tr '[:upper:]' '[:lower:]')
@@ -176,8 +192,17 @@ runs:
         [ "$BARK_INLINE_COMMENTS" = "true" ] && ARGS+=(--comment)
         # Only when set, so a pinned older Bark doesn't get a flag it lacks.
         [ "$BARK_FULL_REVIEW" = "true" ] && ARGS+=(--full)
+        [ -n "$BARK_FAIL_ON" ] && ARGS+=(--fail-on "$BARK_FAIL_ON")
 
-        bark "${ARGS[@]}" > /tmp/bark-review.txt
+        # Exit status 3 means the review kept findings at or above fail-on.
+        # The review is still posted and labelled; the last step fails the
+        # job. Any other failure stops here.
+        STATUS=0
+        bark "${ARGS[@]}" > /tmp/bark-review.txt || STATUS=$?
+        echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+        if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 3 ]; then
+          exit "$STATUS"
+        fi
 
         # Bark prints a line even when nothing changed since its last
         # review, so empty output means something went wrong.
@@ -229,3 +254,12 @@ runs:
         LABEL="Reviewed by $NAME"
         gh label create "$LABEL" --repo "$REPO" --color "0075ca" --force 2>/dev/null || true
         gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL"
+
+    - name: Fail on findings
+      if: steps.review.outputs.status == '3'
+      shell: bash
+      env:
+        BARK_FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        echo "Bark kept findings at or above $BARK_FAIL_ON severity; the run bark review step lists them." >&2
+        exit 1

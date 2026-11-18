@@ -15,6 +15,8 @@ import (
 // step is the part of an action or workflow step these tests read.
 type step struct {
 	Name string `yaml:"name"`
+	ID   string `yaml:"id"`
+	If   string `yaml:"if"`
 	Run  string `yaml:"run"`
 }
 
@@ -117,4 +119,37 @@ func TestScriptsPaginateGHAPIReads(t *testing.T) {
 	}
 	// Guards against the pattern silently matching nothing.
 	assert.Positive(t, reads)
+}
+
+// TestReviewActionFailsOnFindingsLast checks that with fail-on, the review
+// action still posts the review comment and label before failing: bark's
+// exit status 3 (findings at or above fail-on) mustn't stop the run step
+// under bash -e, and a final step fails the job instead.
+func TestReviewActionFailsOnFindingsLast(t *testing.T) {
+	data, err := os.ReadFile(".github/actions/bark-review/action.yaml")
+	require.NoError(t, err)
+
+	var action struct {
+		Inputs map[string]any `yaml:"inputs"`
+		compositeAction `yaml:",inline"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &action))
+	assert.Contains(t, action.Inputs, "fail-on")
+
+	steps := action.Runs.Steps
+	var run *step
+	for i := range steps {
+		if steps[i].Name == "Run bark review" {
+			run = &steps[i]
+		}
+	}
+	require.NotNil(t, run)
+	assert.NotEmpty(t, run.ID, "later steps read the run step's status output")
+	assert.Contains(t, run.Run, `--fail-on "$BARK_FAIL_ON"`)
+	assert.Contains(t, run.Run, "|| STATUS=$?", "a non-zero exit mustn't end the step under bash -e")
+	assert.Contains(t, run.Run, `"status=$STATUS" >> "$GITHUB_OUTPUT"`)
+
+	last := steps[len(steps)-1]
+	assert.Contains(t, last.If, "steps."+run.ID+".outputs.status == '3'", "the failing step comes after posting and labelling")
+	assert.Contains(t, last.Run, "exit 1")
 }

@@ -33,12 +33,13 @@ type RepoData struct {
 	StructuredFindings *bool   `toml:"structured_findings"`
 	CheckFindings      *bool   `toml:"check_findings"`
 	MinSeverity        *string `toml:"min_severity"`
+	FailOn             *string `toml:"fail_on"`
 }
 
 // repoKeys are the keys RepoData accepts, for error messages.
 var repoKeys = []string{
 	LLMProviderKey, LLMModelKey, MaxDiffTokensKey, ContextEnrichmentKey,
-	StructuredFindingsKey, CheckFindingsKey, MinSeverityKey,
+	StructuredFindingsKey, CheckFindingsKey, MinSeverityKey, FailOnKey,
 }
 
 // ParseRepo reads a repository's config from content, the contents of the
@@ -74,14 +75,23 @@ func ParseRepo(path string, content []byte) (RepoData, error) {
 		}
 		repo.MinSeverity = &severity
 	}
+	if repo.FailOn != nil {
+		severity, err := NormaliseFailOn(*repo.FailOn)
+		if err != nil {
+			return RepoData{}, fmt.Errorf("%s: %w", path, err)
+		}
+		repo.FailOn = &severity
+	}
 
 	return repo, nil
 }
 
-// severities are the values min_severity accepts, most severe first.
+// severities are the values min_severity and fail_on accept, most severe
+// first.
 var severities = []string{"critical", "high", "medium", "low"}
 
-// Severities returns the values min_severity accepts, most severe first.
+// Severities returns the values min_severity and fail_on accept, most
+// severe first.
 func Severities() []string {
 	return slices.Clone(severities)
 }
@@ -89,9 +99,20 @@ func Severities() []string {
 // NormaliseMinSeverity lowercases s and checks it's a known severity or "".
 // Use it on a min_severity value from a file.
 func NormaliseMinSeverity(s string) (string, error) {
+	return normaliseSeverity(MinSeverityKey, s)
+}
+
+// NormaliseFailOn is NormaliseMinSeverity for a fail_on value.
+func NormaliseFailOn(s string) (string, error) {
+	return normaliseSeverity(FailOnKey, s)
+}
+
+// normaliseSeverity lowercases s and checks it's a known severity or "";
+// errors name key.
+func normaliseSeverity(key, s string) (string, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s != "" && !slices.Contains(severities, s) {
-		return "", fmt.Errorf("invalid %s %q (supported: %s)", MinSeverityKey, s, strings.Join(severities, ", "))
+		return "", fmt.Errorf("invalid %s %q (supported: %s)", key, s, strings.Join(severities, ", "))
 	}
 	return s, nil
 }

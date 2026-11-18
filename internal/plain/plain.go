@@ -78,7 +78,10 @@ func RunReview(opts ReviewOptions) error {
 		return fmt.Errorf("posting the review needs a pull request diff (--pr), not a diff from stdin")
 	}
 
-	structured := opts.Config.GetStructuredFindings() || opts.Comment
+	// fail_on needs findings to count, so it turns on structured findings
+	// as --comment does.
+	failOn := findings.Severity(opts.Config.GetFailOn())
+	structured := opts.Config.GetStructuredFindings() || opts.Comment || failOn != ""
 	checking := structured && opts.Config.GetCheckFindings()
 
 	// What Bark's earlier reviews of the pull request recorded: the
@@ -153,6 +156,7 @@ func RunReview(opts ReviewOptions) error {
 		}
 	}
 	minSeverity := findings.Severity(opts.Config.GetMinSeverity())
+	warnFailOnBelowMin(os.Stderr, failOn, minSeverity)
 	system := prompt.FormatReviewSystem(reviewer.Prompt, reviewInstructions)
 	if structured {
 		system = prompt.FormatStructuredReviewSystem(reviewer.Prompt, reviewInstructions)
@@ -241,22 +245,93 @@ func RunReview(opts ReviewOptions) error {
 		}
 	}
 	events := finishReview(out, output, truncated, opts.Stream, structured, minSeverity, checkFn)
-	if !opts.Comment {
+
+	var post func() error
+	if opts.Comment {
+		post = func() error {
+			postCtx, postCancel := context.WithTimeout(context.Background(), gitTimeout)
+			defer postCancel()
+			result, err := prreview.Post(postCtx, opts.PR, withPartialNote(events, reviewDiff.Cut), reviewDiff.CommentDiff(),
+				postScope(reviewDiff, truncated))
+			if err != nil {
+				return err
+			}
+			if result.Fallback {
+				fmt.Fprintln(os.Stderr, "bark: GitHub rejected the inline comments; posted every finding in the review body instead")
+			}
+			fmt.Fprintf(os.Stderr, "bark: posted review with %d inline comment(s): %s\n", result.Inline, result.URL)
+			return nil
+		}
+	}
+	return concludeReview(os.Stderr, events, failOn, post)
+}
+
+// FailOnExitCode is the exit status of a review that fails its fail_on
+// threshold. Every other error exits 1, so CI can tell a blocked merge from
+// Bark failing.
+const FailOnExitCode = 3
+
+// FailOnError is returned by a review that kept findings at or above its
+// fail_on severity.
+type FailOnError struct {
+	Threshold findings.Severity
+	Findings  []findings.Finding
+}
+
+func (e *FailOnError) Error() string {
+	return fmt.Sprintf("%d finding(s) at or above %s severity (fail_on %s)", len(e.Findings), e.Threshold, e.Threshold)
+}
+
+// concludeReview posts the review (if post is not nil), then fails it if
+// it kept findings at or above failOn. Posting comes first, so a review
+// that blocks a merge is still on the pull request; a failed post is
+// returned instead of the gate's result.
+func concludeReview(w io.Writer, events []findings.Event, failOn findings.Severity, post func() error) error {
+	if post != nil {
+		if err := post(); err != nil {
+			return err
+		}
+	}
+	return gate(w, events, failOn)
+}
+
+// gate returns a *FailOnError if events hold findings at or above failOn
+// that Bark's check didn't doubt, and lists them on w. Repeats of points
+// raised before count, since they're still in the code; when the check
+// didn't run or failed, every finding counts.
+func gate(w io.Writer, events []findings.Event, failOn findings.Severity) error {
+	blocking := findings.Blocking(events, failOn)
+	if len(blocking) == 0 {
 		return nil
 	}
+	err := &FailOnError{Threshold: failOn, Findings: blocking}
+	_, _ = fmt.Fprintf(w, "bark: failing: %s:\n", err.Error())
+	for _, f := range blocking {
+		where := f.File
+		if where != "" && f.Line > 0 {
+			where += ":" + strconv.Itoa(f.Line)
+		}
+		if where != "" {
+			where += " "
+		}
+		note := ""
+		if f.RaisedBefore != "" {
+			note = " (raised before, still there)"
+		}
+		_, _ = fmt.Fprintf(w, "bark:   [%s] %s%s%s\n", strings.ToLower(strings.TrimSpace(string(f.Severity))), where, f.Title, note)
+	}
+	return err
+}
 
-	postCtx, postCancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer postCancel()
-	result, err := prreview.Post(postCtx, opts.PR, withPartialNote(events, reviewDiff.Cut), reviewDiff.CommentDiff(),
-		postScope(reviewDiff, truncated))
-	if err != nil {
-		return err
+// warnFailOnBelowMin says on w when fail_on is less severe than
+// min_severity: findings below min_severity are dropped before the gate
+// sees them, so the effective threshold is min_severity.
+func warnFailOnBelowMin(w io.Writer, failOn, minSeverity findings.Severity) {
+	if failOn == "" || minSeverity == "" || failOn.AtLeast(minSeverity) {
+		return
 	}
-	if result.Fallback {
-		fmt.Fprintln(os.Stderr, "bark: GitHub rejected the inline comments; posted every finding in the review body instead")
-	}
-	fmt.Fprintf(os.Stderr, "bark: posted review with %d inline comment(s): %s\n", result.Inline, result.URL)
-	return nil
+	_, _ = fmt.Fprintf(w, "bark: warning: fail_on %s is below min_severity %s; findings below %s are left out, so only those at %s or above can fail the review\n",
+		failOn, minSeverity, minSeverity, minSeverity)
 }
 
 // RunCommit generates a commit message and writes it to stdout.
@@ -481,12 +556,7 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter)
 		fmt.Fprintf(os.Stderr, "bark: %v; the findings are unchecked\n", err)
 		return events, 0
 	}
-	kept := res.Checked - res.Doubted - res.RaisedBefore
-	if res.RaisedBefore > 0 {
-		fmt.Fprintf(os.Stderr, "bark: the check kept %d of %d finding(s); %d raised before on this pull request\n", kept, res.Checked, res.RaisedBefore)
-	} else {
-		fmt.Fprintf(os.Stderr, "bark: the check kept %d of %d finding(s)\n", kept, res.Checked)
-	}
+	fmt.Fprint(os.Stderr, checkSummary(res))
 
 	// The intro and verdict were written before the check; rewrite them so
 	// they don't demand fixes for doubted findings.
@@ -499,6 +569,17 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter)
 		fmt.Fprintln(os.Stderr, "bark: rewrote the intro and verdict to match the checked findings")
 	}
 	return revised, res.Checked
+}
+
+// checkSummary is the stderr line saying what the check kept. Kept means
+// not doubted, as for fail_on: repeats of points raised before are still
+// in the code, only not posted again.
+func checkSummary(res check.Result) string {
+	s := fmt.Sprintf("bark: the check kept %d of %d finding(s)", res.Checked-res.Doubted, res.Checked)
+	if res.RaisedBefore > 0 {
+		s += fmt.Sprintf("; %d raised before on this pull request, not posted again", res.RaisedBefore)
+	}
+	return s + "\n"
 }
 
 // readHistory returns what Bark's earlier reviews of pull request pr

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/internal/findings"
+	"github.com/ionut-t/bark/v2/internal/plain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -202,4 +205,15 @@ func TestWriteVersionLine_SkipsUnknownValues(t *testing.T) {
 
 	writeVersionLine(&b, "Commit", "abc1234")
 	assert.Equal(t, "  Commit         abc1234\n", b.String())
+}
+
+// A review that fails --fail-on exits 3, so CI can tell it from Bark
+// failing (1).
+func TestExitCode(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, 0, ExitCode(nil))
+	assert.Equal(t, 1, ExitCode(errors.New("boom")))
+	assert.Equal(t, 3, ExitCode(&plain.FailOnError{Threshold: findings.High}))
+	assert.Equal(t, 3, ExitCode(fmt.Errorf("wrapped: %w", &plain.FailOnError{Threshold: findings.High})))
 }

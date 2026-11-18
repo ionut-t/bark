@@ -413,3 +413,11 @@ func TestParseVerdictsWithRawControlCharacters(t *testing.T) {
 		2: {ID: 2, Verdict: "drop", Reason: "tab\there"},
 	}, got, "a raw newline splits the line; only a whole line can be repaired")
 }
+
+// The gate counts a repeat of a point raised before, so the check must only
+// call a finding a repeat once it has passed the other questions.
+func TestSystem_RaisedBeforeOnlyForRealDefects(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, System(), "Ask this only of a finding that passes questions 1 to 5")
+}

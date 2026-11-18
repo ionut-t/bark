@@ -24,6 +24,7 @@ type savedConfig struct {
 	StructuredFindings bool   `toml:"structured_findings"`
 	CheckFindings      bool   `toml:"check_findings"`
 	MinSeverity        string `toml:"min_severity"`
+	FailOn             string `toml:"fail_on"`
 }
 
 func readSavedConfig(t *testing.T, path string) savedConfig {
@@ -144,6 +145,7 @@ func TestConfigCmd_SetsZeroValues(t *testing.T) {
 		{name: "--structured-findings=false", args: []string{"--structured-findings=false"}, want: with(func(c *savedConfig) { c.StructuredFindings = false })},
 		{name: "--check-findings=false", args: []string{"--check-findings=false"}, want: with(func(c *savedConfig) { c.CheckFindings = false })},
 		{name: "--min-severity high", args: []string{"--min-severity", "high"}, want: with(func(c *savedConfig) { c.MinSeverity = "high" })},
+		{name: "--fail-on critical", args: []string{"--fail-on", "critical"}, want: with(func(c *savedConfig) { c.FailOn = "critical" })},
 	}
 
 	for _, tt := range tests {
@@ -253,6 +255,7 @@ func TestReadConfigData_ReadsEveryField(t *testing.T) {
 		StructuredFindings: true,
 		CheckFindings:      false,
 		MinSeverity:        "high",
+		FailOn:             "critical",
 	}
 
 	// Loading starts from the defaults, so a field left at its default here
@@ -491,6 +494,19 @@ func TestReadConfigData_InvalidMinSeverity(t *testing.T) {
 	_, err := readConfigData(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), path)
+	assert.Contains(t, err.Error(), "nuclear")
+}
+
+func TestReadConfigData_InvalidFailOn(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("fail_on = 'nuclear'\n"), 0o644))
+
+	_, err := readConfigData(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), path)
+	assert.Contains(t, err.Error(), "fail_on")
 	assert.Contains(t, err.Error(), "nuclear")
 }
 
