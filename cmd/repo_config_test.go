@@ -25,7 +25,7 @@ func writeRepoConfig(t *testing.T, content string) string {
 func TestApplyRepoConfig(t *testing.T) {
 	t.Parallel()
 
-	root := writeRepoConfig(t, "llm_model = 'claude-sonnet-5-5'\nmin_severity = 'high'\n")
+	root := writeRepoConfig(t, "llm_model = 'claude-sonnet-5-5'\nmin_severity = 'high'\nfail_on = 'critical'\n")
 	cfg := config.New("", config.Data{LLMModel: "gemini-2.5-pro", LLMProvider: "gemini"})
 
 	require.NoError(t, applyRepoConfig(cfg, root))
@@ -35,6 +35,7 @@ func TestApplyRepoConfig(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-5-5", model)
 	assert.Equal(t, "gemini", provider, "keys the repository doesn't set keep the user's value")
 	assert.Equal(t, "high", cfg.GetMinSeverity())
+	assert.Equal(t, "critical", cfg.GetFailOn())
 }
 
 func TestApplyRepoConfig_NoFile(t *testing.T) {

@@ -24,6 +24,7 @@ const (
 	StructuredFindingsKey = "structured_findings"
 	CheckFindingsKey      = "check_findings"
 	MinSeverityKey        = "min_severity"
+	FailOnKey             = "fail_on"
 
 	// rootDir is a repository's Bark directory.
 	rootDir                    = ".bark"
@@ -83,6 +84,12 @@ type Config interface {
 	SetMinSeverity(severity string) error
 	GetMinSeverity() string
 	OverrideMinSeverity(severity string) error
+	// SetFailOn saves the severity at or above which a plain structured
+	// review fails (exits non-zero) when the check keeps such a finding;
+	// "" never fails.
+	SetFailOn(severity string) error
+	GetFailOn() string
+	OverrideFailOn(severity string) error
 	// ApplyRepo layers a repository's config (read from path) over the
 	// saved values for this run. Run overrides still win, and setters
 	// never save the repository's values.
@@ -107,6 +114,7 @@ type Data struct {
 	StructuredFindings bool   `toml:"structured_findings" comment:"Whether reviews ask the model for structured findings (file, line, severity, ...) instead of free text (default: false)"`
 	CheckFindings      bool   `toml:"check_findings" comment:"Whether structured reviews make a second model call that checks each finding against the code and sets aside the ones that don't hold up (default: true)"`
 	MinSeverity        string `toml:"min_severity" comment:"The lowest severity a structured review shows: critical, high, medium or low (default: empty, every finding)"`
+	FailOn             string `toml:"fail_on" comment:"Make a plain review exit with status 3 when it keeps a finding of this severity or higher: critical, high, medium or low. Turns on structured findings in plain mode; the TUI ignores it (default: empty, never fails)"`
 }
 
 // config is safe for concurrent use: the TUI saves relative_number from a tea.Cmd
@@ -137,6 +145,7 @@ type overrides struct {
 	structured        *bool
 	checkFindings     *bool
 	minSeverity       *string
+	failOn            *string
 }
 
 // valueOr returns the override if set, otherwise the saved value.
@@ -529,6 +538,46 @@ func (c *config) OverrideMinSeverity(severity string) error {
 	defer c.mu.Unlock()
 
 	c.overrides.minSeverity = &severity
+	return nil
+}
+
+func (c *config) SetFailOn(severity string) error {
+	severity, err := NormaliseFailOn(severity)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.failOn = nil
+
+	if severity == c.data.FailOn {
+		return nil
+	}
+
+	c.data.FailOn = severity
+
+	return writeConfig(c.path, c.data)
+}
+
+func (c *config) GetFailOn() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return valueOr(c.overrides.failOn, valueOr(c.repo.FailOn, c.data.FailOn))
+}
+
+func (c *config) OverrideFailOn(severity string) error {
+	severity, err := NormaliseFailOn(severity)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.failOn = &severity
 	return nil
 }
 

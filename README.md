@@ -121,6 +121,28 @@ bark config --min-severity high                # for good
 
 Less severe findings are dropped before the check, so they aren't checked, shown or posted. The model still writes them, though, so a threshold doesn't make the review cheaper.
 
+#### Failing on findings
+
+To make a review fail when it finds something serious, for example to block a merge in CI, pass `--fail-on` with `critical`, `high`, `medium` or `low`:
+
+```bash
+bark review --pr 42 --comment --fail-on high
+bark config --fail-on high   # for good (plain reviews only)
+```
+
+If the review keeps a finding of that severity or higher, Bark exits with status 3 and lists those findings on stderr. Every other error exits 1, so a script can tell a blocked change from Bark failing. Some findings don't count:
+
+- findings Bark's check doubts;
+- repeats of points raised in an earlier review of the same pull request.
+
+When the check is off or fails, every finding counts.
+
+`--fail-on` turns on structured findings and plain output, since the TUI has no exit status to give. A `fail_on` in a config file applies only when the review runs in plain mode anyway, and turns on structured findings there. With `--comment`, the review is posted before Bark exits, so it's on the pull request when the job fails. Findings below `min_severity` are dropped before they're counted, so a `fail_on` below it warns and works as `min_severity`.
+
+In GitHub Actions, set the `fail-on` input of the `bark-review` action. It posts the review and adds the label, then fails the job.
+
+With `--comment`, a pull request Bark reviewed before is reviewed only from the commits since its last review, and a finding raised before doesn't count again. So only the run that finds an issue fails. The next push passes unless it brings new findings, even if the issue is still there, and `--full` doesn't change that.
+
 ### Commit Message Generation
 
 To generate a commit message for the current staged changes, run `bark commit`:
@@ -177,7 +199,7 @@ bark review --config ~/work/bark.toml
 
 ### Per-repository config
 
-A repository can share review settings in `.bark/config.toml` at its top level. Its values win over your config file and lose to command-line flags. It can set `llm_provider`, `llm_model`, `max_diff_tokens`, `context_enrichment`, `structured_findings`, `check_findings` and `min_severity`. Other keys are an error. That includes `editor` and `relative_number`, which stay personal (the editor is run as a command, so a cloned repository can't choose it).
+A repository can share review settings in `.bark/config.toml` at its top level. Its values win over your config file and lose to command-line flags. It can set `llm_provider`, `llm_model`, `max_diff_tokens`, `context_enrichment`, `structured_findings`, `check_findings`, `min_severity` and `fail_on`. Other keys are an error. That includes `editor` and `relative_number`, which stay personal (the editor is run as a command, so a cloned repository can't choose it).
 
 ```toml
 structured_findings = true

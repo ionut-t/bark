@@ -28,4 +28,8 @@ jobs:
           inline-comments: ${{ vars.BARK_INLINE_COMMENTS || 'true' }}
           # Review the whole pull request on every run, not only the new commits.
           # full-review: true
+          # Fail the job when the review keeps a finding of this severity or
+          # higher (critical, high, medium or low), after posting it. With
+          # inline comments, only the run that finds an issue fails.
+          # fail-on: high
           github-token: ${{ secrets.GITHUB_TOKEN }}

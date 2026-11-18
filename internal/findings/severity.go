@@ -35,3 +35,19 @@ func DropBelow(events []Event, min Severity) ([]Event, int) {
 	}
 	return kept, len(events) - len(kept)
 }
+
+// Blocking returns the findings in events at or above threshold that Bark's
+// check didn't set aside (doubted, or raised before). An empty threshold
+// blocks nothing.
+func Blocking(events []Event, threshold Severity) []Finding {
+	if threshold == "" {
+		return nil
+	}
+	var out []Finding
+	for _, e := range events {
+		if e.Finding != nil && !e.Finding.SetAside() && e.Finding.Severity.AtLeast(threshold) {
+			out = append(out, *e.Finding)
+		}
+	}
+	return out
+}

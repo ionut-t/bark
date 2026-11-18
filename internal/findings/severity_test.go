@@ -85,3 +85,31 @@ func TestRendererLeavesOutFindingsBelowMin(t *testing.T) {
 		assert.NotContains(t, got, "Low one")
 	}
 }
+
+// Blocking counts only findings the check kept, at or above the threshold.
+func TestBlocking(t *testing.T) {
+	t.Parallel()
+
+	events := []Event{
+		{Intro: "Hi."},
+		{Finding: &Finding{File: "a.go", Line: 1, Severity: Critical, Title: "Kept critical"}},
+		{Finding: &Finding{File: "b.go", Line: 2, Severity: High, Title: "Doubted high", Doubt: "Not so."}},
+		{Finding: &Finding{File: "c.go", Line: 3, Severity: "High", Title: "Kept high"}},
+		{Finding: &Finding{File: "d.go", Line: 4, Severity: Critical, Title: "Repeat", RaisedBefore: "Nil map"}},
+		{Finding: &Finding{File: "e.go", Line: 5, Severity: Medium, Title: "Kept medium"}},
+		{Verdict: "Done."},
+	}
+
+	titles := func(fs []Finding) []string {
+		var out []string
+		for _, f := range fs {
+			out = append(out, f.Title)
+		}
+		return out
+	}
+
+	assert.Equal(t, []string{"Kept critical", "Kept high"}, titles(Blocking(events, High)))
+	assert.Equal(t, []string{"Kept critical"}, titles(Blocking(events, Critical)))
+	assert.Equal(t, []string{"Kept critical", "Kept high", "Kept medium"}, titles(Blocking(events, Low)))
+	assert.Empty(t, Blocking(events, ""), "no threshold blocks nothing")
+}

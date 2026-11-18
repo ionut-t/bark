@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/fang/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/internal/plain"
 	"github.com/ionut-t/bark/v2/internal/version"
 	"github.com/ionut-t/bark/v2/tui"
 	"github.com/ionut-t/coffee/styles"
@@ -117,6 +119,19 @@ func Execute() error {
 			printError(w, err)
 		}),
 	)
+}
+
+// ExitCode returns the exit status for err, the error Execute returned:
+// plain.FailOnExitCode for a review that failed its fail_on threshold, 1
+// for any other error, and 0 for none.
+func ExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	if _, ok := errors.AsType[*plain.FailOnError](err); ok {
+		return plain.FailOnExitCode
+	}
+	return 1
 }
 
 // versionTemplate renders the banner when --version prints it, not when the
