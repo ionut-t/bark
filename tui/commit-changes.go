@@ -129,13 +129,6 @@ var commitPhaseLoadingMessages = [...]string{
 	"Committing, and then having a lie-down...",
 }
 
-type commitGenerationLoadingMsg struct {
-	message string
-}
-type commitLoadingMsg struct {
-	message string
-}
-
 type commitResponseMsg struct {
 	message  string
 	error    error
@@ -152,8 +145,7 @@ type commitChangesModel struct {
 	editor          editor.Model
 	commitAll       bool
 	loading         bool
-	loadingMsg      string
-	spinner         spinner.Model
+	loader          loader
 	llm             llm.LLM
 	system          string
 	prompt          string
@@ -162,9 +154,6 @@ type commitChangesModel struct {
 	isShowingPrompt bool
 	styles          styles.Styles
 	isDarkMode      bool
-
-	loadingMsgPicker    *loadingMessagePicker
-	committingMsgPicker *loadingMessagePicker
 
 	outChan   <-chan string
 	errChan   <-chan error
@@ -196,26 +185,18 @@ func newCommitChangesModel(llm llm.LLM, system, prompt string, commitAll bool, w
 	textEditor.Focus()
 	textEditor.SetMoveAcrossLines(true)
 
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-
 	m := commitChangesModel{
 		width:     width,
 		height:    height,
 		editor:    textEditor,
-		spinner:   sp,
+		loader:    newLoader(),
 		loading:   true,
 		llm:       llm,
 		system:    system,
 		prompt:    prompt,
 		commitAll: commitAll,
 		viewport:  viewport.New(),
-
-		loadingMsgPicker:    newLoadingMessagePicker(generationPhaseLoadingMessages[:]),
-		committingMsgPicker: newLoadingMessagePicker(commitPhaseLoadingMessages[:]),
 	}
-
-	m.loadingMsg = m.getGenerationLoadingMessage()
 
 	m.viewport.SetWidth(width - 4)
 	m.viewport.SetHeight(max(5, height-5))
@@ -235,7 +216,7 @@ func (m *commitChangesModel) setStyles(s styles.Styles, isDarkMode bool) {
 	m.styles = s
 	m.isDarkMode = isDarkMode
 	m.editor.WithTheme(styles.EditorTheme(s))
-	m.spinner.Style = s.Primary
+	m.loader.SetStyles(s)
 }
 
 func (m *commitChangesModel) setSize(width, height int) {
@@ -254,34 +235,17 @@ func (m *commitChangesModel) startCommitGeneration(ctx context.Context) tea.Cmd 
 	m.loading = true
 
 	return tea.Batch(
-		m.spinner.Tick,
-		m.dispatchCommitGenerationLoadingMsg(),
+		m.loader.Continue(generationPhaseLoadingMessages[:]),
 		getCommitMessage(ctx, m.llm, m.system, m.prompt),
 	)
 }
 
 func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case spinner.TickMsg:
+	case spinner.TickMsg, loaderMessageMsg:
 		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
+		m.loader, cmd = m.loader.Update(msg)
 		return m, cmd
-
-	case commitGenerationLoadingMsg:
-		if !m.loading {
-			return m, nil
-		}
-
-		m.loadingMsg = msg.message
-		return m, m.dispatchCommitGenerationLoadingMsg()
-
-	case commitLoadingMsg:
-		if !m.loading {
-			return m, nil
-		}
-
-		m.loadingMsg = msg.message
-		return m, m.dispatchCommittingLoadingMsg()
 
 	case commitOutputMsg:
 		m.gitOutput = append(m.gitOutput, msg.line)
@@ -292,6 +256,7 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 
 	case commitResponseMsg:
 		m.loading = false
+		m.loader.Stop()
 		m.isShowingPrompt = false
 
 		if msg.error != nil {
@@ -343,7 +308,6 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 
 		case "alt+enter", "ctrl+s":
 			m.loading = true
-			m.loadingMsg = m.getCommittingLoadingMsg()
 			return m, m.dispatch()
 		}
 	}
@@ -366,13 +330,7 @@ func (m commitChangesModel) Update(msg tea.Msg) (commitChangesModel, tea.Cmd) {
 
 func (m commitChangesModel) View() string {
 	if m.loading {
-		spinnerView := loadingViewPadding.Render(
-			lipgloss.JoinHorizontal(
-				lipgloss.Top,
-				m.spinner.View(),
-				m.styles.Accent.Render(" "+m.loadingMsg),
-			),
-		)
+		spinnerView := loadingViewPadding.Render(m.loader.View())
 
 		if len(m.gitOutput) > 0 {
 			return loadingViewStyle.Render(
@@ -503,30 +461,13 @@ func getCommitMessage(ctx context.Context, llm llm.LLM, system, prompt string) t
 	}
 }
 
-func (m *commitChangesModel) dispatchCommitGenerationLoadingMsg() tea.Cmd {
-	return dispatchLoadingMessage(commitGenerationLoadingMsg{message: m.getGenerationLoadingMessage()})
-}
-
-func (m *commitChangesModel) dispatchCommittingLoadingMsg() tea.Cmd {
-	return dispatchLoadingMessage(commitLoadingMsg{message: m.getCommittingLoadingMsg()})
-}
-
-func (m *commitChangesModel) getGenerationLoadingMessage() string {
-	return m.loadingMsgPicker.next()
-}
-
-func (m *commitChangesModel) getCommittingLoadingMsg() string {
-	return m.committingMsgPicker.next()
-}
-
 func (m *commitChangesModel) canRetry() bool {
 	return !m.loading && m.editor.IsNormalMode()
 }
 
 func (m *commitChangesModel) dispatch() tea.Cmd {
 	return tea.Batch(
-		m.spinner.Tick,
-		m.dispatchCommittingLoadingMsg(),
+		m.loader.Start(commitPhaseLoadingMessages[:]),
 		utils.DispatchMsg(
 			commitChangesMsg{
 				message:   m.editor.GetCurrentContent(),

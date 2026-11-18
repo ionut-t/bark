@@ -128,12 +128,6 @@ var prLoadingMessages = [...]string{
 	"Promising the follow-up PR will tidy things up, honest...",
 }
 
-type prInitReadyMsg struct{}
-
-type prLoadingMsg struct {
-	message string
-}
-
 type prResponseMsg struct {
 	message  string
 	error    error
@@ -145,18 +139,16 @@ type prResponseMsg struct {
 }
 
 type prModel struct {
-	editor           editor.Model
-	loading          bool
-	loadingMsg       string
-	loadingMsgPicker *loadingMessagePicker
-	spinner          spinner.Model
-	llm              llm.LLM
-	error            error
-	system           string
-	prompt           string
-	response         string
-	showPrompt       bool
-	styles           styles.Styles
+	editor     editor.Model
+	loading    bool
+	loader     loader
+	llm        llm.LLM
+	error      error
+	system     string
+	prompt     string
+	response   string
+	showPrompt bool
+	styles     styles.Styles
 }
 
 func newPRModel(llm llm.LLM, width, height int) prModel {
@@ -165,19 +157,12 @@ func newPRModel(llm llm.LLM, width, height int) prModel {
 	textEditor.Focus()
 	textEditor.SetMoveAcrossLines(true)
 
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-
-	m := prModel{
-		editor:           textEditor,
-		spinner:          sp,
-		loading:          true,
-		llm:              llm,
-		loadingMsgPicker: newLoadingMessagePicker(prLoadingMessages[:]),
+	return prModel{
+		editor:  textEditor,
+		loader:  newLoader(),
+		loading: true,
+		llm:     llm,
 	}
-
-	m.loadingMsg = m.getLoadingMessage()
-	return m
 }
 
 func (m *prModel) setStyles(s styles.Styles, isDarkMode bool) {
@@ -186,7 +171,7 @@ func (m *prModel) setStyles(s styles.Styles, isDarkMode bool) {
 	m.editor.WithTheme(styles.EditorTheme(s))
 
 	m.editor.SetLanguage("markdown", styles.EditorLanguageTheme(isDarkMode))
-	m.spinner.Style = s.Primary
+	m.loader.SetStyles(s)
 }
 
 func (m *prModel) setContent(system, prompt string) {
@@ -203,7 +188,7 @@ func (m *prModel) setSize(width, height int) {
 }
 
 func (m prModel) Init() tea.Cmd {
-	return m.spinner.Tick
+	return nil
 }
 
 func (m *prModel) startPRDescriptionGeneration(ctx context.Context) tea.Cmd {
@@ -211,29 +196,21 @@ func (m *prModel) startPRDescriptionGeneration(ctx context.Context) tea.Cmd {
 	m.loading = true
 
 	return tea.Batch(
-		m.spinner.Tick,
-		m.dispatchLoadingMsg(),
+		m.loader.Continue(prLoadingMessages[:]),
 		getPRMessage(ctx, m.llm, m.system, m.prompt),
 	)
 }
 
 func (m prModel) Update(msg tea.Msg) (prModel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case spinner.TickMsg:
+	case spinner.TickMsg, loaderMessageMsg:
 		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
+		m.loader, cmd = m.loader.Update(msg)
 		return m, cmd
-
-	case prLoadingMsg:
-		if !m.loading {
-			return m, nil
-		}
-
-		m.loadingMsg = msg.message
-		return m, m.dispatchLoadingMsg()
 
 	case prResponseMsg:
 		m.loading = false
+		m.loader.Stop()
 
 		if msg.error != nil {
 			// Check if it's a context cancellation - don't show as error
@@ -283,11 +260,7 @@ func (m prModel) Update(msg tea.Msg) (prModel, tea.Cmd) {
 
 func (m prModel) View() string {
 	if m.loading {
-		return lipgloss.NewStyle().Padding(2).Render(lipgloss.JoinHorizontal(
-			lipgloss.Top,
-			m.spinner.View(),
-			m.styles.Accent.Render(" "+m.loadingMsg),
-		))
+		return lipgloss.NewStyle().Padding(2).Render(m.loader.View())
 	}
 
 	if m.error != nil {
@@ -322,12 +295,4 @@ func getPRMessage(ctx context.Context, llm llm.LLM, system, prompt string) tea.C
 		}
 		return msg
 	}
-}
-
-func (m *prModel) dispatchLoadingMsg() tea.Cmd {
-	return dispatchLoadingMessage(prLoadingMsg{message: m.getLoadingMessage()})
-}
-
-func (m *prModel) getLoadingMessage() string {
-	return m.loadingMsgPicker.next()
 }

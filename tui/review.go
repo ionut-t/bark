@@ -171,10 +171,6 @@ type checkDoneMsg struct {
 	usage *llm.Usage
 }
 
-type reviewLoadingMsg struct {
-	message string
-}
-
 type reviewModel struct {
 	width, height  int
 	editor         editor.Model
@@ -207,23 +203,21 @@ type reviewModel struct {
 	// review that was restarted is ignored.
 	run int
 	// debugLog is the BARK_DEBUG log of the running review, or nil.
-	debugLog         *debuglog.Log
-	logDir           string
-	provider         string
-	pricing          *prices.Pricing
-	reviewer         reviewers.Reviewer
-	system           string
-	prompt           string
-	showPrompt       bool
-	response         string
-	spinner          spinner.Model
-	loading          bool
-	loadingChunks    bool
-	loadingMsg       string
-	loadingMsgPicker *loadingMessagePicker
-	error            error
-	styles           styles.Styles
-	llmModel         string
+	debugLog      *debuglog.Log
+	logDir        string
+	provider      string
+	pricing       *prices.Pricing
+	reviewer      reviewers.Reviewer
+	system        string
+	prompt        string
+	showPrompt    bool
+	response      string
+	loader        loader
+	loading       bool
+	loadingChunks bool
+	error         error
+	styles        styles.Styles
+	llmModel      string
 }
 
 func newReviewModel(reviewer reviewers.Reviewer, system, prompt string, width, height int, llm llm.LLM) reviewModel {
@@ -233,26 +227,18 @@ func newReviewModel(reviewer reviewers.Reviewer, system, prompt string, width, h
 	textEditor.Focus()
 	textEditor.SetMoveAcrossLines(true)
 
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-
-	m := reviewModel{
-		width:            width,
-		height:           height,
-		editor:           textEditor,
-		llm:              llm,
-		system:           system,
-		prompt:           prompt,
-		loading:          true,
-		loadingChunks:    true,
-		spinner:          sp,
-		reviewer:         reviewer,
-		loadingMsgPicker: newLoadingMessagePicker(loadingMessages[:]),
+	return reviewModel{
+		width:         width,
+		height:        height,
+		editor:        textEditor,
+		llm:           llm,
+		system:        system,
+		prompt:        prompt,
+		loading:       true,
+		loadingChunks: true,
+		loader:        newLoader(),
+		reviewer:      reviewer,
 	}
-
-	m.loadingMsg = m.getLoadingMessage()
-
-	return m
 }
 
 func (m *reviewModel) setStructured(structured bool) {
@@ -287,7 +273,7 @@ func (m *reviewModel) setStyles(s styles.Styles, isDarkMode bool) {
 
 	m.editor.WithTheme(styles.EditorTheme(s))
 	m.editor.SetLanguage("markdown", styles.EditorLanguageTheme(isDarkMode))
-	m.spinner.Style = s.Primary
+	m.loader.SetStyles(s)
 }
 
 func (m *reviewModel) setSize(width, height int) {
@@ -303,23 +289,18 @@ func (m reviewModel) Init() tea.Cmd {
 
 func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case spinner.TickMsg:
+	case spinner.TickMsg, loaderMessageMsg:
+		if !m.loader.Owns(msg) {
+			return m, nil
+		}
 		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
+		m.loader, cmd = m.loader.Update(msg)
 		if m.loadingChunks && !m.loading {
 			m.setStreamingStatusLine()
 		} else if m.checking {
 			m.setCheckingStatusLine()
 		}
 		return m, cmd
-
-	case reviewLoadingMsg:
-		if !m.loading {
-			return m, nil
-		}
-
-		m.loadingMsg = msg.message
-		return m, m.dispatchLoadingMsg()
 
 	case streamReadyMsg:
 		m.respChan = msg.respChan
@@ -347,7 +328,9 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		}
 
 		if m.loading {
-			m.spinner.Spinner = spinner.Points
+			// The spinner moves to the status line while the review streams.
+			m.loader.StopMessages()
+			m.loader.SetSpinner(spinner.Points)
 		}
 
 		m.loading = false
@@ -367,6 +350,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 		)
 
 	case streamErrorMsg:
+		m.loader.Stop()
 		m.finishLog(msg.error)
 		m.loading = false
 		m.loadingChunks = false
@@ -392,11 +376,14 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 
 		if m.structured && m.check != nil {
 			if events, _ := findings.DropBelow(findings.Parse(m.raw.String()), m.minSeverity); check.Count(events) > 0 {
+				// The spinner keeps going in the status line while checking.
+				m.loader.StopMessages()
 				m.checking = true
 				m.setCheckingStatusLine()
 				return m, runCheckCmd(*m.check, m.run, events)
 			}
 		}
+		m.loader.Stop()
 		m.setDoneStatusLine()
 
 	case checkDoneMsg:
@@ -404,6 +391,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 			return m, nil
 		}
 		m.checking = false
+		m.loader.Stop()
 		old := m.response
 		if msg.err != nil {
 			m.response = strings.TrimRight(m.response, "\n") + "\n\n## Bark's check\n\n" +
@@ -539,7 +527,7 @@ func watchStreamCmd(respChan <-chan llm.Response, errChan <-chan error) tea.Cmd 
 
 func (m reviewModel) View() string {
 	if m.loading {
-		return lipgloss.NewStyle().Padding(2).Render(m.spinner.View() + " " + m.styles.Accent.Render(m.loadingMsg))
+		return lipgloss.NewStyle().Padding(2).Render(m.loader.View())
 	}
 
 	if m.error != nil {
@@ -589,13 +577,11 @@ func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	})
 	m.loading = true
 	m.error = nil
-	m.spinner.Spinner = spinner.Dot
 	m.editor.SetExtraHighlightedContextLines(streamingHighlightContextLines)
 	m.editor.SetContent("")
 
 	return tea.Batch(
-		m.spinner.Tick,
-		m.dispatchLoadingMsg(),
+		m.loader.Continue(loadingMessages[:]),
 		startStreamCmd(m.llm, ctx, m.system, m.prompt),
 	)
 }
@@ -611,14 +597,14 @@ func (m *reviewModel) finishLog(err error) {
 func (m *reviewModel) setStreamingStatusLine() {
 	reviewerAction := m.styles.Accent.Background(m.styles.Surface1.GetBackground()).Render(m.reviewer.Name + " is reviewing... ")
 	spacer := m.styles.Surface1.Render(" ")
-	reviewerInfo := m.styles.Surface1.Render(m.spinner.View()) + spacer + reviewerAction
+	reviewerInfo := m.styles.Surface1.Render(m.loader.SpinnerView()) + spacer + reviewerAction
 	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, reviewerInfo)
 }
 
 func (m *reviewModel) setCheckingStatusLine() {
 	action := m.styles.Accent.Background(m.styles.Surface1.GetBackground()).Render("Checking the findings... ")
 	spacer := m.styles.Surface1.Render(" ")
-	info := m.styles.Surface1.Render(m.spinner.View()) + spacer + action
+	info := m.styles.Surface1.Render(m.loader.SpinnerView()) + spacer + action
 	m.editor.StatusLineFunc = createEditorStatusLine(m.llmModel, info)
 }
 
@@ -770,14 +756,6 @@ func noteLines(lines []string, h int) int {
 		return 2
 	}
 	return 0
-}
-
-func (m *reviewModel) dispatchLoadingMsg() tea.Cmd {
-	return dispatchLoadingMessage(reviewLoadingMsg{message: m.getLoadingMessage()})
-}
-
-func (m *reviewModel) getLoadingMessage() string {
-	return m.loadingMsgPicker.next()
 }
 
 func reviewHelp(width int, forCommits bool, s styles.Styles) string {

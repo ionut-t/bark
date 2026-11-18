@@ -47,9 +47,8 @@ func TestCommitRetryReloadsWorkingTree(t *testing.T) {
 			_, cmd := m.handleCommitMessageRetry()
 			require.NotNil(t, cmd)
 
-			got := cmd()
-			msg, ok := got.(commitDataLoadedMsg)
-			require.True(t, ok, "retry should reload the commit data, got %T", got)
+			msg, ok := findMsg[commitDataLoadedMsg](cmdMsgs(t, cmd))
+			require.True(t, ok, "retry should reload the commit data")
 			require.NoError(t, msg.err)
 			assert.Equal(t, commitAll, msg.commitAll)
 			assert.Equal(t, "feat/reload", msg.branch)
