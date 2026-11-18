@@ -526,14 +526,14 @@ func historyNote(w io.Writer, h prreview.History, err error, checking, increment
 			without = append(without, "the whole pull request is reviewed")
 		}
 		if len(without) == 0 {
-			fmt.Fprintf(w, "bark: %v\n", err)
+			_, _ = fmt.Fprintf(w, "bark: %v\n", err)
 			return
 		}
-		fmt.Fprintf(w, "bark: %v; %s\n", err, strings.Join(without, ", and "))
+		_, _ = fmt.Fprintf(w, "bark: %v; %s\n", err, strings.Join(without, ", and "))
 		return
 	}
 	if checking && len(h.Findings) > 0 {
-		fmt.Fprintf(w, "bark: earlier reviews of this pull request raised %d finding(s)\n", len(h.Findings))
+		_, _ = fmt.Fprintf(w, "bark: earlier reviews of this pull request raised %d finding(s)\n", len(h.Findings))
 	}
 }
 
@@ -565,17 +565,17 @@ func noteReviewScope(w io.Writer, full bool, recorded string, r git.ReviewDiff) 
 	short := func(sha string) string { return sha[:min(7, len(sha))] }
 	switch {
 	case r.Since != "" && r.Diff == "" && len(r.Commits) > 0:
-		fmt.Fprintf(w, "bark: the %d commit(s) since the last review at %s change only files Bark ignores, so there's nothing to review (--full reviews the whole pull request)\n", len(r.Commits), short(r.Since))
+		_, _ = fmt.Fprintf(w, "bark: the %d commit(s) since the last review at %s change only files Bark ignores, so there's nothing to review (--full reviews the whole pull request)\n", len(r.Commits), short(r.Since))
 	case r.Since != "" && r.Diff == "":
-		fmt.Fprintf(w, "bark: nothing changed since the last review at %s, so there's nothing to review (--full reviews the whole pull request)\n", short(r.Since))
+		_, _ = fmt.Fprintf(w, "bark: nothing changed since the last review at %s, so there's nothing to review (--full reviews the whole pull request)\n", short(r.Since))
 	case r.Since != "":
-		fmt.Fprintf(w, "bark: reviewing only the changes since the last review at %s (%d commit(s))\n", short(r.Since), len(r.Commits))
+		_, _ = fmt.Fprintf(w, "bark: reviewing only the changes since the last review at %s (%d commit(s))\n", short(r.Since), len(r.Commits))
 	case full:
-		fmt.Fprintln(w, "bark: full review (--full)")
+		_, _ = fmt.Fprintln(w, "bark: full review (--full)")
 	case recorded == "":
-		fmt.Fprintln(w, "bark: full review: no earlier Bark review of this pull request recorded the commit it reviewed")
+		_, _ = fmt.Fprintln(w, "bark: full review: no earlier Bark review of this pull request recorded the commit it reviewed")
 	case r.FullReason != "":
-		fmt.Fprintf(w, "bark: full review: %s\n", r.FullReason)
+		_, _ = fmt.Fprintf(w, "bark: full review: %s\n", r.FullReason)
 	}
 }
 
