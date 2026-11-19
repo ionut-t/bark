@@ -34,12 +34,17 @@ type RepoData struct {
 	CheckFindings      *bool   `toml:"check_findings"`
 	MinSeverity        *string `toml:"min_severity"`
 	FailOn             *string `toml:"fail_on"`
+	HouseRules         *bool   `toml:"house_rules"`
+	// HouseRulesFiles is a pointer so an empty list, which means the
+	// defaults, still beats a user's own list.
+	HouseRulesFiles *[]string `toml:"house_rules_files"`
 }
 
 // repoKeys are the keys RepoData accepts, for error messages.
 var repoKeys = []string{
 	LLMProviderKey, LLMModelKey, MaxDiffTokensKey, ContextEnrichmentKey,
 	StructuredFindingsKey, CheckFindingsKey, MinSeverityKey, FailOnKey,
+	HouseRulesKey, HouseRulesFilesKey,
 }
 
 // ParseRepo reads a repository's config from content, the contents of the
@@ -81,6 +86,11 @@ func ParseRepo(path string, content []byte) (RepoData, error) {
 			return RepoData{}, fmt.Errorf("%s: %w", path, err)
 		}
 		repo.FailOn = &severity
+	}
+	if repo.HouseRulesFiles != nil {
+		if err := ValidateHouseRulesFiles(*repo.HouseRulesFiles); err != nil {
+			return RepoData{}, fmt.Errorf("%s: %w", path, err)
+		}
 	}
 
 	return repo, nil

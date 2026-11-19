@@ -423,3 +423,48 @@ func TestFailOn(t *testing.T) {
 	require.NoError(t, cfg.SetFailOn(""))
 	assert.Empty(t, cfg.GetFailOn(), "an empty value turns the threshold off")
 }
+
+func TestHouseRules(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, DefaultData().HouseRules, "on by default")
+
+	path := filepath.Join(t.TempDir(), configFileName)
+	cfg := New(path, Data{Editor: "vi", HouseRules: true, HouseRulesFiles: []string{"AGENTS.md", "docs/STYLE.md"}})
+	assert.True(t, cfg.GetHouseRules())
+	assert.Equal(t, []string{"AGENTS.md", "docs/STYLE.md"}, cfg.GetHouseRulesFiles())
+
+	cfg.ApplyRepo("/repo/.bark/config.toml", RepoData{HouseRules: new(false), HouseRulesFiles: &[]string{"RULES.md"}})
+	assert.False(t, cfg.GetHouseRules(), "the repo beats the user")
+	assert.Equal(t, []string{"RULES.md"}, cfg.GetHouseRulesFiles(), "the repo beats the user")
+
+	cfg.OverrideHouseRules(true)
+	assert.True(t, cfg.GetHouseRules(), "the run beats the repo")
+
+	require.NoError(t, cfg.SetHouseRules(false))
+	assert.False(t, readSaved(t, path).HouseRules)
+
+	// An empty list in the repo means the defaults, even over a user's list.
+	cfg.ApplyRepo("/repo/.bark/config.toml", RepoData{HouseRulesFiles: &[]string{}})
+	assert.Empty(t, cfg.GetHouseRulesFiles())
+}
+
+func TestParseRepo_HouseRules(t *testing.T) {
+	t.Parallel()
+
+	got, err := ParseRepo("/repo/.bark/config.toml", []byte("house_rules = false\nhouse_rules_files = ['./AGENTS.md', 'docs/STYLE.md']\n"))
+	require.NoError(t, err)
+	assert.Equal(t, RepoData{HouseRules: new(false), HouseRulesFiles: &[]string{"./AGENTS.md", "docs/STYLE.md"}}, got)
+
+	empty, err := ParseRepo("/repo/.bark/config.toml", []byte("house_rules_files = []\n"))
+	require.NoError(t, err)
+	require.NotNil(t, empty.HouseRulesFiles, "an empty list is set, not missing")
+	assert.Empty(t, *empty.HouseRulesFiles)
+
+	for _, bad := range []string{"/etc/passwd", "../x.md", "docs/"} {
+		_, err := ParseRepo("/repo/.bark/config.toml", []byte("house_rules_files = ['"+bad+"']\n"))
+		require.Error(t, err, bad)
+		assert.Contains(t, err.Error(), "house_rules_files")
+		assert.Contains(t, err.Error(), "/repo/.bark/config.toml")
+	}
+}

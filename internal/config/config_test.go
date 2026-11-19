@@ -142,6 +142,11 @@ func readSaved(t *testing.T, path string) Data {
 
 	var saved Data
 	require.NoError(t, toml.Unmarshal(content, &saved))
+	// An unset list is saved as [], which reads back empty; both mean the
+	// default files.
+	if len(saved.HouseRulesFiles) == 0 {
+		saved.HouseRulesFiles = nil
+	}
 	return saved
 }
 

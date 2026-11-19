@@ -181,6 +181,8 @@ type reviewModel struct {
 	// structured means the model returns findings as JSON Lines; renderer
 	// turns them into Markdown as they stream.
 	structured bool
+	// houseRules describes the house rules for the BARK_DEBUG log.
+	houseRules string
 	renderer   *findings.Renderer
 	// minSeverity leaves out less severe findings; "" shows them all.
 	minSeverity findings.Severity
@@ -564,13 +566,17 @@ func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	m.finishLog(errors.New("review restarted"))
 	// A failed log must not stop the review; the TUI has nowhere to report
 	// it without covering the review.
+	fields := []debuglog.Field{
+		{Key: "provider", Value: m.provider},
+		{Key: "model", Value: m.llmModel},
+		{Key: "reviewer", Value: m.reviewer.Name},
+		{Key: "structured", Value: strconv.FormatBool(m.structured)},
+	}
+	if m.houseRules != "" {
+		fields = append(fields, debuglog.Field{Key: "house_rules", Value: m.houseRules})
+	}
 	m.debugLog, _ = debuglog.Start(m.logDir, "review", debuglog.Meta{
-		Fields: []debuglog.Field{
-			{Key: "provider", Value: m.provider},
-			{Key: "model", Value: m.llmModel},
-			{Key: "reviewer", Value: m.reviewer.Name},
-			{Key: "structured", Value: strconv.FormatBool(m.structured)},
-		},
+		Fields:  fields,
 		System:  m.system,
 		Prompt:  m.prompt,
 		Pricing: m.pricing,

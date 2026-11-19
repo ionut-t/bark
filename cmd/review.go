@@ -39,6 +39,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().Bool("with-description", false, "Include the PR description in the review context (only applies with --pr)")
 	cmd.Flags().Bool("with-context", false, "Include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review")
 	cmd.Flags().Bool("structured", false, "Ask for structured findings (file, line, severity, suggestion); the reviewer persona voices the intro, remarks and verdict")
+	cmd.Flags().Bool("house-rules", true, "Read the repository's house rules (AGENTS.md and CLAUDE.md, or the house_rules_files config) into the review and hold the change to them (overrides config)")
 	cmd.Flags().Bool("check", true, "Check structured findings with a second model call that reads the code around them, and set aside the ones that don't hold up (overrides config)")
 	cmd.Flags().String("min-severity", "", "Show only structured findings of this severity or higher: "+strings.Join(config.Severities(), ", ")+" (overrides config)")
 	cmd.Flags().String("fail-on", "", "Exit with status 3 when the review keeps a structured finding of this severity or higher: "+strings.Join(config.Severities(), ", ")+"; doubted findings and repeats of points dismissed on the pull request don't count, repeats of other points raised before do (overrides config; implies --structured and plain output)")
@@ -114,6 +115,11 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	if cmd.Flags().Changed("structured") {
 		structured, _ := cmd.Flags().GetBool("structured")
 		cfg.OverrideStructuredFindings(structured)
+	}
+
+	if cmd.Flags().Changed("house-rules") {
+		houseRules, _ := cmd.Flags().GetBool("house-rules")
+		cfg.OverrideHouseRules(houseRules)
 	}
 
 	if cmd.Flags().Changed("check") {
