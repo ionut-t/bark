@@ -221,9 +221,9 @@ func TestPartialReviewNote(t *testing.T) {
 	assert.Empty(t, partialReviewNote(nil))
 	assert.Equal(t, events, withPartialNote(events, nil))
 
-	cut := &git.DiffCut{Files: 5, Kept: 2, Setting: "max_diff_tokens"}
+	cut := &git.DiffCut{Files: 5, Kept: 2, Setting: "max_diff_tokens", Dropped: []string{"c_test.go", "d.md", "e.md"}}
 	note := partialReviewNote(cut)
-	assert.Equal(t, "> **Partial review:** Bark reviewed only the first 2 of 5 changed files: the diff was cut to fit max_diff_tokens.\n", note)
+	assert.Equal(t, "> **Partial review:** Bark reviewed only 2 of 5 changed files: the diff was cut to fit max_diff_tokens, code first and tests, docs, fixtures and generated files last. Left out: `c_test.go`, `d.md` and `e.md`.\n", note)
 
 	got := withPartialNote(events, cut)
 	require.Len(t, got, len(events)+1)

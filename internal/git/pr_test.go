@@ -200,7 +200,7 @@ func TestGetReviewDiff_PRDiffLocalFallback(t *testing.T) {
 			r, err := GetReviewDiff(t.Context(), PRDiff("7").WithLimit(DiffLimit{Tokens: uint32(float64(at) / tokens.CharsPerToken)}))
 			require.NoError(t, err)
 			require.NotNil(t, r.Cut)
-			assert.Equal(t, &DiffCut{Files: 3, Kept: 2, Partial: true, Setting: "max_diff_tokens"}, r.Cut, "a.txt, b.txt and feature.txt")
+			assert.Equal(t, &DiffCut{Files: 3, Kept: 2, Partial: true, PartialFile: "b.txt", Dropped: []string{"feature.txt"}, Setting: "max_diff_tokens"}, r.Cut, "a.txt, b.txt and feature.txt")
 		})
 	})
 

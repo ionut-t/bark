@@ -218,6 +218,18 @@ max_diff_tokens = 50000
 
 If the repository's config picks a different provider or model from yours, Bark prints a warning (a repository's `llm_model` alone can switch your provider, as above) on every run that uses it, because the run uses your credentials for that provider. Pass `--provider`/`--model` to choose your own.
 
+### Large diffs
+
+When a diff is larger than `max_diff_tokens`, Bark keeps the most important files and leaves out the rest. It keeps them in this order:
+
+1. Code
+2. Tests, such as `*_test.go`, `*.spec.ts` or files in `tests/`
+3. Docs, such as `*.md` or files in `docs/`
+4. Fixtures, such as `*.snap` or files in `testdata/`
+5. Generated files, marked with a `Code generated ... DO NOT EDIT.` or `@generated` comment
+
+The review starts with a note listing the files it left out. On a pull request, the next run reviews those changes again.
+
 ### Ignoring files
 
 Bark leaves lock files and checksums (`*.sum`, `*.lock`, `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `bun.lockb`), generated protobuf code (`*.pb.go`, `*.pb.gw.go`) and minified assets (`*.min.js`, `*.min.css`) out of every diff it sends to a model. The manifest that changed a lock file, such as `go.mod` or `package.json`, is still reviewed. List more paths in a `.barkignore` file at the repository's top level. It uses `.gitignore` syntax:

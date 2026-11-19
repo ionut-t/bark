@@ -181,9 +181,10 @@ func firstNonWhitespaceColumn(lines []string, row uint32) uint32 {
 
 // newFilePath extracts the new-side path from a `+++ ` diff header line.
 // It handles git-quoted paths (`+++ "b/caf\303\251.go"`) and paths containing
-// spaces. Returns "" for `+++ /dev/null` (deleted file) or unparsable lines.
+// spaces, which git ends with a tab. Returns "" for `+++ /dev/null` (deleted
+// file) or unparsable lines.
 func newFilePath(line string) string {
-	p := strings.TrimPrefix(line, "+++ ")
+	p := strings.TrimSuffix(strings.TrimPrefix(line, "+++ "), "\t")
 	if p == "/dev/null" {
 		return ""
 	}

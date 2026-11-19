@@ -318,68 +318,21 @@ func GetBranchDiff(ctx context.Context, branch string, limit DiffLimit) (string,
 }
 
 // branchDiff is GetBranchDiff that also returns the cut, or nil if the whole
-// diff fits. It keeps only what fits, but reads the rest of the diff to
-// count its files.
+// diff fits.
 func branchDiff(ctx context.Context, branch string, limit DiffLimit) (string, *DiffCut, error) {
 	return rangeDiff(ctx, branchRange(branch), limit)
 }
 
-// rangeDiff is branchDiff for any range, such as "<base>...<head>".
+// rangeDiff is branchDiff for any range, such as "<base>...<head>". The
+// whole diff is read before it is cut, so its files can be ranked.
 func rangeDiff(ctx context.Context, rng string, limit DiffLimit) (string, *DiffCut, error) {
 	args := append([]string{"diff", rng, "--"}, excludes(ctx)...)
-	cmd := exec.CommandContext(ctx, "git", args...)
-
-	if limit == (DiffLimit{}) {
-		output, err := cmd.Output()
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to get branch diff: %w", err)
-		}
-		return string(output), nil, nil
-	}
-
-	stdout, err := cmd.StdoutPipe()
+	output, err := exec.CommandContext(ctx, "git", args...).Output()
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get branch diff: %w", err)
 	}
-	if err := cmd.Start(); err != nil {
-		return "", nil, fmt.Errorf("failed to get branch diff: %w", err)
-	}
-
-	var sb strings.Builder
-	c := diffCutter{budget: diffBudget{limit: limit}}
-	// A reader, not a Scanner: a Scanner fails on a line longer than its
-	// buffer, which would stop the file count after the cut.
-	reader := bufio.NewReader(stdout)
-	var readErr error
-	for {
-		line, err := reader.ReadString('\n')
-		if line != "" {
-			if !strings.HasSuffix(line, "\n") {
-				line += "\n"
-			}
-			sb.WriteString(c.line(line))
-		}
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				readErr = err
-			}
-			break
-		}
-	}
-
-	if waitErr := cmd.Wait(); waitErr != nil {
-		return "", nil, fmt.Errorf("failed to get branch diff: %w", waitErr)
-	}
-	if readErr != nil {
-		return "", nil, fmt.Errorf("failed to read branch diff: %w", readErr)
-	}
-
-	cut := c.result()
-	if cut != nil {
-		sb.WriteString(truncatedMarker)
-	}
-
-	return sb.String(), cut, nil
+	diff, cut := truncateDiff(string(output), limit)
+	return diff, cut, nil
 }
 
 func CommitChanges(ctx context.Context, message string, all bool) (<-chan string, <-chan error) {
@@ -827,8 +780,7 @@ func BranchDiff(branch string) ReviewDiffParams {
 }
 
 // WithLimit returns a copy of the params with limit applied to the diff.
-// For branch diffs the limit is enforced while git's output is read; for
-// all other sources the diff is cut after it is fetched.
+// Every source is cut the same way, after the whole diff is fetched.
 func (p ReviewDiffParams) WithLimit(limit DiffLimit) ReviewDiffParams {
 	p.limit = limit
 	return p

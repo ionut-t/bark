@@ -86,9 +86,9 @@ func TestGetBranchDiff_TokenLimit(t *testing.T) {
 func TestTruncateDiffReportsCut(t *testing.T) {
 	t.Parallel()
 
-	// Three files of three lines: a 13-byte header and two 3-byte lines,
-	// 19 bytes a file.
-	diff := "diff --git a\n+1\n+2\n" + "diff --git b\n+1\n+2\n" + "diff --git c\n+1\n+2\n"
+	// Three files of three lines: a 19-byte header and two 3-byte lines,
+	// 25 bytes a file.
+	diff := "diff --git a/a b/a\n+1\n+2\n" + "diff --git a/b b/b\n+1\n+2\n" + "diff --git a/c b/c\n+1\n+2\n"
 
 	tests := []struct {
 		name  string
@@ -96,13 +96,13 @@ func TestTruncateDiffReportsCut(t *testing.T) {
 		want  *DiffCut
 	}{
 		{name: "no limit", want: nil},
-		{name: "whole diff fits", limit: DiffLimit{Tokens: 23}, want: nil}, // 57 bytes
-		{name: "tokens: cut inside the second file", limit: DiffLimit{Tokens: 14}, want: &DiffCut{Files: 3, Kept: 2, Partial: true, Setting: "max_diff_tokens"}}, // 35 bytes
-		{name: "tokens: cut at a file boundary", limit: DiffLimit{Tokens: 10}, want: &DiffCut{Files: 3, Kept: 1, Setting: "max_diff_tokens"}},                    // 25 bytes
-		{name: "tokens: first line cut", limit: DiffLimit{Tokens: 2}, want: &DiffCut{Files: 3, Kept: 1, Partial: true, Setting: "max_diff_tokens"}},
-		{name: "lines: cut inside the second file", limit: DiffLimit{Lines: 4}, want: &DiffCut{Files: 3, Kept: 2, Partial: true, Setting: "max_diff_lines"}},
-		{name: "lines: cut at a file boundary", limit: DiffLimit{Lines: 6}, want: &DiffCut{Files: 3, Kept: 2, Setting: "max_diff_lines"}},
-		{name: "lines: cut inside the first file", limit: DiffLimit{Lines: 1}, want: &DiffCut{Files: 3, Kept: 1, Partial: true, Setting: "max_diff_lines"}},
+		{name: "whole diff fits", limit: DiffLimit{Tokens: 30}, want: nil}, // 75 bytes
+		{name: "tokens: cut inside the second file", limit: DiffLimit{Tokens: 18}, want: &DiffCut{Files: 3, Kept: 2, Partial: true, PartialFile: "b", Dropped: []string{"c"}, Setting: "max_diff_tokens"}}, // 45 bytes
+		{name: "tokens: cut at a file boundary", limit: DiffLimit{Tokens: 10}, want: &DiffCut{Files: 3, Kept: 1, Dropped: []string{"b", "c"}, Setting: "max_diff_tokens"}},                                 // 25 bytes
+		{name: "tokens: first line cut", limit: DiffLimit{Tokens: 2}, want: &DiffCut{Files: 3, Kept: 1, Partial: true, PartialFile: "a", Dropped: []string{"b", "c"}, Setting: "max_diff_tokens"}},
+		{name: "lines: cut inside the second file", limit: DiffLimit{Lines: 4}, want: &DiffCut{Files: 3, Kept: 2, Partial: true, PartialFile: "b", Dropped: []string{"c"}, Setting: "max_diff_lines"}},
+		{name: "lines: cut at a file boundary", limit: DiffLimit{Lines: 6}, want: &DiffCut{Files: 3, Kept: 2, Dropped: []string{"c"}, Setting: "max_diff_lines"}},
+		{name: "lines: cut inside the first file", limit: DiffLimit{Lines: 1}, want: &DiffCut{Files: 3, Kept: 1, Partial: true, PartialFile: "a", Dropped: []string{"b", "c"}, Setting: "max_diff_lines"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -116,9 +116,9 @@ func TestTruncateDiffReportsCut(t *testing.T) {
 func TestDiffCutSummary(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "Bark reviewed only the first 2 of 5 changed files, the last of them in part: the diff was cut to fit max_diff_tokens.",
-		DiffCut{Files: 5, Kept: 2, Partial: true, Setting: "max_diff_tokens"}.Summary())
-	assert.Equal(t, "Bark reviewed only the first 2 of 5 changed files: the diff was cut to fit max_diff_lines.",
+	assert.Equal(t, "Bark reviewed only 2 of 5 changed files, one of them in part: the diff was cut to fit max_diff_tokens, code first and tests, docs, fixtures and generated files last.",
+		DiffCut{Files: 5, Kept: 2, Partial: true, Setting: "max_diff_tokens"}.Summary(), "no names known")
+	assert.Equal(t, "Bark reviewed only 2 of 5 changed files: the diff was cut to fit max_diff_lines, code first and tests, docs, fixtures and generated files last.",
 		DiffCut{Files: 5, Kept: 2, Setting: "max_diff_lines"}.Summary())
 	assert.Equal(t, "Bark reviewed only part of the 1 changed file: the diff was cut to fit max_diff_tokens.",
 		DiffCut{Files: 1, Kept: 1, Partial: true, Setting: "max_diff_tokens"}.Summary())
@@ -139,7 +139,7 @@ func TestGetReviewDiffReportsCut(t *testing.T) {
 		require.Less(t, at, strings.Index(full, "diff --git a/c.txt"))
 		return DiffLimit{Tokens: uint32(float64(at) / tokens.CharsPerToken)}
 	}
-	want := &DiffCut{Files: 4, Kept: 2, Partial: true, Setting: "max_diff_tokens"}
+	want := &DiffCut{Files: 4, Kept: 2, Partial: true, PartialFile: "b.txt", Dropped: []string{"c.txt", "feature.txt"}, Setting: "max_diff_tokens"}
 
 	t.Run("branch", func(t *testing.T) {
 		commitFile(t, dir, "a.txt", small)
