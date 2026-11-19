@@ -41,24 +41,62 @@ type DiffCut struct {
 	// Partial.
 	Files, Kept int
 	Partial     bool
+	// PartialFile is the path of the file cut in part, if Partial and the
+	// diff says.
+	PartialFile string
+	// Dropped are the paths of the files left out, in the order they
+	// would have come next; "" for a file whose path the diff doesn't say.
+	Dropped []string
 	// Setting names the setting whose limit cut the diff.
 	Setting string
 }
 
-// Summary tells the user how much of the change was reviewed.
+// maxNamedFiles caps how many left-out files Summary names.
+const maxNamedFiles = 10
+
+// Summary tells the user how much of the change was reviewed, and which
+// files were left out.
 func (c DiffCut) Summary() string {
-	limit := "the diff was cut to fit " + c.Setting + "."
 	switch c.Files {
 	case 0:
 		return "Bark reviewed only part of the diff: it was cut to fit " + c.Setting + "."
 	case 1:
-		return "Bark reviewed only part of the 1 changed file: " + limit
+		return "Bark reviewed only part of the 1 changed file: the diff was cut to fit " + c.Setting + "."
 	}
-	s := fmt.Sprintf("Bark reviewed only the first %d of %d changed files", c.Kept, c.Files)
+	s := fmt.Sprintf("Bark reviewed only %d of %d changed files", c.Kept, c.Files)
 	if c.Partial {
-		s += ", the last of them in part"
+		if c.PartialFile != "" {
+			s += ", `" + c.PartialFile + "` in part"
+		} else {
+			s += ", one of them in part"
+		}
 	}
-	return s + ": " + limit
+	s += ": the diff was cut to fit " + c.Setting + ", code first and tests, docs, fixtures and generated files last."
+	if names := nameFiles(c.Dropped); names != "" {
+		s += " Left out: " + names + "."
+	}
+	return s
+}
+
+// nameFiles lists up to maxNamedFiles of paths, and how many more there
+// are. Paths that are "" are only counted.
+func nameFiles(paths []string) string {
+	var named []string
+	for _, p := range paths {
+		if p != "" && len(named) < maxNamedFiles {
+			named = append(named, "`"+p+"`")
+		}
+	}
+	more := len(paths) - len(named)
+	switch {
+	case len(named) == 0:
+		return ""
+	case more > 0:
+		return strings.Join(named, ", ") + fmt.Sprintf(" and %d more", more)
+	case len(named) == 1:
+		return named[0]
+	}
+	return strings.Join(named[:len(named)-1], ", ") + " and " + named[len(named)-1]
 }
 
 // fileHeader starts each file's part of a diff.
@@ -141,12 +179,32 @@ func (b *diffBudget) take(line string) (string, bool) {
 }
 
 // truncateDiff cuts diff to limit, at a line end, and marks the cut. The
-// cut is nil if the whole diff fits.
+// cut is nil if the whole diff fits, and the diff is then as it was. A diff
+// that doesn't fit has its files ranked first (see pathTier), so code is
+// kept before tests, docs, fixtures and generated files.
 func truncateDiff(diff string, limit DiffLimit) (string, *DiffCut) {
 	if limit == (DiffLimit{}) || diff == "" {
 		return diff, nil
 	}
+	// Ranking doesn't change the diff's size, so a diff that fits in its
+	// own order fits ranked.
+	if _, cut := cutDiff(diff, limit); cut == nil {
+		return diff, nil
+	}
 
+	ranked, files := rankFiles(diff)
+	out, cut := cutDiff(ranked, limit)
+	if cut.Partial && cut.Kept > 0 && cut.Kept <= len(files) {
+		cut.PartialFile = files[cut.Kept-1].path
+	}
+	for _, f := range files[min(cut.Kept, len(files)):] {
+		cut.Dropped = append(cut.Dropped, f.path)
+	}
+	return out, cut
+}
+
+// cutDiff is truncateDiff in the diff's own order, without naming files.
+func cutDiff(diff string, limit DiffLimit) (string, *DiffCut) {
 	c := diffCutter{budget: diffBudget{limit: limit}}
 	var out string
 	for start := 0; start < len(diff); {
