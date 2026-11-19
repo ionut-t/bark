@@ -90,8 +90,12 @@ func build(events []findings.Event, diff string, scope Scope) Review {
 	// a review can have no inline comments (no findings, or all doubted).
 	comments := []Comment{}
 	var rest []findings.Event
-	var doubted, repeats []findings.Finding
+	var doubted, repeats, dismissed []findings.Finding
 	for _, e := range events {
+		if e.Finding != nil && e.Finding.Dismissed != "" {
+			dismissed = append(dismissed, *e.Finding)
+			continue
+		}
 		if e.Finding != nil && e.Finding.RaisedBefore != "" {
 			repeats = append(repeats, *e.Finding)
 			continue
@@ -115,6 +119,9 @@ func build(events []findings.Event, diff string, scope Scope) Review {
 		"A second pass checked these against the code and doubts them.", findings.DoubtedList))
 	rest = beforeVerdict(rest, setAsideBlock(repeats, "Raised before on this pull request: %d finding(s)",
 		"An earlier review of this pull request already raised these, so they aren't posted again.", findings.RaisedBeforeList))
+	rest = beforeVerdict(rest, setAsideBlock(dismissed, "Dismissed on this pull request: %d finding(s)",
+		"Someone with write access dismissed these points on an earlier review (👎 or \"won't fix\"), so they aren't posted again.",
+		findings.DismissedList))
 
 	body := Marker + "\n## Bark AI Code Review\n\n"
 	if scope.Since != "" {

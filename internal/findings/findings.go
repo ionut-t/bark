@@ -55,6 +55,16 @@ type Finding struct {
 	// request raised that this finding repeats, as Bark's check found. Empty
 	// if it isn't a repeat.
 	RaisedBefore string `json:"-"`
+	// Dismissed is set when someone dismissed a point on the pull request
+	// (a 👎 or a "won't fix" reply on Bark's inline comment). On a point
+	// raised before, it says how it was dismissed; on a new finding, it
+	// names the dismissed point the finding repeats, as Bark's check found.
+	// A finding that repeats a dismissed point isn't posted and doesn't
+	// count for fail_on.
+	Dismissed string `json:"-"`
+	// Commit is, on a point raised before, the commit its review was
+	// posted on, which its line numbers refer to; empty if unknown.
+	Commit string `json:"-"`
 }
 
 // maxSentence is the most bytes FirstSentence returns, before the ellipsis.
@@ -76,9 +86,9 @@ func FirstSentence(s string) string {
 }
 
 // SetAside reports whether Bark's check set f aside: doubted, or a repeat
-// of a point raised before.
+// of a point raised or dismissed before.
 func (f Finding) SetAside() bool {
-	return f.Doubt != "" || f.RaisedBefore != ""
+	return f.Doubt != "" || f.RaisedBefore != "" || f.Dismissed != ""
 }
 
 // Event is one parsed line of output. Exactly one field is set: the

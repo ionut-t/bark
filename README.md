@@ -91,12 +91,13 @@ bark review --pr 42 --comment --full
 
 #### Checking findings
 
-Before a structured review (`--structured` or `--comment`) is shown in full or posted, Bark checks its findings with a second model call. The check reads the files the findings point to (whole, or only the lines around each finding for files over 1,500 lines) and must quote the code each finding rests on. Two kinds of finding are set aside:
+Before a structured review (`--structured` or `--comment`) is shown in full or posted, Bark checks its findings with a second model call. The check reads the files the findings point to (whole, or only the lines around each finding for files over 1,500 lines) and must quote the code each finding rests on. Three kinds of finding are set aside:
 
 - **Findings that don't hold up** go in a "Doubted by Bark's check" section, each with the reason.
 - **Findings already raised** (with `--pr` only) go in a "Raised before on this pull request" block. These repeat a point from Bark's earlier reviews of the same pull request, whether it was posted, doubted or resolved. Bark finds those points in a hidden comment that each posted review leaves. They aren't posted again, but they're still in the code: the verdict still asks for them to be fixed, and `--fail-on` counts them.
+- **Findings dismissed on the pull request** (with `--pr` only) go in a "Dismissed on this pull request" block. See [Dismissing a finding](#dismissing-a-finding).
 
-In a posted review, both sections are collapsed and their findings get no inline comments.
+In a posted review, these sections are collapsed and their findings get no inline comments.
 
 The check adds:
 
@@ -109,6 +110,14 @@ To turn the check off:
 bark review --check=false            # for one review
 bark config --check-findings=false   # for good
 ```
+
+#### Dismissing a finding
+
+To tell Bark you won't fix a finding, react 👎 to its inline comment or reply "won't fix". Later repeats of it aren't posted, and `--fail-on` doesn't count them.
+
+- Only people with write access can dismiss (owners, members, collaborators). Bots can't.
+- Resolving the thread doesn't dismiss: threads are also resolved after a fix.
+- The check decides what's a repeat. To help it, Bark points out findings on the same lines as a dismissed one, if those lines haven't changed since. This needs the earlier review's commit in the local repository (in CI, check out with `fetch-depth: 0`).
 
 #### Filtering by severity
 
@@ -138,7 +147,7 @@ A finding that repeats a point raised in an earlier review of the same pull requ
 
 In GitHub Actions, set the `fail-on` input of the `bark-review` action. It posts the review and adds the label, then fails the job.
 
-With `--comment`, a pull request Bark reviewed before is reviewed only from the commits since its last review. A later push that doesn't touch the code an earlier finding is about won't find it again, so it can pass while the issue is still there. Pass `--full` (or set `full-review`) to review the whole pull request each time, so every unfixed finding fails the run again. There's no way yet to mark a finding "won't fix": to get past one, run the review without `--fail-on`.
+With `--comment`, a pull request Bark reviewed before is reviewed only from the commits since its last review. A later push that doesn't touch the code an earlier finding is about won't find it again, so it can pass while the issue is still there. Pass `--full` (or set `full-review`) to review the whole pull request each time, so every unfixed finding fails the run again. To get past a finding you won't fix, [dismiss it](#dismissing-a-finding).
 
 ### Commit Message Generation
 

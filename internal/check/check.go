@@ -41,8 +41,9 @@ type Result struct {
 	// Checked is the number of findings the check gave a verdict on,
 	// Doubted how many of those it doubted, and RaisedBefore how many it
 	// found repeat a point raised before on the pull request (these have
-	// RaisedBefore set instead of Doubt).
-	Checked, Doubted, RaisedBefore int
+	// RaisedBefore set instead of Doubt), and Dismissed how many it found
+	// repeat a point dismissed on the pull request (Dismissed set instead).
+	Checked, Doubted, RaisedBefore, Dismissed int
 	// Usage is the check call's token usage, if the provider reported it
 	// (also on a failed call, which may still be billed).
 	Usage *llm.Usage
@@ -87,6 +88,9 @@ func Run(ctx context.Context, client llm.LLM, in Input, events []findings.Event,
 				res.Checked++
 			}
 			switch {
+			case o.Dismissed != "":
+				res.Dismissed++
+				f.Dismissed = o.Dismissed
 			case o.RaisedBefore != "":
 				res.RaisedBefore++
 				f.RaisedBefore = o.RaisedBefore
@@ -136,8 +140,13 @@ type Input struct {
 	Related []enclosing.Piece
 	// Prior is what earlier reviews of the same pull request raised, oldest
 	// first. The check drops a finding that repeats one of these points
-	// (see priorPoints for what it's shown).
+	// (see priorPoints for what it's shown). A point with Dismissed set was
+	// dismissed on the pull request; a repeat of it is marked Dismissed.
 	Prior []findings.Finding
+	// SameLines maps a finding, by its index among the findings, to a
+	// dismissed point in Prior whose lines it's on, unchanged since. The
+	// check is told, and decides whether it's the same problem.
+	SameLines map[int]findings.Finding
 }
 
 // Prompt builds the user prompt for checking fs.
@@ -170,13 +179,24 @@ func Prompt(in Input, fs []findings.Finding) string {
 		b.WriteString("\n## Raised before on this pull request\n\n" +
 			"Earlier reviews of this pull request already reported these points. Line numbers are from earlier commits.\n\n")
 		for i, p := range points {
-			fmt.Fprintf(&b, "%d. `%s` %s: %s\n", i+1, location(p), oneLine(p.Title), findings.FirstSentence(p.Body))
+			dismissed := ""
+			if p.Dismissed != "" {
+				dismissed = " (dismissed on this pull request: won't fix)"
+			}
+			fmt.Fprintf(&b, "%d. `%s` %s: %s%s\n", i+1, location(p), oneLine(p.Title), findings.FirstSentence(p.Body), dismissed)
 		}
 	}
 
+	numbers := map[string]int{}
+	for i, p := range priorPoints(in.Prior) {
+		numbers[priorKey(p)] = i + 1
+	}
 	b.WriteString("\n## Findings\n\n")
 	for i, f := range fs {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, findingJSON(f))
+		if p, ok := in.SameLines[i]; ok && numbers[priorKey(p)] > 0 {
+			fmt.Fprintf(&b, "   Note: on the same lines as point %d (dismissed), which haven't changed since.\n", numbers[priorKey(p)])
+		}
 	}
 	return b.String()
 }
@@ -187,16 +207,27 @@ const maxPriorPoints = 40
 
 // priorPoints returns the points raised before that the check is shown and
 // numbered by: each point once (the same file and title, in any case, is
-// one point; its most recent copy is kept), the most recent maxPriorPoints.
+// one point; its most recent copy is kept, dismissed if any copy was), the
+// most recent maxPriorPoints.
 func priorPoints(prior []findings.Finding) []findings.Finding {
+	key := priorKey
+	dismissed := map[string]string{}
+	for _, p := range prior {
+		if p.Dismissed != "" {
+			dismissed[key(p)] = p.Dismissed
+		}
+	}
 	seen := map[string]bool{}
 	var out []findings.Finding
 	for _, p := range slices.Backward(prior) {
-		key := p.File + "\x00" + strings.ToLower(oneLine(p.Title))
-		if p.File == "" || seen[key] {
+		k := key(p)
+		if p.File == "" || seen[k] {
 			continue
 		}
-		seen[key] = true
+		seen[k] = true
+		if p.Dismissed == "" {
+			p.Dismissed = dismissed[k]
+		}
 		out = append(out, p)
 		if len(out) == maxPriorPoints {
 			break
@@ -204,6 +235,12 @@ func priorPoints(prior []findings.Finding) []findings.Finding {
 	}
 	slices.Reverse(out)
 	return out
+}
+
+// priorKey identifies a point raised before: the same file and title, in
+// any case, is one point.
+func priorKey(p findings.Finding) string {
+	return p.File + "\x00" + strings.ToLower(oneLine(p.Title))
 }
 
 // raisedBeforeRe matches the start of a drop reason that names the point
@@ -441,6 +478,9 @@ type Outcome struct {
 	// RaisedBefore is set when the finding was dropped as a repeat of a
 	// point raised before: that point's title and location.
 	RaisedBefore string
+	// Dismissed is set instead of RaisedBefore when that point was
+	// dismissed on the pull request.
+	Dismissed string
 }
 
 // Apply decides each finding from the verdicts. A kept finding must come
@@ -459,7 +499,12 @@ func Apply(in Input, fs []findings.Finding, verdicts map[int]Verdict) []Outcome 
 		case v.Verdict != "keep":
 			out[i] = Outcome{Finding: f, Reason: v.Reason}
 			if p, ok := raisedBefore(v.Reason, f, points); ok {
-				out[i].RaisedBefore = fmt.Sprintf("%s (`%s`)", oneLine(p.Title), location(p))
+				point := fmt.Sprintf("%s (`%s`)", oneLine(p.Title), location(p))
+				if p.Dismissed != "" {
+					out[i].Dismissed = point
+				} else {
+					out[i].RaisedBefore = point
+				}
 			}
 		case !code.contains(v.Evidence):
 			out[i] = Outcome{Finding: f, Reason: "the check couldn't quote code that backs it"}
@@ -610,6 +655,9 @@ type Review struct {
 	// Prior is what earlier reviews of the same pull request raised (see
 	// Input.Prior); nil outside a pull request.
 	Prior []findings.Finding
+	// SameLines, if not nil, finds the findings on unchanged lines of a
+	// dismissed point (see Input.SameLines).
+	SameLines func([]findings.Finding) map[int]findings.Finding
 	// LogDir, Provider and Model are for the BARK_DEBUG log. OnLog, if not
 	// nil, is told where the log is, or why it couldn't be started.
 	LogDir, Provider, Model string
@@ -624,12 +672,16 @@ func (r Review) Run(ctx context.Context, events []findings.Event) (Result, error
 	files := LoadFiles(events, func(path string) ([]byte, error) {
 		return r.ReviewDiff.NewSideFile(ctx, path)
 	})
+	fs := findingsIn(events)
 	in := Input{
 		Header:  r.ReviewDiff.ContextHeader,
 		Diff:    r.Diff,
 		Files:   files,
-		Related: related(ctx, r.ReviewDiff, r.ReviewDiff.Diff, findingsIn(events), files),
+		Related: related(ctx, r.ReviewDiff, r.ReviewDiff.Diff, fs, files),
 		Prior:   r.Prior,
+	}
+	if r.SameLines != nil {
+		in.SameLines = r.SameLines(fs)
 	}
 	return Run(ctx, r.Client, in, events, r.startLog("check"))
 }

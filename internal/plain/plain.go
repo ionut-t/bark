@@ -240,6 +240,7 @@ func RunReview(opts ReviewOptions) error {
 			r.Persona = reviewer.Prompt
 		}
 		r.Prior = hist.Findings
+		r.SameLines = sameLinesHint(os.Stderr, hist.Findings, lineMapper(reviewDiff.PRHead()))
 		checkFn = func(events []findings.Event) ([]findings.Event, int) {
 			return checkFindings(r, events, meter)
 		}
@@ -296,7 +297,7 @@ func concludeReview(w io.Writer, events []findings.Event, failOn findings.Severi
 }
 
 // gate returns a *FailOnError if events hold findings at or above failOn
-// that Bark's check didn't doubt, and lists them on w. Repeats of points
+// that Bark's check didn't doubt or find dismissed, and lists them on w. Repeats of points
 // raised before count, since they're still in the code; when the check
 // didn't run or failed, every finding counts.
 func gate(w io.Writer, events []findings.Event, failOn findings.Severity) error {
@@ -572,14 +573,66 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter)
 }
 
 // checkSummary is the stderr line saying what the check kept. Kept means
-// not doubted, as for fail_on: repeats of points raised before are still
-// in the code, only not posted again.
+// counted for fail_on: neither doubted nor dismissed on the pull request.
+// Repeats of points raised before are kept: they're still in the code,
+// only not posted again.
 func checkSummary(res check.Result) string {
-	s := fmt.Sprintf("bark: the check kept %d of %d finding(s)", res.Checked-res.Doubted, res.Checked)
+	s := fmt.Sprintf("bark: the check kept %d of %d finding(s)", res.Checked-res.Doubted-res.Dismissed, res.Checked)
 	if res.RaisedBefore > 0 {
 		s += fmt.Sprintf("; %d raised before on this pull request, not posted again", res.RaisedBefore)
 	}
+	if res.Dismissed > 0 {
+		s += fmt.Sprintf("; %d dismissed on this pull request, not posted", res.Dismissed)
+	}
 	return s + "\n"
+}
+
+// sameLinesHint returns the check's hook that finds the findings on lines
+// of a point dismissed on the pull request (in prior) that haven't changed
+// since (see prreview.DismissedOnLines), warning on w about lookups that
+// failed. It's nil without mapLines (no pull request head to compare with).
+func sameLinesHint(w io.Writer, prior []findings.Finding, mapLines prreview.MapLines) func([]findings.Finding) map[int]findings.Finding {
+	if mapLines == nil {
+		return nil
+	}
+	return func(fs []findings.Finding) map[int]findings.Finding {
+		hint, err := prreview.DismissedOnLines(fs, prior, mapLines)
+		if err != nil {
+			_, _ = fmt.Fprintf(w, "bark: warning: couldn't match some dismissed points by line: %v\n", err)
+		}
+		return hint
+	}
+}
+
+// lineMapper maps lines from the commits of earlier reviews to head with
+// git, reading each file's changes once. It's nil without a head.
+func lineMapper(head string) prreview.MapLines {
+	if head == "" {
+		return nil
+	}
+	type lookup struct {
+		m   git.LineMap
+		err error
+	}
+	// Failures too, so a missing commit is looked up and reported once.
+	lookups := map[string]lookup{}
+	return func(commit, path string, start, end int) (int, int, bool, error) {
+		key := commit + "\x00" + path
+		l, done := lookups[key]
+		if !done {
+			ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+			l.m, l.err = git.GetLineMap(ctx, commit, head, path)
+			cancel()
+			lookups[key] = l
+		} else if l.err != nil {
+			return 0, 0, false, nil
+		}
+		if l.err != nil {
+			return 0, 0, false, l.err
+		}
+		s, e, ok := l.m.Map(start, end)
+		return s, e, ok, nil
+	}
 }
 
 // readHistory returns what Bark's earlier reviews of pull request pr
@@ -613,8 +666,18 @@ func historyNote(w io.Writer, h prreview.History, err error, checking, increment
 		_, _ = fmt.Fprintf(w, "bark: %v; %s\n", err, strings.Join(without, ", and "))
 		return
 	}
-	if checking && len(h.Findings) > 0 {
-		_, _ = fmt.Fprintf(w, "bark: earlier reviews of this pull request raised %d finding(s)\n", len(h.Findings))
+	if !checking {
+		return
+	}
+	if len(h.Findings) > 0 {
+		dismissed := ""
+		if n := h.Dismissed(); n > 0 {
+			dismissed = fmt.Sprintf("; %d dismissed", n)
+		}
+		_, _ = fmt.Fprintf(w, "bark: earlier reviews of this pull request raised %d finding(s)%s\n", len(h.Findings), dismissed)
+	}
+	if h.DismissalsErr != nil {
+		_, _ = fmt.Fprintf(w, "bark: warning: %v; some dismissals (👎 or \"won't fix\") may be missed\n", h.DismissalsErr)
 	}
 }
 

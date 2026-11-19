@@ -93,7 +93,7 @@ func Earlier(ctx context.Context, pr string) ([]findings.Finding, error) {
 
 // earlierReviewsQuery picks Bark's reviews, each as a JSON object on a
 // line of its own: the body, and who posted it (see trustedReviewer).
-const earlierReviewsQuery = `.[] | select(.body | startswith("` + Marker + `")) | {body, user_type: .user.type, author_association} | @json`
+const earlierReviewsQuery = `.[] | select(.body | startswith("` + Marker + `")) | {id, commit_id, body, user_type: .user.type, author_association} | @json`
 
 // trustedReviewer reports whether a review posted by a user of userType
 // with association to the repository (GitHub's author_association) can be
@@ -126,6 +126,21 @@ type History struct {
 	Head string
 	// Base is the pull request's merge base that review recorded, if any.
 	Base string
+	// DismissalsErr is set when the inline comments, or who reacted to
+	// them, couldn't all be read: some dismissed findings may lack
+	// Dismissed. The rest of the history is still good.
+	DismissalsErr error
+}
+
+// Dismissed returns how many of h's findings were dismissed.
+func (h History) Dismissed() int {
+	n := 0
+	for _, f := range h.Findings {
+		if f.Dismissed != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // ReadHistory returns what the reviews Bark posted earlier on pull request
@@ -146,18 +161,23 @@ func history(ctx context.Context, run gh, pr string) (History, error) {
 	if err := json.Unmarshal(out, &meta); err != nil {
 		return History{}, fmt.Errorf("failed to parse pull request %s: %w", pr, err)
 	}
-	endpoint, err := reviewsEndpoint(meta.URL)
+	pull, err := pullPath(meta.URL)
 	if err != nil {
 		return History{}, err
 	}
 
-	out, err = run(ctx, nil, "api", "--paginate", endpoint, "--jq", earlierReviewsQuery)
+	out, err = run(ctx, nil, "api", "--paginate", pull+"/reviews", "--jq", earlierReviewsQuery)
 	if err != nil {
 		return History{}, fmt.Errorf("failed to read earlier reviews: %w", err)
 	}
 	var h History
+	var reviews []barkReview
+	// Logins known to have write access, so their 👎 needs no lookup.
+	trusted := map[string]bool{}
 	for line := range strings.SplitSeq(string(out), "\n") {
 		var r struct {
+			ID          int64  `json:"id"`
+			CommitID    string `json:"commit_id"`
 			Body        string `json:"body"`
 			UserType    string `json:"user_type"`
 			Association string `json:"author_association"`
@@ -165,10 +185,31 @@ func history(ctx context.Context, run gh, pr string) (History, error) {
 		if json.Unmarshal([]byte(line), &r) != nil || !trustedReviewer(r.UserType, r.Association) {
 			continue
 		}
-		h.Findings = append(h.Findings, Recorded(r.Body)...)
+		// It's read back into git commands: take only a hash.
+		if !commitHash.MatchString(r.CommitID) {
+			r.CommitID = ""
+		}
+		fs := Recorded(r.Body)
+		for i := range fs {
+			fs[i].Commit = r.CommitID
+		}
+		reviews = append(reviews, barkReview{id: r.ID, commit: r.CommitID, findings: fs})
 		if s := RecordedScope(r.Body); s.Head != "" {
 			h.Head, h.Base = s.Head, s.Base
 		}
+	}
+	if len(reviews) == 0 {
+		return h, nil
+	}
+
+	ids := map[int64]bool{}
+	for _, r := range reviews {
+		ids[r.id] = true
+	}
+	dismissed, err := dismissals(ctx, run, pull, ids, trusted)
+	h.DismissalsErr = err
+	for _, r := range reviews {
+		h.Findings = append(h.Findings, markDismissed(r.findings, dismissed[r.id], r.commit)...)
 	}
 	return h, nil
 }
@@ -191,15 +232,25 @@ func send(ctx context.Context, run gh, endpoint string, review Review) (Result, 
 }
 
 // reviewsEndpoint returns the reviews API path for a pull request URL such
-// as https://github.com/owner/repo/pull/12. Taking the repository from the
-// URL, rather than gh's {owner}/{repo}, keeps it right when pr is a URL to
-// another repository.
+// as https://github.com/owner/repo/pull/12.
 func reviewsEndpoint(prURL string) (string, error) {
+	pull, err := pullPath(prURL)
+	if err != nil {
+		return "", err
+	}
+	return pull + "/reviews", nil
+}
+
+// pullPath returns the API path of a pull request from its URL, such as
+// repos/owner/repo/pulls/12 for https://github.com/owner/repo/pull/12.
+// Taking the repository from the URL, rather than gh's {owner}/{repo},
+// keeps it right when pr is a URL to another repository.
+func pullPath(prURL string) (string, error) {
 	u, err := url.Parse(prURL)
 	if err == nil {
 		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 		if len(parts) == 4 && parts[2] == "pull" {
-			return fmt.Sprintf("repos/%s/%s/pulls/%s/reviews", parts[0], parts[1], parts[3]), nil
+			return fmt.Sprintf("repos/%s/%s/pulls/%s", parts[0], parts[1], parts[3]), nil
 		}
 	}
 	return "", fmt.Errorf("unexpected pull request URL %q", prURL)

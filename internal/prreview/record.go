@@ -22,6 +22,10 @@ type recorded struct {
 	EndLine int    `json:"end_line,omitempty"`
 	Title   string `json:"title"`
 	Body    string `json:"body,omitempty"`
+	// Dismissed is set on a finding set aside as a repeat of a point
+	// dismissed on the pull request, so later reviews know it was without
+	// the inline comment it never got.
+	Dismissed string `json:"dismissed,omitempty"`
 }
 
 // reviewedCommits is the line of the hidden block that names the commit
@@ -53,7 +57,8 @@ func record(events []findings.Event, scope Scope) string {
 		}
 		// json.Marshal escapes < and >, so no title or body can end the
 		// comment early.
-		line, err := json.Marshal(recorded{File: f.File, Line: f.Line, EndLine: f.EndLine, Title: f.Title, Body: findings.FirstSentence(f.Body)})
+		line, err := json.Marshal(recorded{File: f.File, Line: f.Line, EndLine: f.EndLine, Title: f.Title,
+			Body: findings.FirstSentence(f.Body), Dismissed: f.Dismissed})
 		if err != nil {
 			continue
 		}
@@ -110,7 +115,8 @@ func Recorded(body string) []findings.Finding {
 		if line == "" || json.Unmarshal([]byte(line), &r) != nil || r.File == "" || r.Title == "" {
 			continue
 		}
-		out = append(out, findings.Finding{File: r.File, Line: r.Line, EndLine: r.EndLine, Title: r.Title, Body: r.Body})
+		out = append(out, findings.Finding{File: r.File, Line: r.Line, EndLine: r.EndLine, Title: r.Title, Body: r.Body,
+			Dismissed: r.Dismissed})
 	}
 	return out
 }

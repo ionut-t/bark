@@ -752,7 +752,7 @@ func headings(lines []string) []int {
 // up, with the blank line after it: 2, or 0 without a note.
 func noteLines(lines []string, h int) int {
 	if h+2 < len(lines) && (strings.HasPrefix(lines[h+2], findings.DoubtedNote) ||
-		strings.HasPrefix(lines[h+2], findings.RaisedBeforeNote)) {
+		strings.HasPrefix(lines[h+2], findings.RaisedBeforeNote) || strings.HasPrefix(lines[h+2], findings.DismissedNote)) {
 		return 2
 	}
 	return 0
