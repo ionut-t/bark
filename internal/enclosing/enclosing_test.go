@@ -170,6 +170,23 @@ func TestModifiedLinesFromDiff_QuotedAndSpacedPaths(t *testing.T) {
 	assert.Equal(t, expected, modified)
 }
 
+// Git ends a "--- "/"+++ " line with a tab when the path has a space, so
+// the path is the same with and without the tab.
+func TestModifiedLinesFromDiff_PathWithSpaceEndsWithTab(t *testing.T) {
+	diffText := "diff --git a/my file.go b/my file.go\n" +
+		"index 1234567..89abcdf 100644\n" +
+		"--- a/my file.go\t\n" +
+		"+++ b/my file.go\t\n" +
+		"@@ -1,2 +1,3 @@\n" +
+		" package main\n" +
+		"+var c = 3\n" +
+		" \n"
+
+	assert.Equal(t, map[string][]int{"my file.go": {2}}, ModifiedLinesFromDiff(diffText))
+	assert.Equal(t, map[string]bool{"my file.go": true}, changedFiles(diffText))
+	assert.Equal(t, map[string]map[int]bool{"my file.go": {2: true}}, addedLines(diffText))
+}
+
 func TestModifiedLinesFromDiff_ConsecutiveDeletionsDeduped(t *testing.T) {
 	diffText := `diff --git a/main.go b/main.go
 index 1234567..89abcdf 100644
