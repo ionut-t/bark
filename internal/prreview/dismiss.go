@@ -204,7 +204,7 @@ func markDismissed(recorded []findings.Finding, dismissed []dismissedComment, co
 		if !matched {
 			recorded = append(recorded, findings.Finding{
 				File: d.comment.Path, Line: d.comment.Line, Title: title, Body: body,
-				Dismissed: d.how,
+				Dismissed: d.how, Commit: commit,
 			})
 		}
 	}

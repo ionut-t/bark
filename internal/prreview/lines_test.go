@@ -94,3 +94,19 @@ func TestHistoryRecordsCommits(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []findings.Finding{{File: "a.go", Line: 2, Title: "One", Body: "b", Commit: "abc1234"}}, got.Findings)
 }
+
+// A dismissed comment whose finding its review didn't record gets the
+// review's commit too, so its lines can be matched.
+func TestHistoryRecordsCommitOfUnrecordedDismissal(t *testing.T) {
+	t.Parallel()
+
+	gh := &fakeReviews{
+		bodies:   []string{Marker + "\nAn old review without records.\n"},
+		commits:  map[int]string{0: "abc1234"},
+		comments: []map[string]any{barkComment(101, 1, "a.go", 7, "**[LOW] Not recorded**\n\nb.", 0), reply(201, 101, "o", "User", "OWNER", "won't fix")},
+	}
+	got, err := history(t.Context(), gh.run, "7")
+	require.NoError(t, err)
+	assert.Equal(t, []findings.Finding{{File: "a.go", Line: 7, Title: "Not recorded", Body: "b.",
+		Dismissed: `"won't fix" from o`, Commit: "abc1234"}}, got.Findings)
+}
