@@ -37,7 +37,8 @@ func DropBelow(events []Event, min Severity) ([]Event, int) {
 }
 
 // Blocking returns the findings in events at or above threshold that Bark's
-// check didn't doubt. A repeat of a point raised before on the pull request
+// check didn't doubt, and that don't repeat a point dismissed on the pull
+// request ("won't fix"). A repeat of a point raised before on the pull request
 // counts: it isn't posted again, but the model found it again in the code,
 // so it's still there. An empty threshold blocks nothing.
 func Blocking(events []Event, threshold Severity) []Finding {
@@ -46,7 +47,7 @@ func Blocking(events []Event, threshold Severity) []Finding {
 	}
 	var out []Finding
 	for _, e := range events {
-		if e.Finding != nil && e.Finding.Doubt == "" && e.Finding.Severity.AtLeast(threshold) {
+		if e.Finding != nil && e.Finding.Doubt == "" && e.Finding.Dismissed == "" && e.Finding.Severity.AtLeast(threshold) {
 			out = append(out, *e.Finding)
 		}
 	}

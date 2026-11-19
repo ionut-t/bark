@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -82,36 +84,82 @@ func TestRecorded(t *testing.T) {
 }
 
 // fakeReviews answers gh pr view and lists the reviews in bodies, as
-// gh api --paginate --jq prints them: one JSON object per line. They're
-// posted by a bot unless untrusted names them.
+// gh api --paginate --jq prints them: one JSON object per line, review i
+// with id i+1. They're posted by a bot unless untrusted names them. It
+// answers the review comments call with comments (already as jq prints
+// them), the reactions call for a comment with reactions[id], and the
+// permission call for a user with permissions[login] (an HTTP 404 when
+// missing).
 type fakeReviews struct {
-	bodies    []string
-	untrusted map[int]bool
-	err       error
-	args      [][]string
+	bodies      []string
+	commits     map[int]string
+	untrusted   map[int]bool
+	err         error
+	comments    []map[string]any
+	commentsErr error
+	reactions   map[int][]map[string]string
+	permissions map[string]string
+	args        [][]string
 }
 
 func (f *fakeReviews) run(_ context.Context, _ []byte, args ...string) ([]byte, error) {
 	f.args = append(f.args, args)
-	switch args[0] {
-	case "pr":
+	jsonLines := func(items ...any) []byte {
+		var out []byte
+		for _, it := range items {
+			line, _ := json.Marshal(it)
+			out = append(append(out, line...), '\n')
+		}
+		return out
+	}
+	switch {
+	case args[0] == "pr":
 		return []byte(`{"url":"https://github.com/o/r/pull/7","headRefOid":"abc123"}`), nil
-	case "api":
+	case args[0] != "api":
+	case slices.Contains(args, "repos/o/r/pulls/7/reviews"):
 		if f.err != nil {
 			return nil, f.err
 		}
-		var out []byte
+		var rs []any
 		for i, b := range f.bodies {
-			r := map[string]string{"body": b, "user_type": "Bot", "author_association": "NONE"}
+			r := map[string]any{"id": i + 1, "body": b, "user_type": "Bot", "author_association": "NONE"}
+			if c := f.commits[i]; c != "" {
+				r["commit_id"] = c
+			}
 			if f.untrusted[i] {
 				r["user_type"], r["author_association"] = "User", "CONTRIBUTOR"
 			}
-			line, _ := json.Marshal(r)
-			out = append(append(out, line...), '\n')
+			rs = append(rs, r)
 		}
-		return out, nil
+		return jsonLines(rs...), nil
+	case slices.Contains(args, "repos/o/r/pulls/7/comments"):
+		if f.commentsErr != nil {
+			return nil, f.commentsErr
+		}
+		var cs []any
+		for _, c := range f.comments {
+			cs = append(cs, c)
+		}
+		return jsonLines(cs...), nil
 	}
-	return nil, errors.New("unexpected gh call")
+	for _, a := range args {
+		var id int
+		if _, err := fmt.Sscanf(a, "repos/o/r/pulls/comments/%d/reactions?content=-1", &id); err == nil {
+			var rs []any
+			for _, r := range f.reactions[id] {
+				rs = append(rs, r)
+			}
+			return jsonLines(rs...), nil
+		}
+		if login, ok := strings.CutPrefix(a, "repos/o/r/collaborators/"); ok {
+			login = strings.TrimSuffix(login, "/permission")
+			if p, ok := f.permissions[login]; ok {
+				return []byte(p + "\n"), nil
+			}
+			return nil, errors.New("exit status 1: gh: Not Found (HTTP 404)")
+		}
+	}
+	return nil, errors.New("unexpected gh call " + strings.Join(args, " "))
 }
 
 func TestEarlier(t *testing.T) {
@@ -132,9 +180,11 @@ func TestEarlier(t *testing.T) {
 		{File: "a.go", Line: 3, Title: "Two", Body: "c"},
 	}, got)
 
-	require.Len(t, gh.args, 2)
+	require.Len(t, gh.args, 3)
 	assert.Equal(t, []string{"api", "--paginate", "repos/o/r/pulls/7/reviews", "--jq",
-		`.[] | select(.body | startswith("<!-- bark-review -->")) | {body, user_type: .user.type, author_association} | @json`}, gh.args[1])
+		`.[] | select(.body | startswith("<!-- bark-review -->")) | {id, commit_id, body, user_type: .user.type, author_association} | @json`}, gh.args[1])
+	assert.Equal(t, []string{"api", "--paginate", "repos/o/r/pulls/7/comments", "--jq", reviewCommentsQuery}, gh.args[2],
+		"the inline comments, for dismissals")
 }
 
 func TestEarlierError(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 const (
 	DoubtedNote      = "> **Doubted by Bark's check:**"
 	RaisedBeforeNote = "> **Raised before on this pull request:**"
+	DismissedNote    = "> **Dismissed on this pull request:**"
 )
 
 // Markdown renders events as a Markdown review. Rendering events one batch
@@ -34,7 +35,7 @@ func MarkedMarkdown(events []Event) string {
 
 func markdown(events []Event, inPlace bool) string {
 	var b strings.Builder
-	var doubted, repeats []Finding
+	var doubted, repeats, dismissed []Finding
 	writeSetAside := func() {
 		if len(doubted) > 0 {
 			b.WriteString("## Doubted by Bark's check\n\n" +
@@ -49,6 +50,13 @@ func markdown(events []Event, inPlace bool) string {
 			b.WriteString(RaisedBeforeList(repeats))
 			repeats = nil
 		}
+		if len(dismissed) > 0 {
+			b.WriteString("## Dismissed on this pull request\n\n" +
+				"Someone with write access dismissed these points on an earlier review (👎 or \"won't fix\"), " +
+				"so they aren't repeated as findings.\n\n")
+			b.WriteString(DismissedList(dismissed))
+			dismissed = nil
+		}
 	}
 	for _, e := range events {
 		switch {
@@ -56,6 +64,8 @@ func markdown(events []Event, inPlace bool) string {
 			fmt.Fprintf(&b, "%s\n\n", e.Intro)
 		case e.Finding != nil && inPlace:
 			writeFinding(&b, *e.Finding, "")
+		case e.Finding != nil && e.Finding.Dismissed != "":
+			dismissed = append(dismissed, *e.Finding)
 		case e.Finding != nil && e.Finding.RaisedBefore != "":
 			repeats = append(repeats, *e.Finding)
 		case e.Finding != nil && e.Finding.Doubt != "":
@@ -86,6 +96,13 @@ func RaisedBeforeList(fs []Finding) string {
 	return setAsideList(fs, func(f Finding) string { return "Same point as: " + f.RaisedBefore })
 }
 
+// DismissedList renders findings that repeat a point dismissed on the pull
+// request as a Markdown list: each finding's heading and location, and the
+// dismissed point.
+func DismissedList(fs []Finding) string {
+	return setAsideList(fs, func(f Finding) string { return "Dismissed point: " + f.Dismissed })
+}
+
 func setAsideList(fs []Finding, why func(Finding) string) string {
 	var b strings.Builder
 	for _, f := range fs {
@@ -114,10 +131,12 @@ func PartialReviewNote(summary string) string {
 // already been shown, so it can be appended to it: how many findings were
 // checked, which were doubted and which were raised before.
 func CheckReport(events []Event, checked int) string {
-	var doubted, repeats []Finding
+	var doubted, repeats, dismissed []Finding
 	for _, e := range events {
 		switch {
 		case e.Finding == nil:
+		case e.Finding.Dismissed != "":
+			dismissed = append(dismissed, *e.Finding)
 		case e.Finding.RaisedBefore != "":
 			repeats = append(repeats, *e.Finding)
 		case e.Finding.Doubt != "":
@@ -127,7 +146,7 @@ func CheckReport(events []Event, checked int) string {
 	if checked == 0 {
 		return ""
 	}
-	if len(doubted) == 0 && len(repeats) == 0 {
+	if len(doubted) == 0 && len(repeats) == 0 && len(dismissed) == 0 {
 		return fmt.Sprintf("## Bark's check\n\nA second pass checked %s against the code and kept %s.\n\n",
 			plural(checked, "finding"), them(checked))
 	}
@@ -140,11 +159,10 @@ func CheckReport(events []Event, checked int) string {
 		b.WriteString(". ")
 	}
 	if len(repeats) > 0 {
-		verb := "were"
-		if len(repeats) == 1 {
-			verb = "was"
-		}
-		fmt.Fprintf(&b, "%d %s raised before on this pull request:\n\n%s", len(repeats), verb, RaisedBeforeList(repeats))
+		fmt.Fprintf(&b, "%d %s raised before on this pull request:\n\n%s", len(repeats), wasWere(len(repeats)), RaisedBeforeList(repeats))
+	}
+	if len(dismissed) > 0 {
+		fmt.Fprintf(&b, "%d %s dismissed on this pull request:\n\n%s", len(dismissed), wasWere(len(dismissed)), DismissedList(dismissed))
 	}
 	return b.String()
 }
@@ -159,6 +177,13 @@ func plural(n int, noun string) string {
 		return "1 " + noun
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+func wasWere(n int) string {
+	if n == 1 {
+		return "was"
+	}
+	return "were"
 }
 
 func them(n int) string {
@@ -179,6 +204,8 @@ func writeFinding(b *strings.Builder, f Finding, open string) {
 	b.WriteString("\n\n")
 
 	switch {
+	case f.Dismissed != "":
+		fmt.Fprintf(b, "%s %s\n\n", DismissedNote, oneLine(f.Dismissed))
 	case f.RaisedBefore != "":
 		fmt.Fprintf(b, "%s %s\n\n", RaisedBeforeNote, oneLine(f.RaisedBefore))
 	case f.Doubt != "":

@@ -35,8 +35,8 @@ func NeedsRevision(events []findings.Event) bool {
 
 // RevisePrompt builds the user prompt for Revise: the review's intro and
 // verdict, the findings that remain, those still open from earlier reviews
-// of the pull request (repeats, not posted again) and those the check
-// doubted.
+// of the pull request (repeats, not posted again) and those set aside:
+// doubted by the check, or dismissed on the pull request.
 func RevisePrompt(events []findings.Event) string {
 	var b strings.Builder
 	var kept, open, doubted strings.Builder
@@ -46,7 +46,7 @@ func RevisePrompt(events []findings.Event) string {
 			fmt.Fprintf(&b, "## Original intro\n\n%s\n\n", e.Intro)
 		case e.Verdict != "":
 			fmt.Fprintf(&b, "## Original verdict\n\n%s\n\n", e.Verdict)
-		case e.Finding != nil && e.Finding.Doubt != "":
+		case e.Finding != nil && (e.Finding.Doubt != "" || e.Finding.Dismissed != ""):
 			fmt.Fprintf(&doubted, "- %s\n", summary(*e.Finding))
 		case e.Finding != nil && e.Finding.RaisedBefore != "":
 			fmt.Fprintf(&open, "- %s\n", summary(*e.Finding))
