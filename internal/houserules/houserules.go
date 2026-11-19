@@ -198,7 +198,10 @@ func Load(ctx context.Context, read ReadFunc, opts Options) Rules {
 						b.WriteString(kept)
 						b.WriteString(marker)
 						b.WriteString(closing)
-						src.Tokens = min(tokenCount(kept), src.FullTokens-1)
+						// Always below FullTokens: kept plus the marker fits
+						// where body didn't, so body is at least 7 bytes
+						// (about 3 tokens) longer.
+						src.Tokens = tokenCount(kept)
 					}
 				}
 			}
