@@ -16,6 +16,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/git"
+	"github.com/ionut-t/bark/v2/internal/houserules"
 	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/llm/llm_factory"
@@ -894,6 +895,8 @@ func (m *Model) handleSelectedInstruction(instruction string) (tea.Model, tea.Cm
 			instruction:       instruction,
 			withPRDescription: m.withPRDescription,
 			contextEnrichment: m.config.GetContextEnrichment(),
+			houseRules:        m.config.GetHouseRules(),
+			houseRulesFiles:   m.config.GetHouseRulesFiles(),
 		},
 	))
 }
@@ -922,9 +925,9 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 		m.selectedInstruction = msg.instruction
 	}
 	structured := m.config.GetStructuredFindings()
-	system := prompt.FormatReviewSystem(m.selectedReviewer.Prompt, msg.instruction)
+	system := prompt.FormatReviewSystem(m.selectedReviewer.Prompt, msg.instruction, msg.houseRules.Text)
 	if structured {
-		system = prompt.FormatStructuredReviewSystem(m.selectedReviewer.Prompt, msg.instruction)
+		system = prompt.FormatStructuredReviewSystem(m.selectedReviewer.Prompt, msg.instruction, msg.houseRules.Text)
 	}
 
 	diff := msg.diff
@@ -949,12 +952,14 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	m.review.setDiffNotes(msg.reviewDiff.Cut, msg.reviewDiff.Warnings)
 	m.review.minSeverity = findings.Severity(m.config.GetMinSeverity())
 	m.review.setLogInfo(m.paths.State, m.llmProvider)
+	m.review.houseRules = houserules.LogField(m.config.GetHouseRules(), msg.houseRules)
 	m.review.setPricing(m.pricing)
 	if structured && m.config.GetCheckFindings() {
 		m.review.setCheck(check.Review{
 			Client:     m.llm,
 			ReviewDiff: msg.reviewDiff,
 			Diff:       diff,
+			HouseRules: msg.houseRules.Text,
 			LogDir:     m.paths.State,
 			Provider:   m.llmProvider,
 			Model:      m.getLlmModelName(),

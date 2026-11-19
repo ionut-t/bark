@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ionut-t/bark/v2/internal/houserules"
 	"github.com/ionut-t/bark/v2/internal/paths"
 	"github.com/ionut-t/bark/v2/internal/templates"
 	"github.com/pelletier/go-toml/v2"
@@ -25,6 +26,8 @@ const (
 	CheckFindingsKey      = "check_findings"
 	MinSeverityKey        = "min_severity"
 	FailOnKey             = "fail_on"
+	HouseRulesKey         = "house_rules"
+	HouseRulesFilesKey    = "house_rules_files"
 
 	// rootDir is a repository's Bark directory.
 	rootDir                    = ".bark"
@@ -90,6 +93,14 @@ type Config interface {
 	SetFailOn(severity string) error
 	GetFailOn() string
 	OverrideFailOn(severity string) error
+	// SetHouseRules saves whether reviews read the repository's house
+	// rules (AGENTS.md, CLAUDE.md or the files GetHouseRulesFiles lists).
+	SetHouseRules(enabled bool) error
+	GetHouseRules() bool
+	OverrideHouseRules(enabled bool)
+	// GetHouseRulesFiles returns the house rules files to read, highest
+	// priority first; empty means the defaults.
+	GetHouseRulesFiles() []string
 	// ApplyRepo layers a repository's config (read from path) over the
 	// saved values for this run. Run overrides still win, and setters
 	// never save the repository's values.
@@ -108,13 +119,15 @@ type Data struct {
 	MaxDiffTokens uint32 `toml:"max_diff_tokens" comment:"Maximum number of diff tokens to include in the prompt, estimated at 2.5 characters a token (0 disables the limit)"`
 	// MaxDiffLines is the deprecated max_diff_lines setting, superseded by
 	// MaxDiffTokens. omitempty keeps it out of new files.
-	MaxDiffLines       uint32 `toml:"max_diff_lines,omitempty" comment:"Deprecated: use max_diff_tokens. Maximum number of diff lines to include in the prompt (0 disables the limit)"`
-	RelativeNumber     bool   `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
-	ContextEnrichment  bool   `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review (default: false)"`
-	StructuredFindings bool   `toml:"structured_findings" comment:"Whether reviews ask the model for structured findings (file, line, severity, ...) instead of free text (default: false)"`
-	CheckFindings      bool   `toml:"check_findings" comment:"Whether structured reviews make a second model call that checks each finding against the code and sets aside the ones that don't hold up (default: true)"`
-	MinSeverity        string `toml:"min_severity" comment:"The lowest severity a structured review shows: critical, high, medium or low (default: empty, every finding)"`
-	FailOn             string `toml:"fail_on" comment:"Make a plain review exit with status 3 when it keeps a finding of this severity or higher: critical, high, medium or low. Turns on structured findings in plain mode; the TUI ignores it (default: empty, never fails)"`
+	MaxDiffLines       uint32   `toml:"max_diff_lines,omitempty" comment:"Deprecated: use max_diff_tokens. Maximum number of diff lines to include in the prompt (0 disables the limit)"`
+	RelativeNumber     bool     `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
+	ContextEnrichment  bool     `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review (default: false)"`
+	StructuredFindings bool     `toml:"structured_findings" comment:"Whether reviews ask the model for structured findings (file, line, severity, ...) instead of free text (default: false)"`
+	CheckFindings      bool     `toml:"check_findings" comment:"Whether structured reviews make a second model call that checks each finding against the code and sets aside the ones that don't hold up (default: true)"`
+	MinSeverity        string   `toml:"min_severity" comment:"The lowest severity a structured review shows: critical, high, medium or low (default: empty, every finding)"`
+	FailOn             string   `toml:"fail_on" comment:"Make a plain review exit with status 3 when it keeps a finding of this severity or higher: critical, high, medium or low. Turns on structured findings in plain mode; the TUI ignores it (default: empty, never fails)"`
+	HouseRules         bool     `toml:"house_rules" comment:"Whether reviews check the change against the repository's house rules (default: true)"`
+	HouseRulesFiles    []string `toml:"house_rules_files" comment:"The house rules files, most important first. A name (AGENTS.md) is also looked for in the folders above changed files; a path (docs/STYLE.md) is read from that place only. Empty means AGENTS.md and CLAUDE.md"`
 }
 
 // config is safe for concurrent use: the TUI saves relative_number from a tea.Cmd
@@ -146,6 +159,7 @@ type overrides struct {
 	checkFindings     *bool
 	minSeverity       *string
 	failOn            *string
+	houseRules        *bool
 }
 
 // valueOr returns the override if set, otherwise the saved value.
@@ -177,6 +191,7 @@ func DefaultData() Data {
 		MaxDiffTokens: DEFAULT_MAX_DIFF_TOKENS,
 		MaxDiffLines:  DEFAULT_MAX_DIFF_LINES,
 		CheckFindings: true,
+		HouseRules:    true,
 	}
 }
 
@@ -578,6 +593,53 @@ func (c *config) OverrideFailOn(severity string) error {
 	defer c.mu.Unlock()
 
 	c.overrides.failOn = &severity
+	return nil
+}
+
+func (c *config) SetHouseRules(enabled bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.houseRules = nil
+
+	if enabled == c.data.HouseRules {
+		return nil
+	}
+
+	c.data.HouseRules = enabled
+
+	return writeConfig(c.path, c.data)
+}
+
+func (c *config) GetHouseRules() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return valueOr(c.overrides.houseRules, valueOr(c.repo.HouseRules, c.data.HouseRules))
+}
+
+func (c *config) OverrideHouseRules(enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.houseRules = &enabled
+}
+
+func (c *config) GetHouseRulesFiles() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return slices.Clone(valueOr(c.repo.HouseRulesFiles, c.data.HouseRulesFiles))
+}
+
+// ValidateHouseRulesFiles checks each house_rules_files entry is a file
+// path inside the repository.
+func ValidateHouseRulesFiles(files []string) error {
+	for _, f := range files {
+		if err := houserules.ValidateFile(f); err != nil {
+			return fmt.Errorf("invalid %s entry: %w", HouseRulesFilesKey, err)
+		}
+	}
 	return nil
 }
 

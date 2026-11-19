@@ -151,6 +151,37 @@ In GitHub Actions, set the `fail-on` input of the `bark-review` action. It posts
 
 With `--comment`, a pull request Bark reviewed before is reviewed only from the commits since its last review. A later push that doesn't touch the code an earlier finding is about won't find it again, so it can pass while the issue is still there. Pass `--full` (or set `full-review`) to review the whole pull request each time, so every unfixed finding fails the run again. To get past a finding you won't fix, [dismiss it](#dismissing-a-finding).
 
+#### House rules
+
+Bark reviews a change against your repository's own rules. By default it reads `AGENTS.md` and `CLAUDE.md`. If your repository has neither, nothing changes.
+
+It looks for each file at the top level and in the folders above the changed files. For a change to `pkg/api/handler.go`, it reads `pkg/api/AGENTS.md`, then `pkg/AGENTS.md`, then `AGENTS.md`.
+
+To pick other files, list them in `.bark/config.toml`, most important first:
+
+```toml
+house_rules_files = ["AGENTS.md", "docs/STYLE.md", "CONTRIBUTING.md"]
+```
+
+- A name like `AGENTS.md` is looked for in the folders above the changed files, as above.
+- A path like `docs/STYLE.md` is read from that place only. Use `./AGENTS.md` for the top level only.
+- An empty list means the default files.
+
+Good to know:
+
+- The rules are capped at about 2,000 tokens. Files past the cap are cut or left out, and Bark warns you.
+- Your review instructions win if they conflict with the rules.
+- A pull request that changes a rule is reviewed under the new rule.
+
+To turn house rules off:
+
+```bash
+bark review --house-rules=false   # for one review
+bark config --house-rules=false   # for good
+```
+
+A repository can turn them off with `house_rules = false` in `.bark/config.toml`.
+
 ### Commit Message Generation
 
 To generate a commit message for the current staged changes, run `bark commit`:
@@ -207,7 +238,7 @@ bark review --config ~/work/bark.toml
 
 ### Per-repository config
 
-A repository can share review settings in `.bark/config.toml` at its top level. Its values win over your config file and lose to command-line flags. It can set `llm_provider`, `llm_model`, `max_diff_tokens`, `context_enrichment`, `structured_findings`, `check_findings`, `min_severity` and `fail_on`. Other keys are an error. That includes `editor` and `relative_number`, which stay personal (the editor is run as a command, so a cloned repository can't choose it).
+A repository can share review settings in `.bark/config.toml` at its top level. Its values win over your config file and lose to command-line flags. It can set `llm_provider`, `llm_model`, `max_diff_tokens`, `context_enrichment`, `structured_findings`, `check_findings`, `min_severity`, `fail_on`, `house_rules` and `house_rules_files`. Other keys are an error. That includes `editor` and `relative_number`, which stay personal (the editor is run as a command, so a cloned repository can't choose it).
 
 ```toml
 structured_findings = true

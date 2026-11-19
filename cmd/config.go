@@ -31,6 +31,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 		contextEnrichment bool
 		structured        bool
 		checkFindings     bool
+		houseRules        bool
 		minSeverity       string
 		failOn            string
 		migrate           bool
@@ -106,6 +107,13 @@ func configCmd(getCfg configFunc) *cobra.Command {
 				flagsSet = true
 			}
 
+			if cmd.Flags().Changed("house-rules") {
+				if err := cfg.SetHouseRules(houseRules); err != nil {
+					return err
+				}
+				flagsSet = true
+			}
+
 			if cmd.Flags().Changed("min-severity") {
 				if err := cfg.SetMinSeverity(minSeverity); err != nil {
 					return err
@@ -137,6 +145,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 	_ = flags.MarkDeprecated("max-diff-lines", "use --max-diff-tokens instead")
 	flags.BoolVar(&contextEnrichment, "context-enrichment", false, "Enable or disable enclosing-declaration context for reviews (default: false)")
 	flags.BoolVar(&structured, "structured-findings", false, "Enable or disable structured findings for reviews (default: false)")
+	flags.BoolVar(&houseRules, "house-rules", true, "Enable or disable reading the repository's house rules (house_rules_files) into reviews (default: true)")
 	flags.BoolVar(&checkFindings, "check-findings", true, "Enable or disable the second model call that checks structured findings against the code (default: true)")
 	flags.BoolVar(&migrate, migrateFlag, false, "Move Bark's files from ~/.bark to the XDG directories (~/.config/bark, ~/.cache/bark and ~/.local/state/bark by default)")
 	flags.StringVar(&minSeverity, "min-severity", "", "Set the lowest severity structured reviews show: "+strings.Join(config.Severities(), ", ")+` ("" shows every finding)`)
@@ -357,6 +366,9 @@ func readConfigData(path string) (config.Data, error) {
 		return config.Data{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if data.FailOn, err = config.NormaliseFailOn(data.FailOn); err != nil {
+		return config.Data{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := config.ValidateHouseRulesFiles(data.HouseRulesFiles); err != nil {
 		return config.Data{}, fmt.Errorf("%s: %w", path, err)
 	}
 

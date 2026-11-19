@@ -147,6 +147,9 @@ type Input struct {
 	// dismissed point in Prior whose lines it's on, unchanged since. The
 	// check is told, and decides whether it's the same problem.
 	SameLines map[int]findings.Finding
+	// HouseRules are the repository's own rules (see houserules.Rules.Text);
+	// a finding that the change breaks one isn't a preference.
+	HouseRules string
 }
 
 // Prompt builds the user prompt for checking fs.
@@ -173,6 +176,14 @@ func Prompt(in Input, fs []findings.Finding) string {
 	if rel := enclosing.FormatRelated(in.Related); rel != "" {
 		b.WriteString("\n")
 		b.WriteString(rel)
+	}
+
+	if in.HouseRules != "" {
+		b.WriteString("\n## House rules\n\nThe repository's own rules for contributors and coding agents.\n\n")
+		b.WriteString(in.HouseRules)
+		if !strings.HasSuffix(in.HouseRules, "\n") {
+			b.WriteString("\n")
+		}
 	}
 
 	if points := priorPoints(in.Prior); len(points) > 0 {
@@ -658,6 +669,8 @@ type Review struct {
 	// SameLines, if not nil, finds the findings on unchanged lines of a
 	// dismissed point (see Input.SameLines).
 	SameLines func([]findings.Finding) map[int]findings.Finding
+	// HouseRules are the repository's own rules (see Input.HouseRules).
+	HouseRules string
 	// LogDir, Provider and Model are for the BARK_DEBUG log. OnLog, if not
 	// nil, is told where the log is, or why it couldn't be started.
 	LogDir, Provider, Model string
@@ -674,11 +687,12 @@ func (r Review) Run(ctx context.Context, events []findings.Event) (Result, error
 	})
 	fs := findingsIn(events)
 	in := Input{
-		Header:  r.ReviewDiff.ContextHeader,
-		Diff:    r.Diff,
-		Files:   files,
-		Related: related(ctx, r.ReviewDiff, r.ReviewDiff.Diff, fs, files),
-		Prior:   r.Prior,
+		Header:     r.ReviewDiff.ContextHeader,
+		Diff:       r.Diff,
+		Files:      files,
+		Related:    related(ctx, r.ReviewDiff, r.ReviewDiff.Diff, fs, files),
+		Prior:      r.Prior,
+		HouseRules: r.HouseRules,
 	}
 	if r.SameLines != nil {
 		in.SameLines = r.SameLines(fs)

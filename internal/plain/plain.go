@@ -15,6 +15,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/enclosing"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/git"
+	"github.com/ionut-t/bark/v2/internal/houserules"
 	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/llm/llm_factory"
@@ -157,9 +158,25 @@ func RunReview(opts ReviewOptions) error {
 	}
 	minSeverity := findings.Severity(opts.Config.GetMinSeverity())
 	warnFailOnBelowMin(os.Stderr, failOn, minSeverity)
-	system := prompt.FormatReviewSystem(reviewer.Prompt, reviewInstructions)
+	var rules houserules.Rules
+	if opts.Config.GetHouseRules() {
+		rulesCtx, rulesCancel := context.WithTimeout(context.Background(), gitTimeout)
+		read := reviewDiff.RepoFile
+		if opts.Diff != nil {
+			// A diff from stdin has no version; read the working tree.
+			read = func(ctx context.Context, path string) ([]byte, error) {
+				return git.GetFileContent(ctx, "", path)
+			}
+		}
+		rules = houserules.ForReview(rulesCtx, read, reviewDiff.Diff, opts.Config.GetHouseRulesFiles())
+		rulesCancel()
+		for _, w := range rules.Warnings() {
+			fmt.Fprintf(os.Stderr, "bark: warning: %s\n", w)
+		}
+	}
+	system := prompt.FormatReviewSystem(reviewer.Prompt, reviewInstructions, rules.Text)
 	if structured {
-		system = prompt.FormatStructuredReviewSystem(reviewer.Prompt, reviewInstructions)
+		system = prompt.FormatStructuredReviewSystem(reviewer.Prompt, reviewInstructions, rules.Text)
 	}
 
 	var enclosingContext string
@@ -198,6 +215,7 @@ func RunReview(opts ReviewOptions) error {
 			{Key: "model", Value: model},
 			{Key: "reviewer", Value: reviewer.Name},
 			{Key: "structured", Value: strconv.FormatBool(structured)},
+			{Key: "house_rules", Value: houserules.LogField(opts.Config.GetHouseRules(), rules)},
 		},
 		System:  system,
 		Prompt:  promptText,
@@ -233,7 +251,7 @@ func RunReview(opts ReviewOptions) error {
 
 	var checkFn func([]findings.Event) ([]findings.Event, int)
 	if checking {
-		r := check.Review{Client: client, ReviewDiff: reviewDiff, Diff: diff, LogDir: opts.Paths.State, Provider: provider, Model: model, Pricing: meter.Pricing()}
+		r := check.Review{Client: client, ReviewDiff: reviewDiff, Diff: diff, HouseRules: rules.Text, LogDir: opts.Paths.State, Provider: provider, Model: model, Pricing: meter.Pricing()}
 		if !opts.Stream {
 			// Nothing is shown before the check, so the intro and verdict
 			// can still be rewritten to match it.

@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/enclosing"
 	"github.com/ionut-t/bark/v2/internal/git"
+	"github.com/ionut-t/bark/v2/internal/houserules"
 	"github.com/ionut-t/bark/v2/internal/instructions"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
@@ -80,6 +81,7 @@ type reviewDiffLoadedMsg struct {
 	commits          []git.Commit
 	contextHeader    string
 	enclosingContext string
+	houseRules       houserules.Rules
 	err              error
 	branchErr        error
 }
@@ -94,6 +96,10 @@ type reviewDiffCmdParams struct {
 	instruction       string
 	withPRDescription bool
 	contextEnrichment bool
+	// houseRules reads the repository's house rules from houseRulesFiles
+	// (empty means the defaults).
+	houseRules      bool
+	houseRulesFiles []string
 }
 
 func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
@@ -122,6 +128,12 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 			return reviewDiffLoadedMsg{instruction: params.instruction, branchErr: branchErr}
 		}
 
+		var rules houserules.Rules
+		if params.houseRules && err == nil {
+			rules = houserules.ForReview(ctx, result.RepoFile, result.Diff, params.houseRulesFiles)
+			result.Warnings = append(result.Warnings, rules.Warnings()...)
+		}
+
 		var enclosingContext string
 		if params.contextEnrichment && err == nil {
 			var ctxErr error
@@ -139,6 +151,7 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 			commits:          result.Commits,
 			contextHeader:    result.ContextHeader,
 			enclosingContext: enclosingContext,
+			houseRules:       rules,
 			err:              err,
 		}
 	}
