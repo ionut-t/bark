@@ -22,9 +22,9 @@ type recorded struct {
 	EndLine int    `json:"end_line,omitempty"`
 	Title   string `json:"title"`
 	Body    string `json:"body,omitempty"`
-	// Dismissed is set on a finding set aside as a repeat of a point
-	// dismissed on the pull request, so later reviews know it was without
-	// the inline comment it never got.
+	// Dismissed was set on a finding set aside as a repeat of a point
+	// dismissed on the pull request. Bark no longer records repeats (see
+	// record), but still reads it from reviews that did.
 	Dismissed string `json:"dismissed,omitempty"`
 }
 
@@ -37,8 +37,14 @@ type reviewedCommits struct {
 }
 
 // record renders the hidden block for every finding in events, posted or
-// set aside, one JSON object per line, and the commits of scope the next
+// doubted, one JSON object per line, and the commits of scope the next
 // review can start from, if any. It's empty without either.
+//
+// Findings set aside as repeats of a point raised before, or of a
+// dismissed one, are left out: that point is already recorded (and its
+// dismissal is read again from the pull request), while the model gives
+// a repeat a new title on every re-run, so recording it would add a point
+// each time and make the repeat harder for the check to match.
 func record(events []findings.Event, scope Scope) string {
 	var b strings.Builder
 	if head := scope.recordedHead(); head != "" {
@@ -49,7 +55,7 @@ func record(events []findings.Event, scope Scope) string {
 	}
 	for _, e := range events {
 		f := e.Finding
-		if f == nil {
+		if f == nil || f.RaisedBefore != "" || f.Dismissed != "" {
 			continue
 		}
 		if b.Len() == 0 {
@@ -57,8 +63,10 @@ func record(events []findings.Event, scope Scope) string {
 		}
 		// json.Marshal escapes < and >, so no title or body can end the
 		// comment early.
-		line, err := json.Marshal(recorded{File: f.File, Line: f.Line, EndLine: f.EndLine, Title: f.Title,
-			Body: findings.FirstSentence(f.Body), Dismissed: f.Dismissed})
+		line, err := json.Marshal(recorded{
+			File: f.File, Line: f.Line, EndLine: f.EndLine, Title: f.Title,
+			Body: findings.FirstSentence(f.Body),
+		})
 		if err != nil {
 			continue
 		}
@@ -115,8 +123,10 @@ func Recorded(body string) []findings.Finding {
 		if line == "" || json.Unmarshal([]byte(line), &r) != nil || r.File == "" || r.Title == "" {
 			continue
 		}
-		out = append(out, findings.Finding{File: r.File, Line: r.Line, EndLine: r.EndLine, Title: r.Title, Body: r.Body,
-			Dismissed: r.Dismissed})
+		out = append(out, findings.Finding{
+			File: r.File, Line: r.Line, EndLine: r.EndLine, Title: r.Title, Body: r.Body,
+			Dismissed: r.Dismissed,
+		})
 	}
 	return out
 }

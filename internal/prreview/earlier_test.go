@@ -34,6 +34,9 @@ func TestBuildPutsRaisedBeforeFindingsInCollapsedBlock(t *testing.T) {
 		"- **[LOW · design] Again** `a.go:3`\n  Same point as: Same thing (`a.go:3`)\n\n</details>\n\n## Verdict\n\nBye.")
 }
 
+// Findings set aside as repeats of points raised before, or of dismissed
+// ones, aren't recorded: their point already is, and recording them under
+// the new title the model gave them would add a point on every re-run.
 func TestBuildRecordsFindings(t *testing.T) {
 	t.Parallel()
 
@@ -43,6 +46,7 @@ func TestBuildRecordsFindings(t *testing.T) {
 			Body: "First sentence. Second sentence.", Suggestion: "x", Remark: "Ugh."}},
 		{Finding: &findings.Finding{File: "a.go", Line: 3, EndLine: 4, Title: "Ends a comment -->", Body: "b", Doubt: "No."}},
 		{Finding: &findings.Finding{File: "a.go", Line: 20, Title: "Again", Body: "c", RaisedBefore: "Earlier"}},
+		{Finding: &findings.Finding{File: "a.go", Line: 21, Title: "Dismissed again", Body: "d", Dismissed: "Earlier"}},
 		{Verdict: "Bye."},
 	}
 
@@ -55,9 +59,28 @@ func TestBuildRecordsFindings(t *testing.T) {
 		assert.Equal(t, []findings.Finding{
 			{File: "a.go", Line: 2, Title: "Kept", Body: "First sentence."},
 			{File: "a.go", Line: 3, EndLine: 4, Title: "Ends a comment -->", Body: "b"},
-			{File: "a.go", Line: 20, Title: "Again", Body: "c"},
 		}, Recorded(review.Body))
 	}
+}
+
+// A re-run that only repeats points raised before records no new point,
+// only the commit the next review can start from.
+func TestBuildOnlyRepeatsRecordsOnlyHead(t *testing.T) {
+	t.Parallel()
+
+	events := []findings.Event{
+		{Intro: "i"},
+		{Finding: &findings.Finding{File: "a.go", Line: 2, Title: "Again", Body: "b", RaisedBefore: "Earlier"}},
+		{Finding: &findings.Finding{File: "a.go", Line: 3, Title: "Won't fix", Body: "c", Dismissed: "Earlier"}},
+		{Verdict: "v"},
+	}
+
+	review := Build(events, diff)
+	assert.NotContains(t, review.Body, recordStart)
+
+	review = build(events, diff, Scope{Head: "abc1234"})
+	assert.Empty(t, Recorded(review.Body))
+	assert.Equal(t, "abc1234", RecordedScope(review.Body).Head)
 }
 
 func TestBuildWithoutFindingsRecordsNothing(t *testing.T) {

@@ -12,8 +12,8 @@ import (
 )
 
 // A finding repeating a dismissed point is set aside in a block of its
-// own, gets no inline comment, and is recorded as dismissed, so later
-// reviews know without its comment.
+// own, gets no inline comment, and isn't recorded: the dismissed point is,
+// and its dismissal is read again from the pull request on every review.
 func TestBuildPutsDismissedFindingsInCollapsedBlock(t *testing.T) {
 	t.Parallel()
 
@@ -34,7 +34,6 @@ func TestBuildPutsDismissedFindingsInCollapsedBlock(t *testing.T) {
 		"- **[CRITICAL] Again** `a.go:3`\n  Dismissed point: Same thing (`a.go:3`)\n\n</details>\n\n## Verdict\n\nBye.")
 	assert.Equal(t, []findings.Finding{
 		{File: "a.go", Line: 2, Title: "Kept", Body: "b"},
-		{File: "a.go", Line: 3, Title: "Again", Body: "c", Dismissed: "Same thing (`a.go:3`)"},
 	}, Recorded(review.Body))
 }
 
