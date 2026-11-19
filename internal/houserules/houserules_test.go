@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -251,4 +252,29 @@ func TestLogField(t *testing.T) {
 	assert.Equal(t, "off", LogField(false, Load(context.Background(), r.read, Options{})))
 	assert.Equal(t, "none found", LogField(true, Load(context.Background(), repo{}.read, Options{})))
 	assert.Equal(t, "AGENTS.md (4)", LogField(true, Load(context.Background(), r.read, Options{})))
+}
+
+// Whatever the budget, a file whose block ends in [cut] is reported as
+// cut, a whole one as whole, and one that's left out has no block.
+func TestLoad_CutFilesAreReportedCut(t *testing.T) {
+	t.Parallel()
+
+	block := regexp.MustCompile(`(?s)<file path="([^"]+)">\n(.*?)</file>`)
+	r := repo{"AGENTS.md": "a\nb\n", "CLAUDE.md": "one\ntwo\n\nthree four five\nsix\n\nseven eight nine ten\n"}
+	for maxTokens := 1; maxTokens <= 60; maxTokens++ {
+		got := Load(context.Background(), r.read, Options{Changed: []string{"x.go"}, MaxTokens: maxTokens})
+
+		blocks := map[string]string{}
+		for _, m := range block.FindAllStringSubmatch(got.Text, -1) {
+			blocks[m[1]] = m[2]
+		}
+		for _, src := range got.Sources {
+			body, ok := blocks[src.Path]
+			assert.Equal(t, ok, src.Tokens > 0, "budget %d: %s in the text", maxTokens, src.Path)
+			if ok {
+				assert.Equal(t, strings.HasSuffix(body, "[cut]\n"), src.Cut(), "budget %d: %s cut", maxTokens, src.Path)
+				assert.LessOrEqual(t, src.Tokens, src.FullTokens, "budget %d: %s", maxTokens, src.Path)
+			}
+		}
+	}
 }
