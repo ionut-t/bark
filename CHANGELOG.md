@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.32.0](https://github.com/ionut-t/bark/compare/v2.31.0...v2.32.0) (2026-11-19)
+
+
+### Features
+
+* **prreview:** stop recording repeated findings ([#144](https://github.com/ionut-t/bark/issues/144)) ([c0634ef](https://github.com/ionut-t/bark/commit/c0634efd26472d9d4bcd9a61624d78aedd2d3202))
+* **review:** add --fail-on to fail a review on severe findings ([ee67ac9](https://github.com/ionut-t/bark/commit/ee67ac96d491c7028c6b018e0a87e3f3299af073))
+* **review:** implement incremental pull request reviews ([#140](https://github.com/ionut-t/bark/issues/140)) ([e9fe3a5](https://github.com/ionut-t/bark/commit/e9fe3a53df30677529d589d13b019146b210703e))
+* **review:** keep core code first when cutting large diffs ([#146](https://github.com/ionut-t/bark/issues/146)) ([797d531](https://github.com/ionut-t/bark/commit/797d5311ae18e81ab84ed071e6f2d227942bfc98))
+* **review:** skip posting reviews with no new findings ([#145](https://github.com/ionut-t/bark/issues/145)) ([c8d672a](https://github.com/ionut-t/bark/commit/c8d672a743fabf7a86e9b6164f868a4187a84028))
+* **review:** support dismissing findings via reactions or replies ([#143](https://github.com/ionut-t/bark/issues/143)) ([5b68798](https://github.com/ionut-t/bark/commit/5b687985e1aee09546f5b65726d823c6860c5fc8))
+
+
+### Bug Fixes
+
+* **review:** keep findings raised before as open in the rewritten verdict ([ee67ac9](https://github.com/ionut-t/bark/commit/ee67ac96d491c7028c6b018e0a87e3f3299af073))
+
 ## [2.31.0](https://github.com/ionut-t/bark/compare/v2.30.0...v2.31.0) (2026-11-18)
 
 
