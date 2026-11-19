@@ -89,6 +89,8 @@ Bark only trusts earlier reviews posted by a bot (GitHub Actions) or by someone 
 bark review --pr 42 --comment --full
 ```
 
+A full review of a pull request whose head hasn't changed since the last review is shown but not posted when it raises nothing new (every finding repeats a point raised before or dismissed, or there are none). `--fail-on` still applies to it.
+
 #### Checking findings
 
 Before a structured review (`--structured` or `--comment`) is shown in full or posted, Bark checks its findings with a second model call. The check reads the files the findings point to (whole, or only the lines around each finding for files over 1,500 lines) and must quote the code each finding rests on. Three kinds of finding are set aside:

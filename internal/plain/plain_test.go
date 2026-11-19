@@ -467,3 +467,38 @@ func TestCheckSummary(t *testing.T) {
 		assert.Equal(t, tt.want, checkSummary(tt.res))
 	}
 }
+
+func TestSkipPost(t *testing.T) {
+	t.Parallel()
+
+	const head = "fc4cb814c9a4b110f6b03b5f77182099e9f1dfee"
+	last := prreview.History{Head: head}
+	scope := prreview.Scope{Head: head}
+	repeat := findings.Event{Finding: &findings.Finding{File: "a.go", Line: 2, Title: "Again", RaisedBefore: "Earlier"}}
+
+	t.Run("only repeats", func(t *testing.T) {
+		t.Parallel()
+
+		var w strings.Builder
+		assert.True(t, skipPost(&w, []findings.Event{repeat}, scope, last))
+		assert.Equal(t, "bark: not posted: nothing new since the last review at fc4cb81: "+
+			"every finding repeats a point raised before or dismissed\n", w.String())
+	})
+
+	t.Run("no findings", func(t *testing.T) {
+		t.Parallel()
+
+		var w strings.Builder
+		assert.True(t, skipPost(&w, []findings.Event{{Verdict: "Fine."}}, scope, last))
+		assert.Equal(t, "bark: not posted: nothing new since the last review at fc4cb81: no findings\n", w.String())
+	})
+
+	t.Run("something new", func(t *testing.T) {
+		t.Parallel()
+
+		var w strings.Builder
+		events := []findings.Event{repeat, {Finding: &findings.Finding{File: "a.go", Line: 3, Title: "New"}}}
+		assert.False(t, skipPost(&w, events, scope, last))
+		assert.Empty(t, w.String())
+	})
+}
