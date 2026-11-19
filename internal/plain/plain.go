@@ -250,10 +250,14 @@ func RunReview(opts ReviewOptions) error {
 	var post func() error
 	if opts.Comment {
 		post = func() error {
+			scope := postScope(reviewDiff, truncated)
+			if skipPost(os.Stderr, events, scope, hist) {
+				return nil
+			}
 			postCtx, postCancel := context.WithTimeout(context.Background(), gitTimeout)
 			defer postCancel()
 			result, err := prreview.Post(postCtx, opts.PR, withPartialNote(events, reviewDiff.Cut), reviewDiff.CommentDiff(),
-				postScope(reviewDiff, truncated))
+				scope)
 			if err != nil {
 				return err
 			}
@@ -679,6 +683,25 @@ func historyNote(w io.Writer, h prreview.History, err error, checking, increment
 	if h.DismissalsErr != nil {
 		_, _ = fmt.Fprintf(w, "bark: warning: %v; some dismissals (👎 or \"won't fix\") may be missed\n", h.DismissalsErr)
 	}
+}
+
+// skipPost reports whether a review of scope with events should not be
+// posted, because it adds nothing to the last review in hist (see
+// prreview.NothingNew), and says so on w. The review is still shown, and
+// fail_on still applies to it.
+func skipPost(w io.Writer, events []findings.Event, scope prreview.Scope, hist prreview.History) bool {
+	if !prreview.NothingNew(events, scope, hist) {
+		return false
+	}
+	why := "no findings"
+	for _, e := range events {
+		if e.Finding != nil {
+			why = "every finding repeats a point raised before or dismissed"
+			break
+		}
+	}
+	_, _ = fmt.Fprintf(w, "bark: not posted: nothing new since the last review at %s: %s\n", hist.Head[:min(7, len(hist.Head))], why)
+	return true
 }
 
 // postScope is what a posted review of r covered. truncated says the
