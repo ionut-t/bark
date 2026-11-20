@@ -157,6 +157,37 @@ func TestReviewStructuredCheckKeepsAll(t *testing.T) {
 	assert.Equal(t, "Bark's check kept the finding", m.checkSummary)
 }
 
+// A check that answers only some findings says how many it left unchecked.
+func TestReviewStructuredCheckAnswersSome(t *testing.T) {
+	t.Parallel()
+
+	m := newStructuredReview(t)
+	m.setCheck(check.Review{Diff: checkDiff, Client: checkLLM{output: `{"id":1,"verdict":"keep","evidence":"counts := make(map[string]int)"}`}})
+
+	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","line":2,"severity":"high","title":"Nil map","body":"b"}` + "\n"})
+	m, _ = m.Update(streamChunkMsg{content: `{"file":"b.go","line":5,"severity":"low","title":"Typo","body":"t"}` + "\n"})
+	m, cmd := m.Update(streamCompleteMsg{})
+	m, _ = m.Update(cmd())
+
+	assert.Equal(t, "Bark's check kept the finding; 1 unchecked", m.checkSummary)
+}
+
+// An empty answer from the check is a failed check, not one that kept
+// nothing.
+func TestReviewStructuredCheckEmptyAnswer(t *testing.T) {
+	t.Parallel()
+
+	m := newStructuredReview(t)
+	m.setCheck(check.Review{Diff: checkDiff, Client: checkLLM{output: ""}})
+
+	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","line":2,"severity":"high","title":"Nil map","body":"b"}` + "\n"})
+	m, cmd := m.Update(streamCompleteMsg{})
+	m, _ = m.Update(cmd())
+
+	assert.Contains(t, m.response, "The check failed, so the findings above are unchecked: the check gave no verdict on any of the 1 finding(s)")
+	assert.Empty(t, m.checkSummary)
+}
+
 // A failed check leaves the review as it streamed and says so at the end.
 func TestReviewStructuredCheckFails(t *testing.T) {
 	t.Parallel()

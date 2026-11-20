@@ -462,6 +462,7 @@ func TestCheckSummary(t *testing.T) {
 		{check.Result{Checked: 3, Doubted: 1}, "bark: the check kept 2 of 3 finding(s)\n"},
 		{check.Result{Checked: 2, RaisedBefore: 2}, "bark: the check kept 2 of 2 finding(s); 2 raised before on this pull request, not posted again\n"},
 		{check.Result{Checked: 4, Doubted: 1, RaisedBefore: 2}, "bark: the check kept 3 of 4 finding(s); 2 raised before on this pull request, not posted again\n"},
+		{check.Result{Checked: 1, Doubted: 1, Unchecked: 2}, "bark: the check kept 0 of 1 finding(s); it gave no verdict on 2 finding(s), they're unchecked\n"},
 	}
 	for _, tt := range tests {
 		assert.Equal(t, tt.want, checkSummary(tt.res))
