@@ -14,7 +14,9 @@ import (
 const maxTokens = 16000
 
 type Anthropic struct {
-	model  string
+	model string
+	// effort is low, medium or high; "" leaves thinking to the model.
+	effort string
 	client anthropic.Client
 }
 
@@ -24,10 +26,30 @@ func applySystem(params *anthropic.MessageNewParams, system string) {
 	}
 }
 
-func New(model string, apiKey string) *Anthropic {
+// params builds a request. An effort also turns on adaptive thinking: some
+// models (Opus 4.6-4.8) don't think unless asked, and effort alone would
+// leave them answering without it.
+func (a *Anthropic) params(system, prompt string) anthropic.MessageNewParams {
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(a.model),
+		MaxTokens: maxTokens,
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
+		},
+	}
+	applySystem(&params, system)
+	if a.effort != "" {
+		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffort(a.effort)}
+		params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{}}
+	}
+	return params
+}
+
+func New(model, apiKey, effort string) *Anthropic {
 	client := anthropic.NewClient(option.WithAPIKey(apiKey))
 	return &Anthropic{
 		model:  model,
+		effort: effort,
 		client: client,
 	}
 }
@@ -45,14 +67,7 @@ func (a *Anthropic) Stream(ctx context.Context, system, prompt string) (<-chan l
 			return
 		}
 
-		params := anthropic.MessageNewParams{
-			Model:     anthropic.Model(a.model),
-			MaxTokens: maxTokens,
-			Messages: []anthropic.MessageParam{
-				anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
-			},
-		}
-		applySystem(&params, system)
+		params := a.params(system, prompt)
 
 		stream := a.client.Messages.NewStreaming(ctx, params)
 
@@ -136,14 +151,7 @@ func (a *Anthropic) Generate(ctx context.Context, system, prompt string) (llm.Re
 		return llm.Response{}, ctx.Err()
 	}
 
-	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(a.model),
-		MaxTokens: maxTokens,
-		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
-		},
-	}
-	applySystem(&params, system)
+	params := a.params(system, prompt)
 
 	resp, err := a.client.Messages.New(ctx, params)
 	if err != nil {

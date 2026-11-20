@@ -7,8 +7,8 @@ import (
 	g "google.golang.org/genai"
 )
 
-func New(ctx context.Context, model, project, location string) (*genai.GenAI, error) {
-	return genai.New(ctx, model, g.ClientConfig{
+func New(ctx context.Context, model, project, location, effort string) (*genai.GenAI, error) {
+	return genai.New(ctx, model, effort, g.ClientConfig{
 		Backend:  g.BackendVertexAI,
 		Project:  project,
 		Location: location,

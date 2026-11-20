@@ -43,6 +43,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().Bool("check", true, "Check structured findings with a second model call that reads the code around them, and set aside the ones that don't hold up (overrides config)")
 	cmd.Flags().String("min-severity", "", "Show only structured findings of this severity or higher: "+strings.Join(config.Severities(), ", ")+" (overrides config)")
 	cmd.Flags().String("fail-on", "", "Exit with status 3 when the review keeps a structured finding of this severity or higher: "+strings.Join(config.Severities(), ", ")+"; doubted findings and repeats of points dismissed on the pull request don't count, repeats of other points raised before do (overrides config; implies --structured and plain output)")
+	addEffortFlag(cmd)
 	cmd.Flags().Bool("comment", false, "Post the review to the pull request, with findings as inline comments and fixes as suggestions (requires --pr; implies --structured)")
 	cmd.Flags().Bool("full", false, "Review the whole pull request, not only the changes since Bark's last posted review of it (requires --pr; matters with --comment)")
 	addPlainFlag(cmd)
@@ -132,6 +133,9 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		if err := cfg.OverrideMinSeverity(minSeverity); err != nil {
 			return err
 		}
+	}
+	if err := overrideEffort(cmd, cfg); err != nil {
+		return err
 	}
 	// failOn is the --fail-on flag only: a fail_on from a config file
 	// applies when the run is plain anyway, and the TUI ignores it.

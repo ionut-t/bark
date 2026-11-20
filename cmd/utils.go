@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
@@ -73,4 +74,18 @@ func readStdinIfPiped() (*string, error) {
 	}
 
 	return nil, nil
+}
+
+// addEffortFlag adds --effort, which overrides the effort config for one run.
+func addEffortFlag(cmd *cobra.Command) {
+	cmd.Flags().String("effort", "", "How hard the model thinks before answering: "+strings.Join(config.Efforts(), ", ")+"; lower is faster and cheaper, and Ollama ignores it (overrides config; default: the model's own)")
+}
+
+// overrideEffort applies --effort to cfg when it was passed.
+func overrideEffort(cmd *cobra.Command, cfg config.Config) error {
+	if !cmd.Flags().Changed("effort") {
+		return nil
+	}
+	effort, _ := cmd.Flags().GetString("effort")
+	return cfg.OverrideEffort(effort)
 }

@@ -3,6 +3,7 @@ package genai
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ionut-t/bark/v2/internal/llm"
@@ -10,20 +11,45 @@ import (
 )
 
 type GenAI struct {
-	model  string
+	model string
+	// effort is low, medium or high; "" leaves thinking to the model.
+	effort string
 	client *genai.Client
 }
 
-func systemConfig(system string) *genai.GenerateContentConfig {
-	if system == "" {
+// config builds a request's config, nil when there is nothing to set.
+func (g *GenAI) config(system string) *genai.GenerateContentConfig {
+	thinking := thinkingConfig(g.model, g.effort)
+	if system == "" && thinking == nil {
 		return nil
 	}
-	return &genai.GenerateContentConfig{
-		SystemInstruction: &genai.Content{Parts: []*genai.Part{{Text: system}}},
+	cfg := &genai.GenerateContentConfig{ThinkingConfig: thinking}
+	if system != "" {
+		cfg.SystemInstruction = &genai.Content{Parts: []*genai.Part{{Text: system}}}
 	}
+	return cfg
 }
 
-func New(ctx context.Context, model string, config genai.ClientConfig) (*GenAI, error) {
+// gemini25Budgets are the thinking budgets for each effort on Gemini 2.5,
+// which takes a budget but not a level. 24576 is the most Flash accepts.
+var gemini25Budgets = map[string]int32{"low": 1024, "medium": 8192, "high": 24576}
+
+// thinkingConfig maps effort to model's thinking setting: a level on
+// Gemini 3 and later, a token budget on Gemini 2.5. Older models don't
+// think and may reject either.
+func thinkingConfig(model, effort string) *genai.ThinkingConfig {
+	if effort == "" {
+		return nil
+	}
+	m := strings.TrimPrefix(strings.ToLower(model), "models/")
+	if strings.HasPrefix(m, "gemini-2.5") {
+		budget := gemini25Budgets[effort]
+		return &genai.ThinkingConfig{ThinkingBudget: &budget}
+	}
+	return &genai.ThinkingConfig{ThinkingLevel: genai.ThinkingLevel(strings.ToUpper(effort))}
+}
+
+func New(ctx context.Context, model, effort string, config genai.ClientConfig) (*GenAI, error) {
 	client, err := genai.NewClient(ctx, &config)
 	if err != nil {
 		return nil, err
@@ -32,6 +58,7 @@ func New(ctx context.Context, model string, config genai.ClientConfig) (*GenAI, 
 	return &GenAI{
 		client: client,
 		model:  model,
+		effort: effort,
 	}, nil
 }
 
@@ -50,7 +77,7 @@ func (g *GenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.R
 		}
 
 		contents := genai.Text(prompt)
-		stream := g.client.Models.GenerateContentStream(ctx, g.model, contents, systemConfig(system))
+		stream := g.client.Models.GenerateContentStream(ctx, g.model, contents, g.config(system))
 
 		var usage *llm.Usage
 		var truncated bool
@@ -108,7 +135,7 @@ func (g *GenAI) Generate(ctx context.Context, system, prompt string) (llm.Respon
 		return llm.Response{}, ctx.Err()
 	}
 
-	result, err := g.client.Models.GenerateContent(ctx, g.model, genai.Text(prompt), systemConfig(system))
+	result, err := g.client.Models.GenerateContent(ctx, g.model, genai.Text(prompt), g.config(system))
 	if err != nil {
 		return llm.Response{}, fmt.Errorf("genai request failed: %w", err)
 	}

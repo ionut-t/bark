@@ -9,10 +9,13 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 )
 
 type OpenAI struct {
-	model  string
+	model string
+	// effort is low, medium or high; "" leaves reasoning to the model.
+	effort string
 	client openai.Client
 }
 
@@ -22,10 +25,25 @@ func applySystem(params *responses.ResponseNewParams, system string) {
 	}
 }
 
-func New(model string, apiKey string) *OpenAI {
+// params builds a request. Only reasoning models (gpt-5, o-series) accept
+// an effort; others may reject the request.
+func (o *OpenAI) params(system, prompt string) responses.ResponseNewParams {
+	params := responses.ResponseNewParams{
+		Input: responses.ResponseNewParamsInputUnion{OfString: openai.String(prompt)},
+		Model: openai.ChatModel(o.model),
+	}
+	applySystem(&params, system)
+	if o.effort != "" {
+		params.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(o.effort)}
+	}
+	return params
+}
+
+func New(model, apiKey, effort string) *OpenAI {
 	client := openai.NewClient(option.WithAPIKey(apiKey))
 	return &OpenAI{
 		model:  model,
+		effort: effort,
 		client: client,
 	}
 }
@@ -43,11 +61,7 @@ func (o *OpenAI) Stream(ctx context.Context, system, prompt string) (<-chan llm.
 			return
 		}
 
-		params := responses.ResponseNewParams{
-			Input: responses.ResponseNewParamsInputUnion{OfString: openai.String(prompt)},
-			Model: openai.ChatModel(o.model),
-		}
-		applySystem(&params, system)
+		params := o.params(system, prompt)
 
 		stream := o.client.Responses.NewStreaming(ctx, params)
 		// Runs before close(errChan). The send must not block: errChan may
@@ -123,11 +137,7 @@ func (o *OpenAI) Generate(ctx context.Context, system, prompt string) (llm.Respo
 		return llm.Response{}, ctx.Err()
 	}
 
-	params := responses.ResponseNewParams{
-		Input: responses.ResponseNewParamsInputUnion{OfString: openai.String(prompt)},
-		Model: openai.ChatModel(o.model),
-	}
-	applySystem(&params, system)
+	params := o.params(system, prompt)
 
 	resp, err := o.client.Responses.New(ctx, params)
 	if err != nil {

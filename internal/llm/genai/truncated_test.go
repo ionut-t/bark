@@ -31,7 +31,7 @@ func newTestClient(t *testing.T, finishReason string) *GenAI {
 	}))
 	t.Cleanup(srv.Close)
 
-	g, err := New(t.Context(), "gemini-test", genai.ClientConfig{
+	g, err := New(t.Context(), "gemini-test", "", genai.ClientConfig{
 		APIKey:      "test",
 		Backend:     genai.BackendGeminiAPI,
 		HTTPOptions: genai.HTTPOptions{BaseURL: srv.URL},
