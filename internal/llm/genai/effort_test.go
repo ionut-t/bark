@@ -27,6 +27,10 @@ func TestConfigEffort(t *testing.T) {
 		{name: "2.5 low", model: "gemini-2.5-pro", effort: "low", want: &genai.ThinkingConfig{ThinkingBudget: budget(1024)}},
 		{name: "2.5 medium", model: "gemini-2.5-flash", effort: "medium", want: &genai.ThinkingConfig{ThinkingBudget: budget(8192)}},
 		{name: "2.5 high", model: "Gemini-2.5-Flash-Lite", effort: "high", want: &genai.ThinkingConfig{ThinkingBudget: budget(24576)}},
+		// Vertex AI also takes resource names.
+		{name: "2.5 publisher path", model: "publishers/google/models/gemini-2.5-flash", effort: "low", want: &genai.ThinkingConfig{ThinkingBudget: budget(1024)}},
+		{name: "2.5 full resource path", model: "projects/p/locations/us-central1/publishers/google/models/gemini-2.5-pro", effort: "medium", want: &genai.ThinkingConfig{ThinkingBudget: budget(8192)}},
+		{name: "level on a resource path", model: "publishers/google/models/gemini-3.6-flash", effort: "low", want: &genai.ThinkingConfig{ThinkingLevel: genai.ThinkingLevelLow}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

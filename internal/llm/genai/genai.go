@@ -41,7 +41,10 @@ func thinkingConfig(model, effort string) *genai.ThinkingConfig {
 	if effort == "" {
 		return nil
 	}
-	m := strings.TrimPrefix(strings.ToLower(model), "models/")
+	// The name is the last part of a path: models/..., or a Vertex AI
+	// resource name (publishers/google/models/..., projects/.../models/...).
+	m := strings.ToLower(model)
+	m = m[strings.LastIndex(m, "/")+1:]
 	if strings.HasPrefix(m, "gemini-2.5") {
 		budget := gemini25Budgets[effort]
 		return &genai.ThinkingConfig{ThinkingBudget: &budget}
