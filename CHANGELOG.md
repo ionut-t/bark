@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.33.0](https://github.com/ionut-t/bark/compare/v2.32.0...v2.33.0) (2026-11-20)
+
+
+### Features
+
+* **llm:** add effort setting to control model thinking ([#150](https://github.com/ionut-t/bark/issues/150)) ([5e759e2](https://github.com/ionut-t/bark/commit/5e759e2d1beb180568618657cffc8cf70f14e111))
+* **review:** add support for repository-specific house rules ([#147](https://github.com/ionut-t/bark/issues/147)) ([e0bd195](https://github.com/ionut-t/bark/commit/e0bd19594d649bc208f561f1fbbbd8761a62dabd))
+
 ## [2.32.0](https://github.com/ionut-t/bark/compare/v2.31.0...v2.32.0) (2026-11-19)
 
 
