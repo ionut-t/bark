@@ -34,6 +34,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 		houseRules        bool
 		minSeverity       string
 		failOn            string
+		effort            string
 		migrate           bool
 	)
 
@@ -128,6 +129,13 @@ func configCmd(getCfg configFunc) *cobra.Command {
 				flagsSet = true
 			}
 
+			if cmd.Flags().Changed("effort") {
+				if err := cfg.SetEffort(effort); err != nil {
+					return err
+				}
+				flagsSet = true
+			}
+
 			if !flagsSet {
 				return utils.OpenEditor(cfg.GetEditor(), cfg.Path())
 			}
@@ -150,6 +158,8 @@ func configCmd(getCfg configFunc) *cobra.Command {
 	flags.BoolVar(&migrate, migrateFlag, false, "Move Bark's files from ~/.bark to the XDG directories (~/.config/bark, ~/.cache/bark and ~/.local/state/bark by default)")
 	flags.StringVar(&minSeverity, "min-severity", "", "Set the lowest severity structured reviews show: "+strings.Join(config.Severities(), ", ")+` ("" shows every finding)`)
 	flags.StringVar(&failOn, "fail-on", "", "Set the severity at or above which a plain review exits with status 3: "+strings.Join(config.Severities(), ", ")+` ("" never fails)`)
+
+	flags.StringVar(&effort, "effort", "", "Set how hard the model thinks before answering: "+strings.Join(config.Efforts(), ", ")+` ("" uses the model's default)`)
 
 	// Old names, matching the config file keys. Kept so existing scripts keep
 	// working; hidden from help, and pflag prints a deprecation notice.
@@ -366,6 +376,9 @@ func readConfigData(path string) (config.Data, error) {
 		return config.Data{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if data.FailOn, err = config.NormaliseFailOn(data.FailOn); err != nil {
+		return config.Data{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if data.Effort, err = config.NormaliseEffort(data.Effort); err != nil {
 		return config.Data{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if err := config.ValidateHouseRulesFiles(data.HouseRulesFiles); err != nil {

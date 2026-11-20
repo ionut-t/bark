@@ -7,8 +7,8 @@ import (
 	g "google.golang.org/genai"
 )
 
-func New(ctx context.Context, model string, apiKey string) (*genai.GenAI, error) {
-	return genai.New(ctx, model, g.ClientConfig{
+func New(ctx context.Context, model, apiKey, effort string) (*genai.GenAI, error) {
+	return genai.New(ctx, model, effort, g.ClientConfig{
 		Backend: g.BackendGeminiAPI,
 		APIKey:  apiKey,
 	})

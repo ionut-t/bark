@@ -35,6 +35,7 @@ type RepoData struct {
 	MinSeverity        *string `toml:"min_severity"`
 	FailOn             *string `toml:"fail_on"`
 	HouseRules         *bool   `toml:"house_rules"`
+	Effort             *string `toml:"effort"`
 	// HouseRulesFiles is a pointer so an empty list, which means the
 	// defaults, still beats a user's own list.
 	HouseRulesFiles *[]string `toml:"house_rules_files"`
@@ -44,7 +45,7 @@ type RepoData struct {
 var repoKeys = []string{
 	LLMProviderKey, LLMModelKey, MaxDiffTokensKey, ContextEnrichmentKey,
 	StructuredFindingsKey, CheckFindingsKey, MinSeverityKey, FailOnKey,
-	HouseRulesKey, HouseRulesFilesKey,
+	HouseRulesKey, HouseRulesFilesKey, EffortKey,
 }
 
 // ParseRepo reads a repository's config from content, the contents of the
@@ -87,6 +88,13 @@ func ParseRepo(path string, content []byte) (RepoData, error) {
 		}
 		repo.FailOn = &severity
 	}
+	if repo.Effort != nil {
+		effort, err := NormaliseEffort(*repo.Effort)
+		if err != nil {
+			return RepoData{}, fmt.Errorf("%s: %w", path, err)
+		}
+		repo.Effort = &effort
+	}
 	if repo.HouseRulesFiles != nil {
 		if err := ValidateHouseRulesFiles(*repo.HouseRulesFiles); err != nil {
 			return RepoData{}, fmt.Errorf("%s: %w", path, err)
@@ -123,6 +131,23 @@ func normaliseSeverity(key, s string) (string, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s != "" && !slices.Contains(severities, s) {
 		return "", fmt.Errorf("invalid %s %q (supported: %s)", key, s, strings.Join(severities, ", "))
+	}
+	return s, nil
+}
+
+// efforts are the values effort accepts, least thinking first.
+var efforts = []string{"low", "medium", "high"}
+
+// Efforts returns the values effort accepts, least thinking first.
+func Efforts() []string {
+	return slices.Clone(efforts)
+}
+
+// NormaliseEffort lowercases s and checks it's a known effort or "".
+func NormaliseEffort(s string) (string, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s != "" && !slices.Contains(efforts, s) {
+		return "", fmt.Errorf("invalid %s %q (supported: %s)", EffortKey, s, strings.Join(efforts, ", "))
 	}
 	return s, nil
 }

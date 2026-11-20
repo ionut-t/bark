@@ -25,6 +25,7 @@ func commitCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().StringP("hint", "i", "", "Provide a hint for the commit message generation (e.g., 'feature/fix/docs')")
 	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
 	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config; by default inferred from the model name): "+strings.Join(config.SupportedProviders(), ", "))
+	addEffortFlag(cmd)
 	addPlainFlag(cmd)
 
 	return cmd
@@ -40,6 +41,9 @@ func runCommitCmd(cmd *cobra.Command, cfg config.Config) error {
 
 	if err := cfg.OverrideProvider(provider); err != nil {
 		return fmt.Errorf("error overriding provider: %w", err)
+	}
+	if err := overrideEffort(cmd, cfg); err != nil {
+		return err
 	}
 	warnRepoLLM(os.Stderr, cfg)
 

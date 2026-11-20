@@ -238,7 +238,7 @@ bark review --config ~/work/bark.toml
 
 ### Per-repository config
 
-A repository can share review settings in `.bark/config.toml` at its top level. Its values win over your config file and lose to command-line flags. It can set `llm_provider`, `llm_model`, `max_diff_tokens`, `context_enrichment`, `structured_findings`, `check_findings`, `min_severity`, `fail_on`, `house_rules` and `house_rules_files`. Other keys are an error. That includes `editor` and `relative_number`, which stay personal (the editor is run as a command, so a cloned repository can't choose it).
+A repository can share review settings in `.bark/config.toml` at its top level. Its values win over your config file and lose to command-line flags. It can set `llm_provider`, `llm_model`, `max_diff_tokens`, `context_enrichment`, `structured_findings`, `check_findings`, `min_severity`, `fail_on`, `effort`, `house_rules` and `house_rules_files`. Other keys are an error. That includes `editor` and `relative_number`, which stay personal (the editor is run as a command, so a cloned repository can't choose it).
 
 ```toml
 structured_findings = true
@@ -301,6 +301,24 @@ bark prices --repo
 ```
 
 `--output <path>` saves them anywhere else.
+
+### Thinking effort
+
+`--effort` sets how hard the model thinks before answering: `low`, `medium` or `high`. Lower is faster and cheaper, but may miss findings; the default leaves it to the model.
+
+```bash
+bark review --effort low     # for one run (also bark commit and bark pr)
+bark config --effort low     # for good, for every command
+```
+
+It applies to every model call in a run, the check included. Bark maps it to each provider's setting:
+
+- **Gemini and Vertex AI:** the thinking level on Gemini 3 and later; a thinking budget of 1,024, 8,192 or 24,576 tokens on Gemini 2.5.
+- **OpenAI:** the reasoning effort. Only reasoning models (gpt-5, o-series) accept it.
+- **Anthropic:** the effort, with adaptive thinking turned on. Models that don't think by default (Opus 4.6–4.8) think when it's set, so `high` can cost more than leaving it unset.
+- **Ollama:** ignored.
+
+A model that can't think may reject the request; Bark doesn't check model names first.
 
 ## Reset
 

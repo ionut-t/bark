@@ -25,6 +25,7 @@ type savedConfig struct {
 	CheckFindings      bool   `toml:"check_findings"`
 	MinSeverity        string `toml:"min_severity"`
 	FailOn             string `toml:"fail_on"`
+	Effort             string `toml:"effort"`
 }
 
 func readSavedConfig(t *testing.T, path string) savedConfig {
@@ -146,6 +147,7 @@ func TestConfigCmd_SetsZeroValues(t *testing.T) {
 		{name: "--check-findings=false", args: []string{"--check-findings=false"}, want: with(func(c *savedConfig) { c.CheckFindings = false })},
 		{name: "--min-severity high", args: []string{"--min-severity", "high"}, want: with(func(c *savedConfig) { c.MinSeverity = "high" })},
 		{name: "--fail-on critical", args: []string{"--fail-on", "critical"}, want: with(func(c *savedConfig) { c.FailOn = "critical" })},
+		{name: "--effort low", args: []string{"--effort", "Low"}, want: with(func(c *savedConfig) { c.Effort = "low" })},
 	}
 
 	for _, tt := range tests {
@@ -258,6 +260,7 @@ func TestReadConfigData_ReadsEveryField(t *testing.T) {
 		FailOn:             "critical",
 		HouseRules:         false,
 		HouseRulesFiles:    []string{"docs/STYLE.md"},
+		Effort:             "low",
 	}
 
 	// Loading starts from the defaults, so a field left at its default here
@@ -485,6 +488,18 @@ func TestReadConfigData_InvalidValues(t *testing.T) {
 			assert.Contains(t, err.Error(), path+":1:")
 		})
 	}
+}
+
+func TestReadConfigData_InvalidEffort(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("effort = 'ludicrous'\n"), 0o644))
+
+	_, err := readConfigData(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), path)
+	assert.Contains(t, err.Error(), "ludicrous")
 }
 
 func TestReadConfigData_InvalidMinSeverity(t *testing.T) {

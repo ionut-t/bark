@@ -134,16 +134,20 @@ func New(ctx context.Context, cfg config.Config) (llm.LLM, string, error) {
 		return nil, "", err
 	}
 
+	// Ollama has no effort setting that every model accepts, so it
+	// ignores effort.
+	effort := cfg.GetEffort()
+
 	var l llm.LLM
 	switch provider {
 	case "gemini":
-		l, err = gemini.New(ctx, model, creds.geminiAPIKey)
+		l, err = gemini.New(ctx, model, creds.geminiAPIKey, effort)
 	case "vertexai":
-		l, err = vertexai.New(ctx, model, creds.vertexAIProjectID, creds.vertexAILocation)
+		l, err = vertexai.New(ctx, model, creds.vertexAIProjectID, creds.vertexAILocation, effort)
 	case "openai":
-		l = openai.New(model, creds.openAIAPIKey)
+		l = openai.New(model, creds.openAIAPIKey, effort)
 	case "anthropic":
-		l = anthropic.New(model, creds.anthropicAPIKey)
+		l = anthropic.New(model, creds.anthropicAPIKey, effort)
 	case "ollama":
 		l = ollama.New(model)
 	default:
