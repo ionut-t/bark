@@ -197,9 +197,10 @@ func TestLoadFiles(t *testing.T) {
 
 // fakeLLM answers Generate with output, or err, and records the calls.
 type fakeLLM struct {
-	output string
-	err    error
-	calls  *int
+	output    string
+	truncated bool
+	err       error
+	calls     *int
 }
 
 func (f fakeLLM) Stream(context.Context, string, string) (<-chan llm.Response, <-chan error) {
@@ -211,7 +212,7 @@ func (f fakeLLM) Generate(_ context.Context, system, prompt string) (llm.Respons
 	if f.err != nil {
 		return llm.Response{}, f.err
 	}
-	return llm.Response{Content: f.output}, nil
+	return llm.Response{Content: f.output, Truncated: f.truncated, Usage: &llm.Usage{OutputTokens: 1}}, nil
 }
 
 func TestRun(t *testing.T) {
@@ -265,6 +266,51 @@ func TestRun_Error(t *testing.T) {
 	calls := 0
 	_, err := Run(context.Background(), fakeLLM{err: errors.New("boom"), calls: &calls}, input(), events, nil)
 	require.ErrorContains(t, err, "boom")
+}
+
+func TestRun_NoVerdicts(t *testing.T) {
+	t.Parallel()
+
+	events := []findings.Event{
+		{Finding: &findings.Finding{File: "a.go", Line: 4, Title: "Nil map"}},
+		{Finding: &findings.Finding{File: "a.go", Line: 3, Title: "Style"}},
+	}
+	tests := []struct {
+		name      string
+		output    string
+		truncated bool
+		want      string
+	}{
+		{"empty answer", "", false, "the check gave no verdict on any of the 2 finding(s)"},
+		{"no verdict lines", "I think these are fine.", false, "the check gave no verdict on any of the 2 finding(s)"},
+		{"cut off", "", true, "the check gave no verdict on any of the 2 finding(s) (its answer was cut off at the output limit)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			calls := 0
+			res, err := Run(context.Background(), fakeLLM{output: tt.output, truncated: tt.truncated, calls: &calls}, input(), events, nil)
+			require.EqualError(t, err, tt.want)
+			assert.NotNil(t, res.Usage, "a failed check's usage is still reported")
+		})
+	}
+}
+
+func TestRun_SomeVerdicts(t *testing.T) {
+	t.Parallel()
+
+	events := []findings.Event{
+		{Finding: &findings.Finding{File: "a.go", Line: 4, Title: "Nil map"}},
+		{Finding: &findings.Finding{File: "a.go", Line: 3, Title: "Style"}},
+		{Finding: &findings.Finding{File: "a.go", Line: 1, Title: "Other"}},
+	}
+	calls := 0
+	res, err := Run(context.Background(), fakeLLM{output: `{"id":2,"verdict":"drop","reason":"wrong"}`, calls: &calls}, input(), events, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.Checked)
+	assert.Equal(t, 1, res.Doubted)
+	assert.Equal(t, 2, res.Unchecked)
 }
 
 // longFile returns a file of n lines, "line 1" to "line n".

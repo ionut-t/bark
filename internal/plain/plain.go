@@ -597,7 +597,8 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter)
 // checkSummary is the stderr line saying what the check kept. Kept means
 // counted for fail_on: neither doubted nor dismissed on the pull request.
 // Repeats of points raised before are kept: they're still in the code,
-// only not posted again.
+// only not posted again. Findings the check gave no verdict on are kept
+// unchecked.
 func checkSummary(res check.Result) string {
 	s := fmt.Sprintf("bark: the check kept %d of %d finding(s)", res.Checked-res.Doubted-res.Dismissed, res.Checked)
 	if res.RaisedBefore > 0 {
@@ -605,6 +606,9 @@ func checkSummary(res check.Result) string {
 	}
 	if res.Dismissed > 0 {
 		s += fmt.Sprintf("; %d dismissed on this pull request, not posted", res.Dismissed)
+	}
+	if res.Unchecked > 0 {
+		s += fmt.Sprintf("; it gave no verdict on %d finding(s), they're unchecked", res.Unchecked)
 	}
 	return s + "\n"
 }

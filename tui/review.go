@@ -161,10 +161,10 @@ type streamCompleteMsg struct {
 // as run number run.
 type checkDoneMsg struct {
 	run int
-	// events are the review's events as the check left them, and checked
-	// how many findings it gave a verdict on.
-	events  []findings.Event
-	checked int
+	// events are the review's events as the check left them, checked how
+	// many findings it gave a verdict on, and unchecked how many it didn't.
+	events             []findings.Event
+	checked, unchecked int
 	// err is set if the check failed; the review is then left unchecked.
 	err error
 	// usage is the check call's token usage, or nil.
@@ -403,7 +403,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 			// streamed: set-aside ones get a note under their heading, and
 			// kept ones show the check's changes to them.
 			m.response = m.withTruncatedNote(m.withDiffNote(strings.TrimRight(utils.NormaliseCodeFences(findings.MarkedMarkdown(msg.events)), "\n") + "\n\n"))
-			m.checkSummary = checkSummary(msg.events, msg.checked)
+			m.checkSummary = checkSummary(msg.events, msg.checked, msg.unchecked)
 		}
 		m.setDoneStatusLine()
 		if !m.showPrompt {
@@ -669,13 +669,23 @@ func runCheckCmd(r check.Review, run int, events []findings.Event) tea.Cmd {
 		if err != nil {
 			return checkDoneMsg{run: run, usage: res.Usage, err: err}
 		}
-		return checkDoneMsg{run: run, usage: res.Usage, events: res.Events, checked: res.Checked}
+		return checkDoneMsg{run: run, usage: res.Usage, events: res.Events, checked: res.Checked, unchecked: res.Unchecked}
 	}
 }
 
 // checkSummary sums up in a line how many of the checked findings Bark's
-// check kept, or "" if it checked none.
-func checkSummary(events []findings.Event, checked int) string {
+// check kept, and how many it gave no verdict on, or "" if it checked none.
+func checkSummary(events []findings.Event, checked, unchecked int) string {
+	s := keptSummary(events, checked)
+	if s != "" && unchecked > 0 {
+		s += "; " + strconv.Itoa(unchecked) + " unchecked"
+	}
+	return s
+}
+
+// keptSummary says how many of the checked findings Bark's check kept, or
+// "" if it checked none.
+func keptSummary(events []findings.Event, checked int) string {
 	if checked == 0 {
 		return ""
 	}

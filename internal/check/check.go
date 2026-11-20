@@ -44,13 +44,17 @@ type Result struct {
 	// RaisedBefore set instead of Doubt), and Dismissed how many it found
 	// repeat a point dismissed on the pull request (Dismissed set instead).
 	Checked, Doubted, RaisedBefore, Dismissed int
+	// Unchecked is the number of findings the check gave no verdict on;
+	// they're kept as they are.
+	Unchecked int
 	// Usage is the check call's token usage, if the provider reported it
 	// (also on a failed call, which may still be billed).
 	Usage *llm.Usage
 }
 
 // Run checks the findings in events with one call to client. Without
-// findings, it makes no call. If the call fails, the error is returned and
+// findings, it makes no call. If the call fails, or its answer has a verdict
+// on none of the findings (an empty answer, say), the error is returned and
 // events should be used as they are.
 //
 // in.Files should hold every file the findings point to that can be read;
@@ -77,6 +81,13 @@ func Run(ctx context.Context, client llm.LLM, in Input, events []findings.Event,
 	}
 
 	outcomes := Apply(in, fs, ParseVerdicts(resp.Content))
+	if !slices.ContainsFunc(outcomes, func(o Outcome) bool { return !o.Unchecked }) {
+		err := fmt.Errorf("the check gave no verdict on any of the %d finding(s)", len(fs))
+		if resp.Truncated {
+			err = fmt.Errorf("%w (its answer was cut off at the output limit)", err)
+		}
+		return Result{Usage: resp.Usage}, err
+	}
 	res := Result{Events: make([]findings.Event, len(events)), Usage: resp.Usage}
 	i := 0
 	for j, e := range events {
@@ -84,7 +95,9 @@ func Run(ctx context.Context, client llm.LLM, in Input, events []findings.Event,
 			o := outcomes[i]
 			i++
 			f := o.Finding
-			if !o.Unchecked {
+			if o.Unchecked {
+				res.Unchecked++
+			} else {
 				res.Checked++
 			}
 			switch {
