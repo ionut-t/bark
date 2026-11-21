@@ -80,7 +80,7 @@ const (
 // line numbers match the diff's. Files that can't be read, and languages
 // without a spec, are skipped.
 func Related(ctx context.Context, diff string, repo Repo, opt RelatedOptions) []Piece {
-	r := &related{ctx: ctx, repo: repo, diffFiles: changedFiles(diff), files: map[string]*parsedFile{}, greps: map[string][]string{}}
+	r := &related{ctx: ctx, repo: repo, diffFiles: changedFiles(diff), files: map[string]*parsedFile{}, greps: map[string][]string{}, modules: map[string]string{}}
 
 	targets := addedLines(diff)
 	modified := ModifiedLinesFromDiff(diff)
@@ -254,6 +254,8 @@ type related struct {
 	// greps caches grep results by name and globs; a diff calls the same
 	// names from many places, and each search is a git process.
 	greps map[string][]string
+	// modules caches go.mod module paths by directory (see goModule).
+	modules map[string]string
 }
 
 // maxGrepFiles skips a name found in more files than this: too common to
@@ -427,7 +429,7 @@ func (r *related) callers(d decl) []Piece {
 		for i, line := range f.lines {
 			n := i + 1
 			if !callRe.MatchString(line) || f.signatures[n] || (p == d.path && d.start <= n && n <= d.end) ||
-				(d.packageScoped && !callsPackageFunc(f, line, callRe, d, from)) {
+				(d.packageScoped && !r.callsPackageFunc(f, line, callRe, d, from)) {
 				continue
 			}
 			enc, ok := f.enclosing(n)
@@ -465,12 +467,13 @@ var qualifierRe = regexp.MustCompile(`(\.\s*)?\b([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*
 // function d, declared in from: by bare name from d's own directory, or
 // through d's package name or an alias that imports d's directory. Calls
 // of a same-named method (err.ExitCode(), wait().Start()) are left out.
-func callsPackageFunc(f *parsedFile, line string, callRe *regexp.Regexp, d decl, from *parsedFile) bool {
+func (r *related) callsPackageFunc(f *parsedFile, line string, callRe *regexp.Regexp, d decl, from *parsedFile) bool {
 	dir := path.Dir(d.path)
+	importsDir := func(imp string) bool { return r.importsDir(imp, dir) }
 	for _, m := range callRe.FindAllStringIndex(line, -1) {
 		before := strings.TrimRight(line[:m[0]], " \t")
 		if !strings.HasSuffix(before, ".") {
-			if path.Dir(f.path) == dir || importsDir(f.imports["."], dir) {
+			if path.Dir(f.path) == dir || importsDir(f.imports["."]) {
 				return true
 			}
 			continue
@@ -480,7 +483,7 @@ func callsPackageFunc(f *parsedFile, line string, callRe *regexp.Regexp, d decl,
 			continue // a call's result or a field: a method
 		}
 		if imp, ok := f.imports[q[2]]; ok {
-			if importsDir(imp, dir) {
+			if importsDir(imp) {
 				return true
 			}
 		} else if q[2] == from.pkg {
@@ -491,9 +494,58 @@ func callsPackageFunc(f *parsedFile, line string, callRe *regexp.Regexp, d decl,
 }
 
 // importsDir reports whether the import path imp names the repository
-// directory dir.
-func importsDir(imp, dir string) bool {
-	return imp != "" && (imp == dir || strings.HasSuffix(imp, "/"+dir))
+// directory dir: the module path of the nearest go.mod plus dir's path
+// below it. Without a go.mod, a path ending in dir matches, and anything
+// matches the root directory.
+func (r *related) importsDir(imp, dir string) bool {
+	switch want := r.importPath(dir); {
+	case imp == "":
+		return false
+	case want != "":
+		return imp == want
+	case dir == ".":
+		return true
+	}
+	return strings.HasSuffix(imp, "/"+dir)
+}
+
+var moduleRe = regexp.MustCompile(`(?m)^module\s+"?([^\s"]+)"?`)
+
+// importPath returns the import path of the package in dir, or "" if no
+// go.mod is found in it or above it.
+func (r *related) importPath(dir string) string {
+	for d := dir; ; d = path.Dir(d) {
+		if mod := r.goModule(d); mod != "" {
+			rel := strings.TrimPrefix(strings.TrimPrefix(dir, d), "/")
+			if d == "." {
+				rel = dir
+			}
+			return path.Join(mod, rel)
+		}
+		if d == "." {
+			return ""
+		}
+	}
+}
+
+// goModule returns the module path in dir's go.mod, or "".
+func (r *related) goModule(dir string) string {
+	if mod, ok := r.modules[dir]; ok {
+		return mod
+	}
+	p := path.Join(dir, "go.mod")
+	read := r.repo.RepoFile
+	if r.diffFiles[p] {
+		read = r.repo.NewSideFile
+	}
+	mod := ""
+	if src, err := read(r.ctx, p); err == nil {
+		if m := moduleRe.FindSubmatch(src); m != nil {
+			mod = string(m[1])
+		}
+	}
+	r.modules[dir] = mod
+	return mod
 }
 
 func isTestFile(p string) bool {
@@ -714,8 +766,16 @@ func parse(p string, src []byte) *parsedFile {
 			}
 		case "import_spec":
 			alias, imp := n.ChildByFieldName("name", lang), n.ChildByFieldName("path", lang)
-			if alias != nil && imp != nil {
-				f.imports[alias.Text(src)] = strings.Trim(imp.Text(src), "`\"")
+			if imp != nil {
+				// Unaliased, by the path's last element: usually the
+				// package name. When it isn't, the call's qualifier isn't
+				// found here and the callee's package name decides.
+				p := strings.Trim(imp.Text(src), "`\"")
+				name := path.Base(p)
+				if alias != nil {
+					name = alias.Text(src)
+				}
+				f.imports[name] = p
 			}
 		}
 		if sp.signatures[t] {

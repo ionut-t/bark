@@ -482,3 +482,82 @@ func TestRelated_GoFunctionCallers(t *testing.T) {
 		})
 	}
 }
+
+func TestRelated_GoFunctionCallersByImport(t *testing.T) {
+	const rootGo = "package cmd\n\nfunc ExitCode(err error) int {\n\treturn 1\n}\n"
+	const libGo = "package lib\n\nfunc Do() int {\n\treturn 1\n}\n"
+
+	tests := []struct {
+		name   string
+		repo   fakeRepo
+		change string // the changed file
+		want   []string
+	}{
+		{
+			name: "an unaliased import of another package with the same name",
+			repo: fakeRepo{
+				"go.mod":      "module example.com/m\n",
+				"cmd/root.go": rootGo,
+				"main.go":     "package main\n\nimport \"github.com/other/cmd\"\n\nfunc main() {\n\tos.Exit(cmd.ExitCode(nil))\n}\n",
+			},
+			change: "cmd/root.go",
+		},
+		{
+			name: "an unaliased import of the package",
+			repo: fakeRepo{
+				"go.mod":      "module example.com/m\n",
+				"cmd/root.go": rootGo,
+				"main.go":     "package main\n\nimport \"example.com/m/cmd\"\n\nfunc main() {\n\tos.Exit(cmd.ExitCode(nil))\n}\n",
+			},
+			change: "cmd/root.go",
+			want:   []string{"main.go:5-7 main calls ExitCode"},
+		},
+		{
+			name: "a package in a nested module",
+			repo: fakeRepo{
+				"go.mod":            "module example.com/m\n",
+				"tools/go.mod":      "module example.com/tools\n",
+				"tools/cmd/root.go": rootGo,
+				"tools/main.go":     "package main\n\nimport \"example.com/tools/cmd\"\n\nfunc main() {\n\tos.Exit(cmd.ExitCode(nil))\n}\n",
+			},
+			change: "tools/cmd/root.go",
+			want:   []string{"tools/main.go:5-7 main calls ExitCode"},
+		},
+		{
+			name: "the root package through an alias",
+			repo: fakeRepo{
+				"go.mod":   "module example.com/lib\n\ngo 1.27\n",
+				"lib.go":   libGo,
+				"sub/x.go": "package sub\n\nimport l \"example.com/lib\"\n\nfunc X() int {\n\treturn l.Do()\n}\n",
+			},
+			change: "lib.go",
+			want:   []string{"sub/x.go:5-7 X calls Do"},
+		},
+		{
+			name: "the root package without an alias",
+			repo: fakeRepo{
+				"go.mod":   "module example.com/lib\n\ngo 1.27\n",
+				"lib.go":   libGo,
+				"sub/x.go": "package sub\n\nimport \"example.com/lib\"\n\nfunc X() int {\n\treturn lib.Do()\n}\n",
+			},
+			change: "lib.go",
+			want:   []string{"sub/x.go:5-7 X calls Do"},
+		},
+		{
+			name: "another package's function named like a root one",
+			repo: fakeRepo{
+				"go.mod":   "module example.com/lib\n\ngo 1.27\n",
+				"lib.go":   libGo,
+				"sub/x.go": "package sub\n\nimport \"example.com/other/tasks\"\n\nfunc X() int {\n\treturn tasks.Do()\n}\n",
+			},
+			change: "lib.go",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			line := lineOf(t, tt.repo[tt.change], "return 1")
+			got := findRelated(t, tt.repo, addDiff(tt.repo, tt.change, line, line), RelatedOptions{})
+			assert.Equal(t, tt.want, labels(got))
+		})
+	}
+}
