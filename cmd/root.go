@@ -66,6 +66,9 @@ func newRootCmd(load configLoader) *cobra.Command {
 	}
 
 	rootCmd.SetVersionTemplate(versionTemplate)
+	// fang replaces Version, and the template doesn't print it; setting it
+	// here gives the root its --version flag before wrapFlagUsages runs.
+	rootCmd.Version = version.Version()
 
 	rootCmd.AddCommand(configCmd(getCfg))
 	rootCmd.AddCommand(reviewCmd(getCfg))
@@ -109,16 +112,22 @@ func handleRootCmd(cfg config.Config) error {
 // Execute runs the CLI. Any returned error has already been printed to
 // stderr; the caller only needs to set the exit status.
 func Execute() error {
-	return fang.Execute(
-		context.Background(),
-		newRootCmd(initConfig),
+	root := newRootCmd(initConfig)
+	wrapFlagUsages(root, helpWidth())
+	return fang.Execute(context.Background(), root, fangOptions()...)
+}
+
+// fangOptions configures how fang runs the command tree and prints its help
+// and errors.
+func fangOptions() []fang.Option {
+	return []fang.Option{
 		fang.WithNotifySignal(os.Interrupt, os.Kill),
 		fang.WithColorSchemeFunc(styles.FangColorScheme),
 		fang.WithoutCompletions(),
 		fang.WithErrorHandler(func(w io.Writer, _ fang.Styles, err error) {
 			printError(w, err)
 		}),
-	)
+	}
 }
 
 // ExitCode returns the exit status for err, the error Execute returned:
