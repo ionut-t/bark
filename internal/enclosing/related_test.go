@@ -573,6 +573,14 @@ func TestRelated_GoFunctionCallersByImport(t *testing.T) {
 			want:   []string{"sub/x.go:5-7 X calls Do"},
 		},
 		{
+			name: "the root package without a go.mod",
+			repo: fakeRepo{
+				"lib.go":   libGo,
+				"sub/x.go": "package sub\n\nimport t \"example.com/other/tasks\"\n\nfunc X() int {\n\treturn t.Do()\n}\n",
+			},
+			change: "lib.go",
+		},
+		{
 			name: "another package's function named like a root one",
 			repo: fakeRepo{
 				"go.mod":   "module example.com/lib\n\ngo 1.27\n",

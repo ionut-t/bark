@@ -498,8 +498,8 @@ func (r *related) callsPackageFunc(f *parsedFile, line string, callRe *regexp.Re
 
 // importsDir reports whether the import path imp names the repository
 // directory dir: the module path of the nearest go.mod plus dir's path
-// below it. Without a go.mod, a path ending in dir matches, and anything
-// matches the root directory.
+// below it. Without a go.mod, a path ending in dir matches, and nothing
+// matches the root directory: only a module root can be imported there.
 func (r *related) importsDir(imp, dir string) bool {
 	switch want := r.importPath(dir); {
 	case imp == "":
@@ -507,7 +507,7 @@ func (r *related) importsDir(imp, dir string) bool {
 	case want != "":
 		return imp == want
 	case dir == ".":
-		return true
+		return false
 	}
 	return strings.HasSuffix(imp, "/"+dir)
 }
