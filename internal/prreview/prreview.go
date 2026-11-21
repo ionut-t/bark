@@ -360,6 +360,10 @@ func commentBody(f findings.Finding, applicable bool) string {
 	}
 	fmt.Fprintf(&b, "**[%s] %s**\n\n", heading, f.Title)
 
+	if f.Unchecked != "" {
+		fmt.Fprintf(&b, "%s %s\n\n", findings.UncheckedNote, strings.Join(strings.Fields(f.Unchecked), " "))
+	}
+
 	if f.Body != "" {
 		b.WriteString(f.Body)
 		b.WriteString("\n\n")

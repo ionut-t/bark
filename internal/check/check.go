@@ -35,7 +35,7 @@ func System() string { return system }
 // Result is a review after the check.
 type Result struct {
 	// Events are the review's events, with Doubt set on every finding the
-	// check didn't keep. A kept finding may have a new severity, or have
+	// check didn't keep, and Unchecked on every one it gave no verdict on. A kept finding may have a new severity, or have
 	// lost a suggestion the check found broken.
 	Events []findings.Event
 	// Checked is the number of findings the check gave a verdict on,
@@ -97,6 +97,7 @@ func Run(ctx context.Context, client llm.LLM, in Input, events []findings.Event,
 			f := o.Finding
 			if o.Unchecked {
 				res.Unchecked++
+				f.Unchecked = "it gave no verdict on this finding."
 			} else {
 				res.Checked++
 			}

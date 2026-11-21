@@ -556,7 +556,7 @@ func fullResponse(ctx context.Context, client llm.LLM, system, promptText string
 // checkFindings runs Bark's check on the findings in events and returns the
 // events with the doubted findings marked, and how many findings were
 // checked. Progress and errors go to stderr; if the check fails, events are
-// returned unchanged.
+// returned with every finding marked unchecked.
 func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter) ([]findings.Event, int) {
 	n := check.Count(events)
 	if n == 0 {
@@ -577,7 +577,7 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter)
 	meter.Mark("check")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bark: %v; the findings are unchecked\n", err)
-		return events, 0
+		return findings.MarkUnchecked(events, "it failed."), 0
 	}
 	fmt.Fprint(os.Stderr, checkSummary(res))
 

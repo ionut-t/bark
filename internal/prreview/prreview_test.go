@@ -423,6 +423,19 @@ func TestBuildNoSuggestionBlockForRepairedFindings(t *testing.T) {
 	assert.NotContains(t, got.Comments[0].Body, "```suggestion")
 }
 
+// A finding Bark's check didn't check is posted inline as usual, with a
+// note saying so.
+func TestBuildMarksUncheckedFindings(t *testing.T) {
+	t.Parallel()
+
+	events := []findings.Event{{Finding: &findings.Finding{File: "a.go", Line: 2, Severity: findings.High, Title: "T", Body: "b",
+		Unchecked: "it gave no verdict on this finding."}}}
+
+	got := Build(events, diff)
+	require.Len(t, got.Comments, 1)
+	assert.Equal(t, "**[HIGH] T**\n\n> **Not checked by Bark's check:** it gave no verdict on this finding.\n\nb", got.Comments[0].Body)
+}
+
 // Findings Bark's check doubted never become inline comments; they are
 // listed in a collapsed block before the verdict.
 func TestBuildPutsDoubtedFindingsInCollapsedBlock(t *testing.T) {

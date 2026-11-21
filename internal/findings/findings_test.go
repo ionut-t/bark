@@ -307,6 +307,43 @@ func TestFindingSetAside(t *testing.T) {
 	assert.False(t, Finding{Title: "t"}.SetAside())
 	assert.True(t, Finding{Doubt: "no"}.SetAside())
 	assert.True(t, Finding{RaisedBefore: "earlier"}.SetAside())
+	assert.False(t, Finding{Unchecked: "it failed."}.SetAside(), "an unchecked finding is posted as usual")
+}
+
+// A finding Bark's check didn't check stays where it is, in both renderings,
+// with a note saying so.
+func TestMarkdownUnchecked(t *testing.T) {
+	t.Parallel()
+
+	events := []Event{
+		{Finding: &Finding{File: "a.go", Line: 2, Severity: High, Title: "Nil map", Body: "b", Unchecked: "it gave no verdict on this finding."}},
+		{Verdict: "Fix it."},
+	}
+	want := "### [HIGH] Nil map\n\n" +
+		"> **Not checked by Bark's check:** it gave no verdict on this finding.\n\n" +
+		"`a.go:2`\n\nb\n\n" +
+		"## Verdict\n\nFix it.\n\n"
+	assert.Equal(t, want, Markdown(events))
+	assert.Equal(t, want, MarkedMarkdown(events))
+}
+
+func TestMarkUnchecked(t *testing.T) {
+	t.Parallel()
+
+	events := []Event{
+		{Intro: "Hi."},
+		{Finding: &Finding{Title: "A"}},
+		{Finding: &Finding{Title: "B"}},
+		{Verdict: "Bye."},
+	}
+	got := MarkUnchecked(events, "it failed.")
+	assert.Equal(t, []Event{
+		{Intro: "Hi."},
+		{Finding: &Finding{Title: "A", Unchecked: "it failed."}},
+		{Finding: &Finding{Title: "B", Unchecked: "it failed."}},
+		{Verdict: "Bye."},
+	}, got)
+	assert.Empty(t, events[1].Finding.Unchecked, "the events passed in are left alone")
 }
 
 func TestFirstSentence(t *testing.T) {

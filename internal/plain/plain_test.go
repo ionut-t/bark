@@ -469,6 +469,36 @@ func TestCheckSummary(t *testing.T) {
 	}
 }
 
+// emptyLLM answers every call with nothing, which fails Bark's check.
+type emptyLLM struct{}
+
+func (emptyLLM) Stream(context.Context, string, string) (<-chan llm.Response, <-chan error) {
+	panic("the check doesn't stream")
+}
+
+func (emptyLLM) Generate(context.Context, string, string) (llm.Response, error) {
+	return llm.Response{}, nil
+}
+
+// When Bark's check fails, every finding is marked unchecked, so a posted
+// review doesn't present them as checked.
+func TestCheckFindingsFailedMarksUnchecked(t *testing.T) {
+	t.Parallel()
+
+	events := []findings.Event{
+		{Finding: &findings.Finding{File: "a.go", Line: 1, Severity: findings.High, Title: "A"}},
+		{Finding: &findings.Finding{File: "a.go", Line: 2, Severity: findings.Low, Title: "B"}},
+		{Verdict: "Fix it."},
+	}
+	got, checked := checkFindings(check.Review{Client: emptyLLM{}}, events, nil)
+	assert.Equal(t, 0, checked)
+	assert.Equal(t, []findings.Event{
+		{Finding: &findings.Finding{File: "a.go", Line: 1, Severity: findings.High, Title: "A", Unchecked: "it failed."}},
+		{Finding: &findings.Finding{File: "a.go", Line: 2, Severity: findings.Low, Title: "B", Unchecked: "it failed."}},
+		{Verdict: "Fix it."},
+	}, got)
+}
+
 func TestSkipPost(t *testing.T) {
 	t.Parallel()
 
