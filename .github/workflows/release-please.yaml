@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # Signed build provenance for the release binaries (see "Attest build
+  # provenance"); the bark actions verify it before running a binary.
+  id-token: write
+  attestations: write
 
 jobs:
   release-please:
@@ -41,20 +45,18 @@ jobs:
           VERSION=${{ steps.release.outputs.tag_name }}
           LDFLAGS="-X 'github.com/ionut-t/bark/v2/internal/version.version=$VERSION' -X 'github.com/ionut-t/bark/v2/internal/version.commit=$COMMIT' -X 'github.com/ionut-t/bark/v2/internal/version.date=$BUILD_DATE'"
 
-          # Build for macOS (Apple Silicon)
-          GOOS=darwin GOARCH=arm64 go build -ldflags="$LDFLAGS" -o dist/bark-darwin-arm64
-
-          # Build for macOS (Intel)
-          GOOS=darwin GOARCH=amd64 go build -ldflags="$LDFLAGS" -o dist/bark-darwin-amd64
-                    
-          # Build for Linux (64-bit)
-          GOOS=linux GOARCH=amd64 go build -ldflags="$LDFLAGS" -o dist/bark-linux-amd64
-
-          # Build for Linux (ARM64)
-          GOOS=linux GOARCH=arm64 go build -ldflags="$LDFLAGS" -o dist/bark-linux-arm64
-
-          # Build for Windows (64-bit)
-          GOOS=windows GOARCH=amd64 go build -ldflags="$LDFLAGS" -o dist/bark-windows-amd64.exe
+          # -trimpath keeps the build machine's paths out of the binaries;
+          # without cgo they're static and don't depend on the runner's libc.
+          export CGO_ENABLED=0
+          build() {
+            GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="$LDFLAGS" -o "dist/$3"
+          }
+          build darwin arm64 bark-darwin-arm64
+          build darwin amd64 bark-darwin-amd64
+          build linux amd64 bark-linux-amd64
+          build linux arm64 bark-linux-arm64
+          build windows amd64 bark-windows-amd64.exe
+          build windows arm64 bark-windows-arm64.exe
 
           chmod +x dist/*
 
@@ -62,12 +64,30 @@ jobs:
           sha256sum * > checksums.txt
           cd ..
 
+      - name: Attest build provenance
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: "dist/bark-*"
+
       - name: Upload Release Artifacts
         if: ${{ steps.release.outputs.release_created }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload ${{ steps.release.outputs.tag_name }} dist/*
+
+      - name: Move the major version tag
+        # Workflows that use ionut-t/bark/.github/actions/...@v2 get each
+        # release once it's built; an exact tag (@v2.35.0) stays put.
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          VERSION: ${{ steps.release.outputs.tag_name }}
+          SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          MAJOR="${VERSION%%.*}"
+          git tag -f "$MAJOR" "$SHA"
+          git push -f origin "refs/tags/$MAJOR"
 
       - name: Update Release with Installation Instructions
         if: ${{ steps.release.outputs.release_created }}
@@ -96,9 +116,14 @@ jobs:
           curl -L https://github.com/${{ github.repository }}/releases/download/$VERSION/bark-darwin-amd64 -o bark && chmod +x bark
           ```
 
-          ### Linux
+          ### Linux (64-bit)
           ```bash
           curl -L https://github.com/${{ github.repository }}/releases/download/$VERSION/bark-linux-amd64 -o bark && chmod +x bark
+          ```
+
+          ### Linux (ARM64)
+          ```bash
+          curl -L https://github.com/${{ github.repository }}/releases/download/$VERSION/bark-linux-arm64 -o bark && chmod +x bark
           ```
 
           ### For macOS and Linux
@@ -111,7 +136,7 @@ jobs:
           ```
 
           ### Windows
-          Download `bark-windows-amd64.exe` from the assets below and add it to your PATH.
+          Download `bark-windows-amd64.exe` (or `bark-windows-arm64.exe` on ARM) from the assets below and add it to your PATH.
 
           ### Verify Installation
           ```bash
@@ -120,7 +145,10 @@ jobs:
 
           ---
 
-          **Checksums:** See `checksums.txt` in the assets below to verify your download.
+          **Verify your download:** `checksums.txt` in the assets below has each binary's SHA-256. To check that a binary was built by this repository's release workflow:
+          ```bash
+          gh attestation verify bark-linux-amd64 --repo ${{ github.repository }}
+          ```
           EOF
 
           # Replace $VERSION placeholder in the instructions

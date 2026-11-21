@@ -13,9 +13,11 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: ionut-t/bark/.github/actions/bark-pr-description@main
+      # Pinned to the Bark release that wrote this workflow; the action
+      # installs that same release. Use @v2 to follow every v2 release, or
+      # let Dependabot (github-actions) bump the exact version.
+      - uses: ionut-t/bark/.github/actions/bark-pr-description@{{ACTION_REF}}
         with:
-          bark-version: latest
           provider: ${{ vars.BARK_PROVIDER }}
           api-key: ${{ secrets.BARK_API_KEY }}
           model: ${{ vars.BARK_MODEL }}
