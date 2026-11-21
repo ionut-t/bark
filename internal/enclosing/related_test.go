@@ -513,6 +513,35 @@ func TestRelated_GoFunctionCallersByImport(t *testing.T) {
 			want:   []string{"main.go:5-7 main calls ExitCode"},
 		},
 		{
+			name: "a local variable named like the package",
+			repo: fakeRepo{
+				"go.mod":      "module example.com/m\n",
+				"cmd/root.go": rootGo,
+				"run/run.go":  "package run\n\nfunc Run() int {\n\tcmd := start()\n\treturn cmd.ExitCode()\n}\n",
+			},
+			change: "cmd/root.go",
+		},
+		{
+			name: "a package named unlike its directory",
+			repo: fakeRepo{
+				"go.mod":        "module example.com/m\n",
+				"genai/root.go": strings.Replace(rootGo, "package cmd", "package gemini", 1),
+				"main.go":       "package main\n\nimport \"example.com/m/genai\"\n\nfunc main() {\n\tos.Exit(gemini.ExitCode(nil))\n}\n",
+			},
+			change: "genai/root.go",
+			want:   []string{"main.go:5-7 main calls ExitCode"},
+		},
+		{
+			name: "several dot imports",
+			repo: fakeRepo{
+				"go.mod":      "module example.com/m\n",
+				"cmd/root.go": rootGo,
+				"main.go":     "package main\n\nimport (\n\t. \"example.com/m/cmd\"\n\t. \"example.com/m/other\"\n)\n\nfunc main() {\n\tos.Exit(ExitCode(nil))\n}\n",
+			},
+			change: "cmd/root.go",
+			want:   []string{"main.go:8-10 main calls ExitCode"},
+		},
+		{
 			name: "a package in a nested module",
 			repo: fakeRepo{
 				"go.mod":            "module example.com/m\n",

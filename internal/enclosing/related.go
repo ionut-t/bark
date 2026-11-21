@@ -470,10 +470,11 @@ var qualifierRe = regexp.MustCompile(`(\.\s*)?\b([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*
 func (r *related) callsPackageFunc(f *parsedFile, line string, callRe *regexp.Regexp, d decl, from *parsedFile) bool {
 	dir := path.Dir(d.path)
 	importsDir := func(imp string) bool { return r.importsDir(imp, dir) }
+	importsAny := func(imps []string) bool { return slices.ContainsFunc(imps, importsDir) }
 	for _, m := range callRe.FindAllStringIndex(line, -1) {
 		before := strings.TrimRight(line[:m[0]], " \t")
 		if !strings.HasSuffix(before, ".") {
-			if path.Dir(f.path) == dir || importsDir(f.imports["."]) {
+			if path.Dir(f.path) == dir || importsAny(f.dotImports) {
 				return true
 			}
 			continue
@@ -486,7 +487,9 @@ func (r *related) callsPackageFunc(f *parsedFile, line string, callRe *regexp.Re
 			if importsDir(imp) {
 				return true
 			}
-		} else if q[2] == from.pkg {
+		} else if q[2] == from.pkg && importsAny(f.plainImports) {
+			// A package named unlike its directory, imported without an
+			// alias. Without the import, q is a variable named like it.
 			return true
 		}
 	}
@@ -732,6 +735,9 @@ type parsedFile struct {
 	// by alias.
 	pkg     string
 	imports map[string]string
+	// plainImports are the Go import paths without an alias, and
+	// dotImports those imported with ".".
+	plainImports, dotImports []string
 }
 
 func parse(p string, src []byte) *parsedFile {
@@ -766,16 +772,21 @@ func parse(p string, src []byte) *parsedFile {
 			}
 		case "import_spec":
 			alias, imp := n.ChildByFieldName("name", lang), n.ChildByFieldName("path", lang)
-			if imp != nil {
-				// Unaliased, by the path's last element: usually the
-				// package name. When it isn't, the call's qualifier isn't
-				// found here and the callee's package name decides.
-				p := strings.Trim(imp.Text(src), "`\"")
-				name := path.Base(p)
-				if alias != nil {
-					name = alias.Text(src)
-				}
-				f.imports[name] = p
+			if imp == nil {
+				break
+			}
+			p := strings.Trim(imp.Text(src), "`\"")
+			switch {
+			case alias == nil:
+				// By the path's last element: usually the package name.
+				// When it isn't, callsPackageFunc checks the callee's
+				// package name against plainImports.
+				f.imports[path.Base(p)] = p
+				f.plainImports = append(f.plainImports, p)
+			case alias.Text(src) == ".":
+				f.dotImports = append(f.dotImports, p)
+			default:
+				f.imports[alias.Text(src)] = p
 			}
 		}
 		if sp.signatures[t] {
