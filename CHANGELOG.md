@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.35.0](https://github.com/ionut-t/bark/compare/v2.34.1...v2.35.0) (2026-11-21)
+
+
+### Features
+
+* **ci:** harden release process and add build provenance ([#162](https://github.com/ionut-t/bark/issues/162)) ([37fd62c](https://github.com/ionut-t/bark/commit/37fd62c613559c469ce6848bf94f5464fadb90d5))
+
+
+### Bug Fixes
+
+* **check:** treat doubted findings as new instead of repeats ([#161](https://github.com/ionut-t/bark/issues/161)) ([3c7a32a](https://github.com/ionut-t/bark/commit/3c7a32a43f5e04a72c43f101d0baae1f0bac89a5))
+* **enclosing:** ignore interface method signatures in caller identification ([#158](https://github.com/ionut-t/bark/issues/158)) ([3c18709](https://github.com/ionut-t/bark/commit/3c18709664c7affa5dea86f28cefbc6b738ffd05))
+* **enclosing:** match Go function callers by package ([#160](https://github.com/ionut-t/bark/issues/160)) ([0f7c340](https://github.com/ionut-t/bark/commit/0f7c340b49754c92305653c30a87816fe1af1aa3))
+
 ## [2.34.1](https://github.com/ionut-t/bark/compare/v2.34.0...v2.34.1) (2026-11-21)
 
 
