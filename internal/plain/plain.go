@@ -54,6 +54,10 @@ type ReviewOptions struct {
 	// ApproveBelow is the severity from which a finding stops the review
 	// from approving: medium when empty, or fail_on when that's lower.
 	ApproveBelow findings.Severity
+	// NoResolve leaves open the threads of Bark's earlier inline comments
+	// that its check finds fixed. Without it, a posted review resolves
+	// them, after replying on each with the check's reason.
+	NoResolve bool
 
 	// Diff source flags (used when Diff is empty)
 	Staged bool
@@ -90,6 +94,9 @@ func RunReview(opts ReviewOptions) error {
 	}
 	if opts.ApproveBelow != "" && !opts.Approve {
 		return fmt.Errorf("approve_below needs approving to be on (--approve)")
+	}
+	if opts.NoResolve && !opts.Comment {
+		return fmt.Errorf("leaving fixed threads open (--no-resolve) needs the review to be posted (--comment)")
 	}
 
 	// fail_on needs findings to count, so it turns on structured findings
@@ -266,6 +273,16 @@ func RunReview(opts ReviewOptions) error {
 		warnTruncated("review", "it ends early and may be missing findings")
 	}
 
+	// The threads of Bark's earlier inline comments that its check may
+	// find fixed, and resolve once the review is posted.
+	maps := newLineMaps(reviewDiff.PRHead())
+	var threads []prreview.Thread
+	var toCheck []check.Thread
+	if opts.Comment && !opts.NoResolve && histOK {
+		threads, toCheck = threadsToCheck(os.Stderr, hist, checking, reviewDiff.PRHead(), maps)
+	}
+	var fixed map[int]string
+
 	var checkFn func([]findings.Event) ([]findings.Event, int)
 	if checking {
 		r := check.Review{Client: client, ReviewDiff: reviewDiff, Diff: diff, HouseRules: rules.Text, LogDir: opts.Paths.State, Provider: provider, Model: model, Pricing: meter.Pricing()}
@@ -275,9 +292,12 @@ func RunReview(opts ReviewOptions) error {
 			r.Persona = reviewer.Prompt
 		}
 		r.Prior = hist.Findings
-		r.SameLines = sameLinesHint(os.Stderr, hist.Findings, lineMapper(reviewDiff.PRHead()))
+		r.SameLines = sameLinesHint(os.Stderr, hist.Findings, lineMapper(maps))
+		r.Threads = toCheck
 		checkFn = func(events []findings.Event) ([]findings.Event, int) {
-			return checkFindings(r, events, meter)
+			var checked int
+			events, checked, fixed = checkFindings(r, events, meter)
+			return events, checked
 		}
 	}
 	events := finishReview(out, output, truncated, opts.Stream, structured, minSeverity, checkFn)
@@ -286,6 +306,9 @@ func RunReview(opts ReviewOptions) error {
 	if opts.Comment {
 		post = func() error {
 			scope := postScope(reviewDiff, truncated)
+			// Before approving: a point fixed and resolved no longer
+			// holds an incremental approval back.
+			hist.MarkResolved(resolveFixed(os.Stderr, fixedThreads(threads, fixed), scope.Head), scope.Head)
 			approve := false
 			if opts.Approve {
 				var why string
@@ -406,7 +429,8 @@ func approvalThreshold(w io.Writer, approveBelow, failOn findings.Severity) find
 // every finding read) that keeps no finding at or above threshold, counted
 // as fail_on counts them. A review of only the changes since the last one
 // doesn't see the code earlier findings were about, so it also needs every
-// point raised earlier to have been dismissed or doubted by Bark's check.
+// point raised earlier to have been dismissed, doubted by Bark's check, or
+// resolved (by someone, or by Bark once its check found it fixed).
 func approval(events []findings.Event, scope prreview.Scope, hist prreview.History, threshold findings.Severity) (bool, string) {
 	if scope.Partial {
 		return false, "the review didn't see the whole change (the diff was cut to fit its limit, or the model's output ended early)"
@@ -423,12 +447,12 @@ func approval(events []findings.Event, scope prreview.Scope, hist prreview.Histo
 	if scope.Since != "" {
 		open := 0
 		for _, f := range hist.Findings {
-			if f.Dismissed == "" && f.Doubt == "" {
+			if f.Dismissed == "" && f.Doubt == "" && f.Resolved == "" {
 				open++
 			}
 		}
 		if open > 0 {
-			return false, fmt.Sprintf("it reviewed only the changes since the last review, and %d point(s) raised earlier on the pull request may still be open (review the whole pull request to check them again, or dismiss them)", open)
+			return false, fmt.Sprintf("it reviewed only the changes since the last review, and %d point(s) raised earlier on the pull request may still be open (review the whole pull request to check them again, or dismiss or resolve them)", open)
 		}
 	}
 	return true, ""
@@ -641,16 +665,21 @@ func fullResponse(ctx context.Context, client llm.LLM, system, promptText string
 	return response.Content, response.Truncated, nil
 }
 
-// checkFindings runs Bark's check on the findings in events and returns the
-// events with the doubted findings marked, and how many findings were
-// checked. Progress and errors go to stderr; if the check fails, events are
-// returned with every finding marked unchecked.
-func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter) ([]findings.Event, int) {
+// checkFindings runs Bark's check on the findings in events, and on the open
+// threads of r, and returns the events with the doubted findings marked,
+// how many findings were checked, and the threads it found fixed (see
+// check.Result.Fixed). Progress and errors go to stderr; if the check
+// fails, events are returned with every finding marked unchecked.
+func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter) ([]findings.Event, int, map[int]string) {
 	n := check.Count(events)
-	if n == 0 {
-		return events, 0
+	if n == 0 && len(r.Threads) == 0 {
+		return events, 0, nil
 	}
-	fmt.Fprintf(os.Stderr, "bark: checking %d finding(s) against the code...\n", n)
+	what := fmt.Sprintf("%d finding(s)", n)
+	if len(r.Threads) > 0 {
+		what += fmt.Sprintf(" and %d open thread(s) whose code changed", len(r.Threads))
+	}
+	fmt.Fprintf(os.Stderr, "bark: checking %s against the code...\n", what)
 
 	r.OnLog = func(path string, err error) {
 		if err != nil {
@@ -664,10 +693,22 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter)
 	res, err := r.Run(ctx, events)
 	meter.Mark("check")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "bark: %v; the findings are unchecked\n", err)
-		return findings.MarkUnchecked(events, "it failed."), 0
+		var left []string
+		if n > 0 {
+			left = append(left, "the findings are unchecked")
+		}
+		if len(r.Threads) > 0 {
+			left = append(left, "no thread is resolved")
+		}
+		fmt.Fprintf(os.Stderr, "bark: %v; %s\n", err, strings.Join(left, ", and "))
+		return findings.MarkUnchecked(events, "it failed."), 0, nil
 	}
-	fmt.Fprint(os.Stderr, checkSummary(res))
+	if n > 0 {
+		fmt.Fprint(os.Stderr, checkSummary(res))
+	}
+	if len(r.Threads) > 0 {
+		fmt.Fprintf(os.Stderr, "bark: the check found %d of %d open thread(s) fixed\n", len(res.Fixed), len(r.Threads))
+	}
 
 	// The intro and verdict were written before the check; rewrite them so
 	// they don't demand fixes for doubted findings.
@@ -679,7 +720,7 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter)
 	case ok:
 		fmt.Fprintln(os.Stderr, "bark: rewrote the intro and verdict to match the checked findings")
 	}
-	return revised, res.Checked
+	return revised, res.Checked, res.Fixed
 }
 
 // checkSummary is the stderr line saying what the check kept. Kept means
@@ -719,32 +760,23 @@ func sameLinesHint(w io.Writer, prior []findings.Finding, mapLines prreview.MapL
 }
 
 // lineMapper maps lines from the commits of earlier reviews to head with
-// git, reading each file's changes once. It's nil without a head.
-func lineMapper(head string) prreview.MapLines {
-	if head == "" {
+// maps. It's nil without a head.
+func lineMapper(maps *lineMaps) prreview.MapLines {
+	if maps.head == "" {
 		return nil
 	}
-	type lookup struct {
-		m   git.LineMap
-		err error
-	}
-	// Failures too, so a missing commit is looked up and reported once.
-	lookups := map[string]lookup{}
+	// The lookups whose failure was reported.
+	reported := map[string]bool{}
 	return func(commit, path string, start, end int) (int, int, bool, error) {
-		key := commit + "\x00" + path
-		l, done := lookups[key]
-		if !done {
-			ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-			l.m, l.err = git.GetLineMap(ctx, commit, head, path)
-			cancel()
-			lookups[key] = l
-		} else if l.err != nil {
+		m, err := maps.get(commit, path)
+		if err != nil {
+			if key := commit + "\x00" + path; !reported[key] {
+				reported[key] = true
+				return 0, 0, false, err
+			}
 			return 0, 0, false, nil
 		}
-		if l.err != nil {
-			return 0, 0, false, l.err
-		}
-		s, e, ok := l.m.Map(start, end)
+		s, e, ok := m.Map(start, end)
 		return s, e, ok, nil
 	}
 }

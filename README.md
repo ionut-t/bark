@@ -96,14 +96,14 @@ A full review of a pull request whose head hasn't changed since the last review 
 Before a structured review (`--structured` or `--comment`) is shown in full or posted, Bark checks its findings with a second model call. The check reads the files the findings point to (whole, or only the lines around each finding for files over 1,500 lines) and must quote the code each finding rests on. Three kinds of finding are set aside:
 
 - **Findings that don't hold up** go in a "Doubted by Bark's check" section, each with the reason.
-- **Findings already raised** (with `--pr` only) go in a "Raised before on this pull request" block. These repeat a point from Bark's earlier reviews of the same pull request, whether it was posted, doubted or resolved. Bark finds those points in a hidden comment that each posted review leaves. They aren't posted again, but they're still in the code: the verdict still asks for them to be fixed, and `--fail-on` counts them.
+- **Findings already raised** (with `--pr` only) go in a "Raised before on this pull request" block. These repeat a point from Bark's earlier reviews of the same pull request, whether it was posted, doubted or resolved, unless Bark [resolved it as fixed](#resolving-fixed-threads). Bark finds those points in a hidden comment that each posted review leaves. They aren't posted again, but they're still in the code: the verdict still asks for them to be fixed, and `--fail-on` counts them.
 - **Findings dismissed on the pull request** (with `--pr` only) go in a "Dismissed on this pull request" block. See [Dismissing a finding](#dismissing-a-finding).
 
 In a posted review, these sections are collapsed and their findings get no inline comments.
 
 The check adds:
 
-- one call per review that has findings, with the diff and the files it reads as input;
+- one call per review that has findings, or [open threads to check for fixes](#resolving-fixed-threads), with the diff and the files it reads as input;
 - when the review isn't streamed (plain output, `--comment`) and findings are set aside, one more small call (no code, a few hundred tokens) that rewrites the reviewer's intro and verdict so they don't ask for fixes to those findings.
 
 To turn the check off:
@@ -118,8 +118,23 @@ bark config --check-findings=false   # for good
 To tell Bark you won't fix a finding, react 👎 to its inline comment or reply "won't fix". Later repeats of it aren't posted, and `--fail-on` doesn't count them.
 
 - Only people with write access can dismiss (owners, members, collaborators). Bots can't.
-- Resolving the thread doesn't dismiss: threads are also resolved after a fix.
+- Resolving the thread doesn't dismiss: threads are also resolved after a fix (see [Resolving fixed threads](#resolving-fixed-threads)).
 - The check decides what's a repeat. To help it, Bark points out findings on the same lines as a dismissed one, if those lines haven't changed since. This needs the earlier review's commit in the local repository (in CI, check out with `fetch-depth: 0`).
+
+#### Resolving fixed threads
+
+With `--comment`, Bark resolves the threads of its own earlier inline comments once they're fixed. A thread is a candidate when:
+
+- nobody replied to it (bots aside) and nobody [dismissed](#dismissing-a-finding) it;
+- the lines it was posted on changed since. This needs the commit it was posted on in the local repository (in CI, check out with `fetch-depth: 0`).
+
+Bark's check (no extra call when the review has findings; one small call when it has none) is shown each candidate's point, the code it was about then and the file now. It must say the point is fixed and quote the new code that fixes it, a line that wasn't there before. Bark then replies on the thread ("Fixed in `abc1234`: …") and resolves it. A point is never resolved because a later review didn't raise it again. A finding that makes a point Bark resolved as fixed again isn't set aside as raised before: it's a regression, and is posted as new. If the check calls a thread fixed while setting aside a finding as a repeat of the same point, the thread stays open.
+
+If you unresolve a thread Bark resolved, it stays open: Bark doesn't touch it again. Resolving needs the token to have `pull-requests: write`, as posting does. To leave fixed threads open:
+
+```bash
+bark review --pr 42 --comment --no-resolve
+```
 
 #### Filtering by severity
 
@@ -166,7 +181,7 @@ The review is posted as an approval when:
 - it keeps no finding at or above `--approve-below` (`medium` by default), counted the way [`--fail-on`](#failing-on-findings) counts them. Findings below it stay on the approval as inline comments. A `fail_on` lower than `--approve-below` wins, since a review that fails doesn't approve;
 - it saw the whole change: the diff wasn't cut to fit its limit, and the model's output didn't end early;
 - the model gave a verdict, and Bark could read every finding;
-- when it reviewed only the changes since the last review, every point raised in earlier reviews was [dismissed](#dismissing-a-finding) or doubted by Bark's check. Bark can't tell whether those were fixed without reviewing the code again. Pass `--full` (or set `full-review`) to check them again each time.
+- when it reviewed only the changes since the last review, every point raised in earlier reviews was [dismissed](#dismissing-a-finding), doubted by Bark's check, or resolved: by someone, or by Bark once its check found it [fixed](#resolving-fixed-threads). Pass `--full` (or set `full-review`) to check the rest again each time.
 
 #### House rules
 

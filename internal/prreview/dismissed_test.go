@@ -176,3 +176,14 @@ func TestHistoryPermissionError(t *testing.T) {
 	assert.Empty(t, got.Findings[0].Dismissed)
 	assert.NoError(t, got.DismissalsErr, "a 404 only means not a collaborator")
 }
+
+// An inline comment of a finding Bark's check didn't check starts with a
+// note saying so; the finding's body is the paragraph after it.
+func TestCommentFindingSkipsUncheckedNote(t *testing.T) {
+	t.Parallel()
+
+	title, body, ok := commentFinding("**[HIGH] Nil map**\n\n" + findings.UncheckedNote + " it failed.\n\nm may be nil. It panics.")
+	require.True(t, ok)
+	assert.Equal(t, "Nil map", title)
+	assert.Equal(t, "m may be nil.", body)
+}

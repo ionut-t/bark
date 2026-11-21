@@ -15,10 +15,11 @@ import (
 var ErrCommitMissing = errors.New("commit isn't in the local repository")
 
 // hunk is a hunk header of a diff without context: old lines
-// oldStart..oldStart+oldCount-1 became newCount lines. With oldCount 0,
-// the new lines were inserted after old line oldStart.
+// oldStart..oldStart+oldCount-1 became newCount lines from newStart. With
+// oldCount 0, the new lines were inserted after old line oldStart; with
+// newCount 0, the old lines were deleted after new line newStart.
 type hunk struct {
-	oldStart, oldCount, newCount int
+	oldStart, oldCount, newStart, newCount int
 }
 
 // LineMap says where the lines of a file at one commit are at a later one.
@@ -62,7 +63,8 @@ func parseLineMap(diff string) LineMap {
 			continue
 		}
 		start, _ := strconv.Atoi(h[1])
-		m.hunks = append(m.hunks, hunk{oldStart: start, oldCount: count(h[2]), newCount: count(h[4])})
+		newStart, _ := strconv.Atoi(h[3])
+		m.hunks = append(m.hunks, hunk{oldStart: start, oldCount: count(h[2]), newStart: newStart, newCount: count(h[4])})
 	}
 	return m
 }
@@ -90,4 +92,38 @@ func (m LineMap) Map(start, end int) (int, int, bool) {
 		}
 	}
 	return start + offset, end + offset, true
+}
+
+// Span returns where lines start..end are at the later commit, changed or
+// not: a changed line at either end counts as the lines that replaced it,
+// and a deleted one as the line before where it was. It's 0, 0 when
+// nothing is left of them (the file was deleted).
+func (m LineMap) Span(start, end int) (int, int) {
+	s, e := m.at(start, true), m.at(end, false)
+	return s, max(e, s)
+}
+
+// at returns where line is at the later commit or, if it changed, the
+// first (with first) or last line that replaced it.
+func (m LineMap) at(line int, first bool) int {
+	offset := 0
+	for _, h := range m.hunks {
+		if h.oldCount == 0 {
+			if h.oldStart < line {
+				offset += h.newCount
+			}
+			continue
+		}
+		last := h.oldStart + h.oldCount - 1
+		if h.oldStart <= line && line <= last {
+			if first || h.newCount == 0 {
+				return h.newStart
+			}
+			return h.newStart + h.newCount - 1
+		}
+		if last < line {
+			offset += h.newCount - h.oldCount
+		}
+	}
+	return line + offset
 }

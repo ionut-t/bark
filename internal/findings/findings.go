@@ -74,6 +74,15 @@ type Finding struct {
 	// Commit is, on a point raised before, the commit its review was
 	// posted on, which its line numbers refer to; empty if unknown.
 	Commit string `json:"-"`
+	// Resolved is set on a point raised before whose inline comment's
+	// thread was resolved on the pull request: by someone, or by Bark once
+	// its check found the point fixed. It says which.
+	Resolved string `json:"-"`
+	// Fixed is true on a point raised before whose thread Bark resolved
+	// because its check found the point fixed. Unlike a point someone
+	// resolved, it no longer counts as raised before: a finding that makes
+	// it again is a regression.
+	Fixed bool `json:"-"`
 }
 
 // maxSentence is the most bytes FirstSentence returns, before the ellipsis.

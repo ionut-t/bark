@@ -67,6 +67,13 @@ inputs:
     description: Review the whole pull request, not only the changes since Bark's last review of it. Only matters with inline-comments.
     required: false
     default: "false"
+  resolve-fixed:
+    description: |
+      With inline-comments, resolve the threads of Bark's earlier inline
+      comments that its check finds fixed in code changed since, after
+      replying on each with the reason. Set to false to leave them open.
+    required: false
+    default: "true"
   fail-on:
     description: |
       Fail the job when the review keeps a finding of this severity or
@@ -88,9 +95,10 @@ inputs:
       inline-comments. Otherwise the review is posted as a comment.
 
       With only the changes since Bark's last review reviewed, it also
-      needs every point raised earlier to be dismissed (or doubted by
-      Bark's check), since it can't tell whether they were fixed. Set
-      full-review to check them again on every push.
+      needs every point raised earlier to be dismissed, doubted by Bark's
+      check, or resolved (Bark resolves the ones its check finds fixed;
+      see resolve-fixed). Set full-review to check them again on every
+      push.
 
       GitHub only lets GitHub Actions approve when the repository (or
       organization) allows it: Settings → Actions → General → "Allow
@@ -175,6 +183,7 @@ runs:
         BARK_WITH_DESCRIPTION: ${{ inputs.with-description }}
         BARK_INLINE_COMMENTS: ${{ inputs.inline-comments }}
         BARK_FULL_REVIEW: ${{ inputs.full-review }}
+        BARK_RESOLVE_FIXED: ${{ inputs.resolve-fixed }}
         BARK_FAIL_ON: ${{ inputs.fail-on }}
         BARK_APPROVE: ${{ inputs.approve }}
         BARK_APPROVE_BELOW: ${{ inputs.approve-below }}
@@ -220,6 +229,7 @@ runs:
         [ "$BARK_INLINE_COMMENTS" = "true" ] && ARGS+=(--comment)
         # Only when set, so a pinned older Bark doesn't get a flag it lacks.
         [ "$BARK_FULL_REVIEW" = "true" ] && ARGS+=(--full)
+        [ "$BARK_INLINE_COMMENTS" = "true" ] && [ "$BARK_RESOLVE_FIXED" = "false" ] && ARGS+=(--no-resolve)
         [ -n "$BARK_FAIL_ON" ] && ARGS+=(--fail-on "$BARK_FAIL_ON")
         if [ "$BARK_APPROVE" = "true" ]; then
           if [ "$BARK_INLINE_COMMENTS" != "true" ]; then

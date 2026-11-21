@@ -9,6 +9,8 @@ name: Bark
 # a review with nothing blocking approves the PR (BARK_APPROVE_BELOW sets the
 # severity that blocks it, medium by default); the repository must allow
 # GitHub Actions to approve pull requests (Settings → Actions → General).
+# With inline comments, Bark resolves its own threads that its check finds
+# fixed (it replies with the reason first).
 # Pushes to an open PR don't trigger anything.
 on:
   pull_request:

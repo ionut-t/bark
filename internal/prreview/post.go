@@ -167,6 +167,13 @@ type History struct {
 	// them, couldn't all be read: some dismissed findings may lack
 	// Dismissed. The rest of the history is still good.
 	DismissalsErr error
+	// Threads are the open threads of Bark's inline comments that nobody
+	// answered or dismissed: the points Bark may resolve once its check
+	// finds them fixed (see Resolve).
+	Threads []Thread
+	// ThreadsErr is set when the review threads couldn't be read: Threads
+	// is empty, and no finding has Resolved.
+	ThreadsErr error
 }
 
 // Dismissed returns how many of h's findings were dismissed.
@@ -243,10 +250,13 @@ func history(ctx context.Context, run gh, pr string) (History, error) {
 	for _, r := range reviews {
 		ids[r.id] = true
 	}
-	dismissed, err := dismissals(ctx, run, pull, ids, trusted)
+	inline, err := readInline(ctx, run, pull, ids, trusted)
 	h.DismissalsErr = err
 	for _, r := range reviews {
-		h.Findings = append(h.Findings, markDismissed(r.findings, dismissed[r.id], r.commit)...)
+		h.Findings = append(h.Findings, markDismissed(r.findings, inline.dismissed[r.id], r.commit)...)
+	}
+	if len(inline.bark) > 0 {
+		h.ThreadsErr = h.readThreads(ctx, run, pull, inline)
 	}
 	return h, nil
 }

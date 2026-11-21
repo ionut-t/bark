@@ -122,7 +122,11 @@ type fakeReviews struct {
 	commentsErr error
 	reactions   map[int][]map[string]string
 	permissions map[string]string
-	args        [][]string
+	// threads are the pull request's review threads, as the threads
+	// query prints them.
+	threads    []map[string]any
+	threadsErr error
+	args       [][]string
 }
 
 func (f *fakeReviews) run(_ context.Context, _ []byte, args ...string) ([]byte, error) {
@@ -139,6 +143,15 @@ func (f *fakeReviews) run(_ context.Context, _ []byte, args ...string) ([]byte, 
 	case args[0] == "pr":
 		return []byte(`{"url":"https://github.com/o/r/pull/7","headRefOid":"abc123"}`), nil
 	case args[0] != "api":
+	case len(args) > 1 && args[1] == "graphql":
+		if f.threadsErr != nil {
+			return nil, f.threadsErr
+		}
+		var ts []any
+		for _, t := range f.threads {
+			ts = append(ts, t)
+		}
+		return jsonLines(ts...), nil
 	case slices.Contains(args, "repos/o/r/pulls/7/reviews"):
 		if f.err != nil {
 			return nil, f.err
