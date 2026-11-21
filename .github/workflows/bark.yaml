@@ -10,7 +10,8 @@ name: Bark
 # severity that blocks it, medium by default); the repository must allow
 # GitHub Actions to approve pull requests (Settings → Actions → General).
 # With inline comments, Bark resolves its own threads that its check finds
-# fixed (it replies with the reason first).
+# fixed, and replies on each with the reason; resolving needs the review
+# job's contents: write.
 # Pushes to an open PR don't trigger anything.
 on:
   pull_request:
@@ -92,7 +93,10 @@ jobs:
       )
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # GitHub refuses resolveReviewThread to a token with only
+      # pull-requests: write, so resolving fixed threads needs this.
+      # Pull requests from forks get a read-only token whatever it says.
+      contents: write
       pull-requests: write
     steps:
       - name: Checkout code

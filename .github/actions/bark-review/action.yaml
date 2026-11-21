@@ -70,8 +70,10 @@ inputs:
   resolve-fixed:
     description: |
       With inline-comments, resolve the threads of Bark's earlier inline
-      comments that its check finds fixed in code changed since, after
-      replying on each with the reason. Set to false to leave them open.
+      comments that its check finds fixed in code changed since, and reply
+      on each with the reason. Resolving needs the job's token to have
+      contents: write as well as pull-requests: write; without it the
+      threads stay open, with a warning. Set to false to leave them open.
     required: false
     default: "true"
   fail-on:

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -148,41 +149,43 @@ func TestHistoryThreadsNeedCommitAndLine(t *testing.T) {
 	assert.Empty(t, got.Threads)
 }
 
-// fakeResolve answers replies and resolveReviewThread mutations, failing
-// for the comments and threads given.
+// fakeResolve answers replies and the resolveReviewThread and
+// unresolveReviewThread mutations, failing for the comments and threads
+// given.
 type fakeResolve struct {
-	replyErr   map[int64]error
-	resolveErr map[string]error
-	deleteErr  map[int64]error
-	replies    map[int64]string
-	resolved   []string
-	order      []string
+	replyErr     map[int64]error
+	resolveErr   map[string]error
+	unresolveErr map[string]error
+	replies      map[int64]string
+	resolved     map[string]bool
+	order        []string
 }
 
 func (f *fakeResolve) run(_ context.Context, stdin []byte, args ...string) ([]byte, error) {
 	if args[0] == "api" && args[1] == "graphql" {
-		if !slices.Contains(args, "query="+resolveMutation) {
-			return nil, errors.New("unexpected query")
-		}
 		id := strings.TrimPrefix(args[len(args)-1], "id=")
-		f.order = append(f.order, "resolve "+id)
-		if err := f.resolveErr[id]; err != nil {
-			return nil, err
+		if f.resolved == nil {
+			f.resolved = map[string]bool{}
 		}
-		f.resolved = append(f.resolved, id)
-		return []byte(`{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}`), nil
-	}
-	var id int64
-	if args[0] == "api" && len(args) == 4 && args[1] == "--method" && args[2] == "DELETE" {
-		if _, err := fmt.Sscanf(args[3], "repos/o/r/pulls/comments/%d", &id); err == nil {
-			f.order = append(f.order, fmt.Sprintf("delete %d", id))
-			if err := f.deleteErr[id]; err != nil {
+		switch {
+		case slices.Contains(args, "query="+resolveMutation):
+			f.order = append(f.order, "resolve "+id)
+			if err := f.resolveErr[id]; err != nil {
 				return nil, err
 			}
-			delete(f.replies, id-900)
-			return nil, nil
+			f.resolved[id] = true
+		case slices.Contains(args, "query="+unresolveMutation):
+			f.order = append(f.order, "unresolve "+id)
+			if err := f.unresolveErr[id]; err != nil {
+				return nil, err
+			}
+			delete(f.resolved, id)
+		default:
+			return nil, errors.New("unexpected query")
 		}
+		return []byte(`{"data":{}}`), nil
 	}
+	var id int64
 	if args[0] == "api" && len(args) == 6 && args[1] == "--method" && args[2] == "POST" {
 		if _, err := fmt.Sscanf(args[3], "repos/o/r/pulls/7/comments/%d/replies", &id); err == nil {
 			f.order = append(f.order, fmt.Sprintf("reply %d", id))
@@ -199,8 +202,7 @@ func (f *fakeResolve) run(_ context.Context, stdin []byte, args ...string) ([]by
 				f.replies = map[int64]string{}
 			}
 			f.replies[id] = body.Body
-			// The reply's own ID is 900 more than the comment's.
-			return fmt.Appendf(nil, `{"id":%d,"body":"x"}`, id+900), nil
+			return []byte(`{}`), nil
 		}
 	}
 	return nil, errors.New("unexpected gh call " + strings.Join(args, " "))
@@ -211,17 +213,17 @@ func openThread(id string, comment int64, title string) Thread {
 		Point: findings.Finding{File: "a.go", Line: 2, Title: title, Commit: postedOn}}
 }
 
-// Bark says on the thread why it's fixed before resolving it, so it can be
-// checked. A thread it couldn't reply on isn't resolved; one it couldn't
-// resolve loses the reply again, as Bark's reply on an open thread means
-// someone unresolved it, and the next review would leave it be.
+// Bark resolves each fixed thread, then says on it why. A thread it
+// couldn't resolve gets no reply, so a missing permission posts nothing;
+// one it couldn't reply on is unresolved again, so a resolved thread always
+// says why.
 func TestResolve(t *testing.T) {
 	t.Parallel()
 
 	gh := &fakeResolve{
-		replyErr:   map[int64]error{102: errors.New("HTTP 403")},
-		resolveErr: map[string]error{"T103": errors.New("HTTP 502"), "T104": errors.New("HTTP 503")},
-		deleteErr:  map[int64]error{1004: errors.New("HTTP 404")},
+		resolveErr:   map[string]error{"T102": errors.New("HTTP 403")},
+		replyErr:     map[int64]error{103: errors.New("HTTP 502"), 104: errors.New("HTTP 503")},
+		unresolveErr: map[string]error{"T104": errors.New("HTTP 404")},
 	}
 	fixed := []Fixed{
 		{Thread: openThread("T101", 101, "Nil map"), Reason: "m is checked\n  for nil   now."},
@@ -233,13 +235,14 @@ func TestResolve(t *testing.T) {
 
 	assert.Equal(t, []Thread{fixed[0].Thread}, got)
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "HTTP 403")
-	assert.ErrorContains(t, err, "HTTP 502")
-	assert.ErrorContains(t, err, "HTTP 503")
-	assert.ErrorContains(t, err, `failed to delete Bark's reply on the thread of "Four", so the next review won't resolve it: HTTP 404`)
-	assert.Equal(t, []string{"reply 101", "resolve T101", "reply 102", "reply 103", "resolve T103", "delete 1003",
-		"reply 104", "resolve T104", "delete 1004"}, gh.order)
-	assert.NotContains(t, gh.replies, int64(103), "the reply on a thread Bark couldn't resolve is deleted")
+	assert.ErrorContains(t, err, `failed to resolve the thread of "Two": HTTP 403`)
+	assert.ErrorContains(t, err, `failed to reply on the thread of "Three", so it was unresolved again: HTTP 502`)
+	assert.ErrorContains(t, err, `failed to reply on the thread of "Four": HTTP 503`)
+	assert.ErrorContains(t, err, `failed to unresolve it again, so it's resolved without saying why: HTTP 404`)
+	assert.Equal(t, []string{"resolve T101", "reply 101", "resolve T102", "resolve T103", "reply 103", "unresolve T103",
+		"resolve T104", "reply 104", "unresolve T104"}, gh.order)
+	assert.Equal(t, map[string]bool{"T101": true, "T104": true}, gh.resolved)
+	assert.Equal(t, []int64{101}, slices.Sorted(maps.Keys(gh.replies)))
 	assert.Equal(t, fixedMarker+"\nFixed in `abcdef1`: m is checked for nil now.\n\n"+
 		"_Bark's check found this fixed, so it resolved the thread. Unresolve it if it isn't fixed._", gh.replies[101])
 }

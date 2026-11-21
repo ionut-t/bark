@@ -67,6 +67,9 @@ const threadsJQ = `.data.repository.pullRequest.reviewThreads.nodes[] | ` +
 // resolveMutation resolves the review thread with node id $id.
 const resolveMutation = `mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }`
 
+// unresolveMutation reopens a thread Bark resolved but couldn't reply on.
+const unresolveMutation = `mutation($id: ID!) { unresolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }`
+
 // The Resolved of a point whose thread was resolved on the pull request
 // before this review: by someone, or by Bark after saying it's fixed.
 const (
@@ -151,10 +154,12 @@ func (h *History) markResolved(file, title, how string, fixed bool) {
 	}
 }
 
-// Resolve replies on each fixed thread that it's fixed as of commit head,
-// with the check's reason, then resolves it. The reply comes first, so a
-// resolved thread always says why. It returns the threads it resolved;
-// the errors for the rest are joined.
+// Resolve resolves each fixed thread, then replies on it that it's fixed
+// as of commit head, with the check's reason. Resolving first means a
+// token that may not resolve threads posts nothing; a thread Bark resolved
+// but couldn't reply on is unresolved again, so a resolved thread always
+// says why. It returns the threads it resolved; the errors for the rest are
+// joined.
 func Resolve(ctx context.Context, fixed []Fixed, head string) ([]Thread, error) {
 	return resolve(ctx, runGH, fixed, head)
 }
@@ -171,39 +176,23 @@ func resolve(ctx context.Context, run gh, fixed []Fixed, head string) ([]Thread,
 			errs = append(errs, err)
 			continue
 		}
-		out, err := run(ctx, payload, "api", "--method", "POST",
-			fmt.Sprintf("%s/comments/%d/replies", t.pull, t.Comment), "--input", "-")
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed to reply on the thread of %q: %w", t.Point.Title, err))
-			continue
-		}
 		if _, err := run(ctx, nil, "api", "graphql", "-f", "query="+resolveMutation, "-f", "id="+t.ID); err != nil {
 			errs = append(errs, fmt.Errorf("failed to resolve the thread of %q: %w", t.Point.Title, err))
-			if err := unreply(ctx, run, t.pull, out); err != nil {
-				errs = append(errs, fmt.Errorf("failed to delete Bark's reply on the thread of %q, so the next review won't resolve it: %w",
-					t.Point.Title, err))
+			continue
+		}
+		if _, err := run(ctx, payload, "api", "--method", "POST",
+			fmt.Sprintf("%s/comments/%d/replies", t.pull, t.Comment), "--input", "-"); err != nil {
+			if _, uerr := run(ctx, nil, "api", "graphql", "-f", "query="+unresolveMutation, "-f", "id="+t.ID); uerr != nil {
+				errs = append(errs, fmt.Errorf("failed to reply on the thread of %q: %w; and failed to unresolve it again, so it's resolved without saying why: %w",
+					t.Point.Title, err, uerr))
+			} else {
+				errs = append(errs, fmt.Errorf("failed to reply on the thread of %q, so it was unresolved again: %w", t.Point.Title, err))
 			}
 			continue
 		}
 		resolved = append(resolved, t)
 	}
 	return resolved, errors.Join(errs...)
-}
-
-// unreply deletes the reply Bark posted on a thread it then couldn't
-// resolve. Left there, the reply would say the thread is resolved when it
-// isn't, and on an open thread it reads as someone having unresolved it, so
-// no later review would try again. posted is the reply as the API returned it.
-func unreply(ctx context.Context, run gh, pull string, posted []byte) error {
-	var reply struct {
-		ID int64 `json:"id"`
-	}
-	if err := json.Unmarshal(posted, &reply); err != nil || reply.ID <= 0 {
-		return errors.New("GitHub's answer to the reply had no comment ID")
-	}
-	repo := pull[:max(strings.LastIndex(pull, "/pulls/"), 0)]
-	_, err := run(ctx, nil, "api", "--method", "DELETE", fmt.Sprintf("%s/pulls/comments/%d", repo, reply.ID))
-	return err
 }
 
 // maxReason caps the check's reason Bark quotes on a thread it resolves.
