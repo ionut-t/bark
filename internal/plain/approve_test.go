@@ -1,6 +1,7 @@
 package plain
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/findings"
@@ -79,6 +80,27 @@ func TestApproval(t *testing.T) {
 func TestApprovalThreshold(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, findings.Low, approvalThreshold(""))
-	assert.Equal(t, findings.High, approvalThreshold(findings.High))
+	tests := []struct {
+		name         string
+		approveBelow findings.Severity
+		failOn       findings.Severity
+		want         findings.Severity
+		wantWarning  string
+	}{
+		{name: "default allows low nits", want: findings.Medium},
+		{name: "set", approveBelow: findings.Low, want: findings.Low},
+		{name: "fail_on above it changes nothing", approveBelow: findings.Medium, failOn: findings.High, want: findings.Medium},
+		{name: "fail_on below the default wins quietly", failOn: findings.Low, want: findings.Low},
+		{name: "fail_on below a set one wins with a warning", approveBelow: findings.Critical, failOn: findings.High, want: findings.High,
+			wantWarning: "bark: warning: approve_below critical is above fail_on high; a review with a finding at high or above fails, so it doesn't approve either\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var w strings.Builder
+			assert.Equal(t, tt.want, approvalThreshold(&w, tt.approveBelow, tt.failOn))
+			assert.Equal(t, tt.wantWarning, w.String())
+		})
+	}
 }

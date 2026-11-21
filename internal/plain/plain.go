@@ -49,9 +49,11 @@ type ReviewOptions struct {
 	// it before.
 	Full bool
 	// Approve posts the review as an approval when it keeps no finding at
-	// or above fail_on (any finding, without fail_on); see approval. It
-	// needs Comment.
+	// or above ApproveBelow; see approval. It needs Comment.
 	Approve bool
+	// ApproveBelow is the severity from which a finding stops the review
+	// from approving: medium when empty, or fail_on when that's lower.
+	ApproveBelow findings.Severity
 
 	// Diff source flags (used when Diff is empty)
 	Staged bool
@@ -85,6 +87,9 @@ func RunReview(opts ReviewOptions) error {
 	}
 	if opts.Approve && !opts.Comment {
 		return fmt.Errorf("approving needs the review to be posted (--comment)")
+	}
+	if opts.ApproveBelow != "" && !opts.Approve {
+		return fmt.Errorf("approve_below needs approving to be on (--approve)")
 	}
 
 	// fail_on needs findings to count, so it turns on structured findings
@@ -166,6 +171,10 @@ func RunReview(opts ReviewOptions) error {
 	}
 	minSeverity := findings.Severity(opts.Config.GetMinSeverity())
 	warnFailOnBelowMin(os.Stderr, failOn, minSeverity)
+	var approveThreshold findings.Severity
+	if opts.Approve {
+		approveThreshold = approvalThreshold(os.Stderr, opts.ApproveBelow, failOn)
+	}
 	var rules houserules.Rules
 	if opts.Config.GetHouseRules() {
 		rulesCtx, rulesCancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -280,7 +289,7 @@ func RunReview(opts ReviewOptions) error {
 			approve := false
 			if opts.Approve {
 				var why string
-				approve, why = approval(events, scope, hist, approvalThreshold(failOn))
+				approve, why = approval(events, scope, hist, approveThreshold)
 				if !approve {
 					fmt.Fprintf(os.Stderr, "bark: not approving: %s\n", why)
 				}
@@ -371,12 +380,22 @@ func gate(w io.Writer, events []findings.Event, failOn findings.Severity) error 
 	return err
 }
 
-// approvalThreshold is the severity at which a finding stops a review from
-// approving: fail_on when set, so a review that passes the gate approves,
-// and otherwise any finding.
-func approvalThreshold(failOn findings.Severity) findings.Severity {
-	if failOn == "" {
-		return findings.Low
+// approvalThreshold is the severity from which a finding stops a review
+// from approving: approveBelow, medium when empty, so findings below it
+// (nits) are left as comments on an approval. A review that fails its
+// fail_on gate doesn't approve, so a lower fail_on wins; when approveBelow
+// was set above it, it says so on w.
+func approvalThreshold(w io.Writer, approveBelow, failOn findings.Severity) findings.Severity {
+	threshold := approveBelow
+	if threshold == "" {
+		threshold = findings.Medium
+	}
+	if failOn == "" || failOn.AtLeast(threshold) {
+		return threshold
+	}
+	if approveBelow != "" {
+		_, _ = fmt.Fprintf(w, "bark: warning: approve_below %s is above fail_on %s; a review with a finding at %s or above fails, so it doesn't approve either\n",
+			approveBelow, failOn, failOn)
 	}
 	return failOn
 }

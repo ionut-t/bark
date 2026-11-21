@@ -84,14 +84,13 @@ inputs:
   approve:
     description: |
       Approve the pull request when the review keeps no finding at or above
-      fail-on (no finding at all when fail-on is empty), saw the whole
-      change, and gave a verdict. Needs inline-comments. Otherwise the
-      review is posted as a comment.
+      approve-below, saw the whole change, and gave a verdict. Needs
+      inline-comments. Otherwise the review is posted as a comment.
 
       With only the changes since Bark's last review reviewed, it also
-      needs every point raised earlier to be dismissed, since it can't
-      tell whether they were fixed. Set full-review to check them again on
-      every push.
+      needs every point raised earlier to be dismissed (or doubted by
+      Bark's check), since it can't tell whether they were fixed. Set
+      full-review to check them again on every push.
 
       GitHub only lets GitHub Actions approve when the repository (or
       organization) allows it: Settings → Actions → General → "Allow
@@ -99,6 +98,15 @@ inputs:
       doesn't, the review is posted as a comment with a warning.
     required: false
     default: "false"
+  approve-below:
+    description: |
+      With approve, approve only when every finding is below this
+      severity: critical, high, medium or low. Defaults to medium, so low
+      findings are left as comments on the approval; low approves only a
+      review with no findings. A lower fail-on wins, since a review that
+      fails doesn't approve.
+    required: false
+    default: ""
   github-token:
     description: GitHub token for posting PR comments
     required: false
@@ -169,6 +177,7 @@ runs:
         BARK_FULL_REVIEW: ${{ inputs.full-review }}
         BARK_FAIL_ON: ${{ inputs.fail-on }}
         BARK_APPROVE: ${{ inputs.approve }}
+        BARK_APPROVE_BELOW: ${{ inputs.approve-below }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         PROVIDER=$(echo "$BARK_PROVIDER" | tr '[:upper:]' '[:lower:]')
@@ -218,6 +227,7 @@ runs:
             exit 1
           fi
           ARGS+=(--approve)
+          [ -n "$BARK_APPROVE_BELOW" ] && ARGS+=(--approve-below "$BARK_APPROVE_BELOW")
         fi
 
         # Exit status 3 means the review kept findings at or above fail-on.

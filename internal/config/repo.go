@@ -125,6 +125,11 @@ func NormaliseFailOn(s string) (string, error) {
 	return normaliseSeverity(FailOnKey, s)
 }
 
+// NormaliseApproveBelow is NormaliseMinSeverity for an approve_below value.
+func NormaliseApproveBelow(s string) (string, error) {
+	return normaliseSeverity("approve_below", s)
+}
+
 // normaliseSeverity lowercases s and checks it's a known severity or "";
 // errors name key.
 func normaliseSeverity(key, s string) (string, error) {

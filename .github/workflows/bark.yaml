@@ -6,7 +6,8 @@ name: Bark
 # reviews only the commits since Bark's last review; "bark: full review"
 # reviews the whole PR. "bark: describe" regenerates the PR description.
 # With the BARK_APPROVE variable set to "true" (and BARK_INLINE_COMMENTS),
-# a review with nothing blocking approves the PR; the repository must allow
+# a review with nothing blocking approves the PR (BARK_APPROVE_BELOW sets the
+# severity that blocks it, medium by default); the repository must allow
 # GitHub Actions to approve pull requests (Settings → Actions → General).
 # Pushes to an open PR don't trigger anything.
 on:
@@ -119,6 +120,7 @@ jobs:
           BARK_WITH_CONTEXT: ${{ vars.BARK_WITH_CONTEXT }}
           BARK_INLINE_COMMENTS: ${{ vars.BARK_INLINE_COMMENTS }}
           BARK_APPROVE: ${{ vars.BARK_APPROVE }}
+          BARK_APPROVE_BELOW: ${{ vars.BARK_APPROVE_BELOW }}
           WITH_DESCRIPTION: ${{ needs.pr-description.result == 'success' }}
           FULL_REVIEW: "${{ github.event.label.name == 'bark: full review' }}"
         run: |
@@ -147,6 +149,7 @@ jobs:
           if [ "$BARK_APPROVE" = "true" ] && [ "$BARK_INLINE_COMMENTS" = "true" ]; then
             if /tmp/bark review --help | grep -q -- '--approve'; then
               ARGS+=(--approve)
+              [ -n "$BARK_APPROVE_BELOW" ] && ARGS+=(--approve-below "$BARK_APPROVE_BELOW")
             else
               echo "::warning::BARK_APPROVE is set, but this branch's Bark has no --approve; posting the review without approving."
             fi
