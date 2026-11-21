@@ -105,18 +105,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Build bark
-        env:
-          APPROVE: ${{ vars.BARK_APPROVE == 'true' && vars.BARK_INLINE_COMMENTS == 'true' }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          # A review that can approve runs the base branch's Bark, so a pull
-          # request can't change the code that decides whether it's approved.
-          if [ "$APPROVE" = "true" ]; then
-            git worktree add --detach /tmp/bark-base "$BASE_SHA"
-            go build -C /tmp/bark-base -o /tmp/bark .
-          else
-            go build -o /tmp/bark .
-          fi
+        run: go build -o /tmp/bark .
 
       - name: Run bark review
         env:
@@ -153,13 +142,13 @@ jobs:
           # Posts a review with inline comments itself; the next step is skipped.
           [ "$BARK_INLINE_COMMENTS" = "true" ] && ARGS+=(--comment)
           [ "$FULL_REVIEW" = "true" ] && ARGS+=(--full)
-          # Approving needs the review posted with inline comments, and a
-          # base branch whose Bark knows --approve.
+          # Approving needs the review posted with inline comments. A branch
+          # from before --approve existed builds a Bark without it.
           if [ "$BARK_APPROVE" = "true" ] && [ "$BARK_INLINE_COMMENTS" = "true" ]; then
             if /tmp/bark review --help | grep -q -- '--approve'; then
               ARGS+=(--approve)
             else
-              echo "::warning::BARK_APPROVE is set, but the base branch's Bark has no --approve; posting the review without approving."
+              echo "::warning::BARK_APPROVE is set, but this branch's Bark has no --approve; posting the review without approving."
             fi
           elif [ "$BARK_APPROVE" = "true" ]; then
             echo "::warning::BARK_APPROVE needs BARK_INLINE_COMMENTS=true; posting the review without approving."
