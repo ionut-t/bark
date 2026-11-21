@@ -122,7 +122,13 @@ type fakeReviews struct {
 	commentsErr error
 	reactions   map[int][]map[string]string
 	permissions map[string]string
-	args        [][]string
+	// states are the reviews' states, by index; COMMENTED when unset.
+	states map[int]string
+	// threads are the pull request's review threads, as the threads
+	// query prints them.
+	threads    []map[string]any
+	threadsErr error
+	args       [][]string
 }
 
 func (f *fakeReviews) run(_ context.Context, _ []byte, args ...string) ([]byte, error) {
@@ -139,13 +145,25 @@ func (f *fakeReviews) run(_ context.Context, _ []byte, args ...string) ([]byte, 
 	case args[0] == "pr":
 		return []byte(`{"url":"https://github.com/o/r/pull/7","headRefOid":"abc123"}`), nil
 	case args[0] != "api":
+	case len(args) > 1 && args[1] == "graphql":
+		if f.threadsErr != nil {
+			return nil, f.threadsErr
+		}
+		var ts []any
+		for _, t := range f.threads {
+			ts = append(ts, t)
+		}
+		return jsonLines(ts...), nil
 	case slices.Contains(args, "repos/o/r/pulls/7/reviews"):
 		if f.err != nil {
 			return nil, f.err
 		}
 		var rs []any
 		for i, b := range f.bodies {
-			r := map[string]any{"id": i + 1, "body": b, "user_type": "Bot", "author_association": "NONE"}
+			r := map[string]any{"id": i + 1, "body": b, "user_type": "Bot", "author_association": "NONE", "state": "COMMENTED"}
+			if st := f.states[i]; st != "" {
+				r["state"] = st
+			}
 			if c := f.commits[i]; c != "" {
 				r["commit_id"] = c
 			}
@@ -205,7 +223,7 @@ func TestEarlier(t *testing.T) {
 
 	require.Len(t, gh.args, 3)
 	assert.Equal(t, []string{"api", "--paginate", "repos/o/r/pulls/7/reviews", "--jq",
-		`.[] | select(.body | startswith("<!-- bark-review -->")) | {id, commit_id, body, user_type: .user.type, author_association} | @json`}, gh.args[1])
+		`.[] | select(.body | startswith("<!-- bark-review -->")) | {id, commit_id, state, body, user_type: .user.type, author_association} | @json`}, gh.args[1])
 	assert.Equal(t, []string{"api", "--paginate", "repos/o/r/pulls/7/comments", "--jq", reviewCommentsQuery}, gh.args[2],
 		"the inline comments, for dismissals")
 }

@@ -403,3 +403,38 @@ func TestMarkedMarkdownMatchesMarkdown(t *testing.T) {
 	}
 	assert.Equal(t, Markdown(events), MarkedMarkdown(events))
 }
+
+// Models sometimes put their own severity tag in a finding's title, on top
+// of the severity field; Bark's heading already shows it.
+func TestCleanTitle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct{ in, want string }{
+		{"[major] Non-atomic reply", "Non-atomic reply"},
+		{"[Minor]  Missing ellipsis", "Missing ellipsis"},
+		{"[HIGH · bug] Nil map", "Nil map"},
+		{"[high][bug] Nil map", "Nil map"},
+		{"[critical: security] Token leak", "Token leak"},
+		{"(nit) Typo", "Typo"},
+		{"[WIP] Not a severity", "[WIP] Not a severity"},
+		{"[]byte escapes", "[]byte escapes"},
+		{"Nil map [major]", "Nil map [major]"},
+		{"[major]", "[major]"},
+		{"  Spaced  ", "Spaced"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, CleanTitle(tt.in))
+		})
+	}
+}
+
+func TestParseCleansTitle(t *testing.T) {
+	t.Parallel()
+
+	events := Parse(`{"file":"a.go","line":1,"severity":"low","title":"[minor] Missing ellipsis","body":"b"}`)
+	require.Len(t, events, 1)
+	require.NotNil(t, events[0].Finding)
+	assert.Equal(t, "Missing ellipsis", events[0].Finding.Title)
+}

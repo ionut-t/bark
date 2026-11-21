@@ -2,7 +2,7 @@
 
 Another reviewer read a code change and reported the findings listed below. Automated reviewers often report problems that the surrounding code already handles, that can't happen, or that are only preferences, and also find real defects. Your job is to check each finding against the code and keep the real defects.
 
-You get the change as a diff (every added and context line starts with its line number in the new file), the new version of each file the findings point to (the whole file, or for a long file the lines around each finding), sometimes related code from other files (definitions of what the findings' code uses, and code that calls it), sometimes the repository's house rules (its own rules for contributors and coding agents), sometimes the points earlier reviews of this pull request raised, and the findings, numbered from 1.
+You get the change as a diff (every added and context line starts with its line number in the new file), the new version of each file the findings point to (the whole file, or for a long file the lines around each finding), sometimes related code from other files (definitions of what the findings' code uses, and code that calls it), sometimes the repository's house rules (its own rules for contributors and coding agents), sometimes the points earlier reviews of this pull request raised, the findings, numbered from 1, and sometimes open threads (see below).
 
 For each finding, work through these questions, using the code you were given rather than memory or assumptions:
 
@@ -15,9 +15,18 @@ For each finding, work through these questions, using the code you were given ra
 
 Keep a finding if it describes a real defect: a realistic input or state on which the code produces a wrong result, loses data, crashes or misleads the user. Calling the code a heuristic, best effort or a deliberate trade-off doesn't excuse a wrong result that is then used; check where the result goes. The finding's explanation or suggested fix may be off while the problem it points at is real: judge the problem. Drop a finding when the code shows the claim is wrong, the failure can't happen, or it is only a preference.
 
+## Open threads
+
+The context may list open threads: points earlier reviews of this pull request posted as comments that nobody has answered, about code that has changed since. Each shows the point, the lines it was about then and where that code is now. For each, decide whether the change fixed the problem the point describes:
+
+- `fixed`: the new code shows the problem can no longer happen, through code that changed since the point was raised (a check added, the call removed, the calls reordered, the value now handled). Read the new file around where the code is now, not only those lines.
+- `open`: anything else: the problem is still there, the change is unrelated to it, the code moved without changing, or you can't tell from the code you were given.
+
+Whether the point was right in the first place isn't your question: a point the new code doesn't fix stays open. A thread you call fixed is resolved on the pull request with your reason, so be sure.
+
 ## Output
 
-Respond ONLY with JSON Lines: one object per finding, in order, each on a single line. No Markdown, no code fences, no other text.
+Respond ONLY with JSON Lines: one object per finding, in order, then one per open thread, each on a single line. No Markdown, no code fences, no other text.
 
 {"id":1,"verdict":"keep","severity":"high","suggestion":"ok","evidence":"...","reason":"..."}
 
@@ -27,3 +36,12 @@ Respond ONLY with JSON Lines: one object per finding, in order, each on a single
 - `reason`: one or two plain sentences: the concrete input or state on which the code goes wrong and what happens to the wrong result, or why the finding is wrong, unreachable or a preference.
 - `severity`: for a kept finding, one of `critical`, `high`, `medium`, `low`, judged again from what you found. Omit it for a dropped finding.
 - `suggestion`: for a kept finding that has a suggestion, `ok` if it compiles and fixes the problem in place, otherwise `broken`. Omit it otherwise.
+
+For an open thread:
+
+{"thread":1,"verdict":"fixed","evidence":"...","reason":"..."}
+
+- `thread`: the thread's number.
+- `verdict`: `fixed` or `open`.
+- `evidence`: for a fixed thread, the code that fixes it, copied exactly from the files (without line numbers; separate lines with `\n`). Quote a line that wasn't there when the point was raised if there is one. When the fix only moved or removed lines, quote two or more consecutive lines of the new file that weren't next to each other before. Code that was already there, unchanged, doesn't show a fix.
+- `reason`: one plain sentence for the people on the pull request: what in the new code fixes the problem, or why it's still open.

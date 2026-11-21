@@ -490,7 +490,7 @@ func TestCheckFindingsFailedMarksUnchecked(t *testing.T) {
 		{Finding: &findings.Finding{File: "a.go", Line: 2, Severity: findings.Low, Title: "B"}},
 		{Verdict: "Fix it."},
 	}
-	got, checked := checkFindings(check.Review{Client: emptyLLM{}}, events, nil)
+	got, checked, _ := checkFindings(check.Review{Client: emptyLLM{}}, events, nil)
 	assert.Equal(t, 0, checked)
 	assert.Equal(t, []findings.Event{
 		{Finding: &findings.Finding{File: "a.go", Line: 1, Severity: findings.High, Title: "A", Unchecked: "it failed."}},

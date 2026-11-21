@@ -125,6 +125,11 @@ func pendingMarkdown(partial string, min Severity) string {
 		return ""
 	}
 
+	if t := strings.TrimSpace(l.Title); open == "title" && (strings.HasPrefix(t, "[") || strings.HasPrefix(t, "(")) {
+		// A title starting with a tag may lose it once complete (see
+		// CleanTitle), so it waits until then.
+		return ""
+	}
 	f := normaliseFinding(l.Finding)
 	if f.Title == "" || !f.Severity.AtLeast(min) {
 		return ""

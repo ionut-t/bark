@@ -47,15 +47,23 @@ type Result struct {
 	// Unchecked is the number of findings the check gave no verdict on;
 	// they're kept as they are.
 	Unchecked int
+	// Fixed are the open threads of Input.Threads the check found fixed,
+	// by index, with its reason.
+	Fixed map[int]string
+	// Open are the other threads of Input.Threads, by index, with why
+	// they stay open: the check's reason, or why Bark didn't accept its
+	// verdict.
+	Open map[int]string
 	// Usage is the check call's token usage, if the provider reported it
 	// (also on a failed call, which may still be billed).
 	Usage *llm.Usage
 }
 
-// Run checks the findings in events with one call to client. Without
-// findings, it makes no call. If the call fails, or its answer has a verdict
-// on none of the findings (an empty answer, say), the error is returned and
-// events should be used as they are.
+// Run checks the findings in events, and the open threads of in, with one
+// call to client. Without either, it makes no call. If the call fails, or
+// its answer has a verdict on none of the findings (an empty answer, say),
+// or on none of the threads when there are no findings, the error is
+// returned and events should be used as they are.
 //
 // in.Files should hold every file the findings point to that can be read;
 // LoadFiles fills it.
@@ -64,7 +72,7 @@ type Result struct {
 // returns the BARK_DEBUG log to write the output to (or nil).
 func Run(ctx context.Context, client llm.LLM, in Input, events []findings.Event, startLog func(system, prompt string) *debuglog.Log) (Result, error) {
 	fs := findingsIn(events)
-	if len(fs) == 0 {
+	if len(fs) == 0 && len(in.Threads) == 0 {
 		return Result{Events: events}, nil
 	}
 
@@ -81,14 +89,23 @@ func Run(ctx context.Context, client llm.LLM, in Input, events []findings.Event,
 	}
 
 	outcomes := Apply(in, fs, ParseVerdicts(resp.Content))
-	if !slices.ContainsFunc(outcomes, func(o Outcome) bool { return !o.Unchecked }) {
-		err := fmt.Errorf("the check gave no verdict on any of the %d finding(s)", len(fs))
+	threadVerdicts := parseThreadVerdicts(resp.Content)
+	var noVerdict error
+	switch {
+	case len(fs) > 0 && !slices.ContainsFunc(outcomes, func(o Outcome) bool { return !o.Unchecked }):
+		noVerdict = fmt.Errorf("the check gave no verdict on any of the %d finding(s)", len(fs))
+	case len(fs) == 0 && len(threadVerdicts) == 0:
+		noVerdict = fmt.Errorf("the check gave no verdict on any of the %d open thread(s)", len(in.Threads))
+	}
+	if noVerdict != nil {
 		if resp.Truncated {
-			err = fmt.Errorf("%w (its answer was cut off at the output limit)", err)
+			noVerdict = fmt.Errorf("%w (its answer was cut off at the output limit)", noVerdict)
 		}
-		return Result{Usage: resp.Usage}, err
+		return Result{Usage: resp.Usage}, noVerdict
 	}
 	res := Result{Events: make([]findings.Event, len(events)), Usage: resp.Usage}
+	fixed, open := applyThreads(in, fs, threadVerdicts)
+	res.Fixed, res.Open = withoutRepeated(fixed, open, in, fs, ParseVerdicts(resp.Content))
 	i := 0
 	for j, e := range events {
 		if e.Finding != nil {
@@ -125,9 +142,12 @@ func Run(ctx context.Context, client llm.LLM, in Input, events []findings.Event,
 // LoadFiles reads every file the findings in events point to with read.
 // Files that can't be read (deleted, binary or out of reach) are left out.
 func LoadFiles(events []findings.Event, read func(path string) ([]byte, error)) map[string]string {
-	fs := findingsIn(events)
+	return loadFiles(referencedFiles(findingsIn(events)), read)
+}
+
+func loadFiles(paths []string, read func(path string) ([]byte, error)) map[string]string {
 	files := map[string]string{}
-	for _, path := range referencedFiles(fs) {
+	for _, path := range paths {
 		content, err := read(path)
 		if err != nil || strings.IndexByte(string(content), 0) >= 0 {
 			continue
@@ -164,6 +184,10 @@ type Input struct {
 	// HouseRules are the repository's own rules (see houserules.Rules.Text);
 	// a finding that the change breaks one isn't a preference.
 	HouseRules string
+	// Threads are open threads of Bark's inline comments whose code
+	// changed since they were posted; the check says which are fixed. Their
+	// files must be in Files, as the findings' are.
+	Threads []Thread
 }
 
 // Prompt builds the user prompt for checking fs.
@@ -179,7 +203,7 @@ func Prompt(in Input, fs []findings.Finding) string {
 		b.WriteString("\n")
 	}
 
-	if ex := excerpts(in.Files, fs); len(ex) > 0 {
+	if ex := excerpts(in.Files, shownFor(fs, in.Threads)); len(ex) > 0 {
 		b.WriteString("\n## Files\n\nThe new version of each file the findings point to, with line numbers: " +
 			"the whole file, or for a long file the lines around each finding.\n")
 		for _, e := range ex {
@@ -216,13 +240,16 @@ func Prompt(in Input, fs []findings.Finding) string {
 	for i, p := range priorPoints(in.Prior) {
 		numbers[priorKey(p)] = i + 1
 	}
-	b.WriteString("\n## Findings\n\n")
+	if len(fs) > 0 {
+		b.WriteString("\n## Findings\n\n")
+	}
 	for i, f := range fs {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, findingJSON(f))
 		if p, ok := in.SameLines[i]; ok && numbers[priorKey(p)] > 0 {
 			fmt.Fprintf(&b, "   Note: on the same lines as point %d (dismissed), which haven't changed since.\n", numbers[priorKey(p)])
 		}
 	}
+	writeThreads(&b, in.Threads)
 	return b.String()
 }
 
@@ -233,7 +260,8 @@ const maxPriorPoints = 40
 // priorPoints returns the points raised before that the check is shown and
 // numbered by: each point once (the same file and title, in any case, is
 // one point; its most recent copy is kept, dismissed if any copy was), the
-// most recent maxPriorPoints.
+// most recent maxPriorPoints. A copy Bark resolved as fixed is left out: a
+// finding that makes that point again is a regression, not a repeat.
 func priorPoints(prior []findings.Finding) []findings.Finding {
 	key := priorKey
 	dismissed := map[string]string{}
@@ -246,7 +274,7 @@ func priorPoints(prior []findings.Finding) []findings.Finding {
 	var out []findings.Finding
 	for _, p := range slices.Backward(prior) {
 		k := key(p)
-		if p.File == "" || seen[k] {
+		if p.File == "" || p.Fixed || seen[k] {
 			continue
 		}
 		seen[k] = true
@@ -432,9 +460,12 @@ func findingJSON(f findings.Finding) string {
 	return string(out)
 }
 
-// Verdict is the check's decision on one finding.
+// Verdict is the check's decision on one finding, or on one open thread.
 type Verdict struct {
-	ID       int    `json:"id"`
+	ID int `json:"id"`
+	// Thread is the number of the open thread a verdict is on, instead of
+	// ID; its Verdict is "fixed" or "open".
+	Thread   int    `json:"thread"`
 	Verdict  string `json:"verdict"`
 	Severity string `json:"severity"`
 	// Suggestion is "ok" or "broken" for a kept finding with a suggestion.
@@ -448,6 +479,16 @@ type Verdict struct {
 // one.
 func ParseVerdicts(output string) map[int]Verdict {
 	out := map[int]Verdict{}
+	eachVerdict(output, func(v Verdict) {
+		if v.ID > 0 {
+			out[v.ID] = v
+		}
+	})
+	return out
+}
+
+// eachVerdict calls fn with each verdict line of the check's output.
+func eachVerdict(output string, fn func(Verdict)) {
 	for raw := range strings.SplitSeq(output, "\n") {
 		s := strings.TrimSpace(raw)
 		if !strings.HasPrefix(s, "{") {
@@ -457,15 +498,11 @@ func ParseVerdicts(output string) map[int]Verdict {
 		if json.Unmarshal([]byte(s), &v) != nil && json.Unmarshal([]byte(escapeControl(s)), &v) != nil {
 			continue
 		}
-		if v.ID <= 0 {
-			continue
-		}
 		v.Verdict = strings.ToLower(strings.TrimSpace(v.Verdict))
 		v.Severity = strings.ToLower(strings.TrimSpace(v.Severity))
 		v.Suggestion = strings.ToLower(strings.TrimSpace(v.Suggestion))
-		out[v.ID] = v
+		fn(v)
 	}
-	return out
 }
 
 // escapeControl escapes the control characters inside the strings of a
@@ -513,7 +550,7 @@ type Outcome struct {
 // dropped. A kept finding takes the check's severity, and loses its
 // suggestion if the check found it broken.
 func Apply(in Input, fs []findings.Finding, verdicts map[int]Verdict) []Outcome {
-	code := newCorpus(in.Diff, excerpts(in.Files, fs), in.Related)
+	code := newCorpus(in.Diff, excerpts(in.Files, shownFor(fs, in.Threads)), in.Related)
 	points := priorPoints(in.Prior)
 	out := make([]Outcome, len(fs))
 	for i, f := range fs {
@@ -604,7 +641,7 @@ func (c corpus) contains(evidence string) bool {
 	found := false
 	for l := range strings.SplitSeq(evidence, "\n") {
 		l = normalise(stripEvidenceLine(l))
-		if l == "" || l == "..." || l == "…" {
+		if l == "" || elided(l) {
 			continue
 		}
 		if len(l) < minEvidence {
@@ -616,6 +653,12 @@ func (c corpus) contains(evidence string) bool {
 		found = true
 	}
 	return found
+}
+
+// elided reports whether a line of evidence only marks lines the model
+// left out.
+func elided(l string) bool {
+	return l == "..." || l == "…"
 }
 
 func (c corpus) has(s string) bool {
@@ -685,6 +728,8 @@ type Review struct {
 	SameLines func([]findings.Finding) map[int]findings.Finding
 	// HouseRules are the repository's own rules (see Input.HouseRules).
 	HouseRules string
+	// Threads are open threads to check for fixes (see Input.Threads).
+	Threads []Thread
 	// LogDir, Provider and Model are for the BARK_DEBUG log. OnLog, if not
 	// nil, is told where the log is, or why it couldn't be started.
 	LogDir, Provider, Model string
@@ -696,10 +741,10 @@ type Review struct {
 // Run reads the files the findings in events point to and checks them (see
 // the package function Run).
 func (r Review) Run(ctx context.Context, events []findings.Event) (Result, error) {
-	files := LoadFiles(events, func(path string) ([]byte, error) {
+	fs := findingsIn(events)
+	files := loadFiles(referencedFiles(shownFor(fs, r.Threads)), func(path string) ([]byte, error) {
 		return r.ReviewDiff.NewSideFile(ctx, path)
 	})
-	fs := findingsIn(events)
 	in := Input{
 		Header:     r.ReviewDiff.ContextHeader,
 		Diff:       r.Diff,
@@ -707,6 +752,7 @@ func (r Review) Run(ctx context.Context, events []findings.Event) (Result, error
 		Related:    related(ctx, r.ReviewDiff, r.ReviewDiff.Diff, fs, files),
 		Prior:      r.Prior,
 		HouseRules: r.HouseRules,
+		Threads:    r.Threads,
 	}
 	if r.SameLines != nil {
 		in.SameLines = r.SameLines(fs)

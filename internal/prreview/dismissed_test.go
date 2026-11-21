@@ -176,3 +176,28 @@ func TestHistoryPermissionError(t *testing.T) {
 	assert.Empty(t, got.Findings[0].Dismissed)
 	assert.NoError(t, got.DismissalsErr, "a 404 only means not a collaborator")
 }
+
+// An inline comment of a finding Bark's check didn't check starts with a
+// note saying so; the finding's body is the paragraph after it.
+func TestCommentFindingSkipsUncheckedNote(t *testing.T) {
+	t.Parallel()
+
+	title, body, ok := commentFinding("**[HIGH] Nil map**\n\n" + findings.UncheckedNote + " it failed.\n\nm may be nil. It panics.")
+	require.True(t, ok)
+	assert.Equal(t, "Nil map", title)
+	assert.Equal(t, "m may be nil.", body)
+}
+
+// A finding posted with the model's own severity tag in its title reads
+// back without it, so it matches the same point found again.
+func TestPostedTitlesReadBackClean(t *testing.T) {
+	t.Parallel()
+
+	title, _, ok := commentFinding("**[MEDIUM · error-handling] [major] Non-atomic reply**\n\nThe reply comes first.")
+	require.True(t, ok)
+	assert.Equal(t, "Non-atomic reply", title)
+
+	got := Recorded("<!-- bark-findings v1\n" + `{"file":"a.go","line":1,"title":"[minor] Missing ellipsis","body":"b"}` + "\n-->")
+	require.Len(t, got, 1)
+	assert.Equal(t, "Missing ellipsis", got[0].Title)
+}

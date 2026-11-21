@@ -161,3 +161,24 @@ func TestNeedsRevisionWithRaisedBefore(t *testing.T) {
 	assert.False(t, NeedsRevision([]findings.Event{repeat, {Verdict: "Fix it again."}}))
 	assert.Contains(t, RevisePrompt([]findings.Event{repeat, {Verdict: "v"}}), "## Still open from earlier reviews\n\n- [LOW] Again (b.go)\n")
 }
+
+// A point Bark's check found fixed, and Bark resolved, isn't a point
+// raised before: a finding that makes it again is a regression, posted as
+// new. A copy of the same point that's still open is listed.
+func TestPriorPointsLeaveOutFixed(t *testing.T) {
+	t.Parallel()
+
+	got := priorPoints([]findings.Finding{
+		{File: "a.go", Line: 3, Title: "Nil map write", Fixed: true, Resolved: "fixed in abc1234"},
+		{File: "b.go", Line: 3, Title: "Ignored error", Resolved: "resolved on the pull request"},
+	})
+	require.Len(t, got, 1)
+	assert.Equal(t, "b.go", got[0].File, "a point someone else resolved still counts")
+
+	got = priorPoints([]findings.Finding{
+		{File: "a.go", Line: 3, Title: "Nil map write"},
+		{File: "a.go", Line: 9, Title: "Nil map write", Fixed: true},
+	})
+	require.Len(t, got, 1)
+	assert.Equal(t, 3, got[0].Line, "the open copy is listed")
+}

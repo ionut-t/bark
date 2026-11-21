@@ -48,6 +48,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().Bool("comment", false, "Post the review to the pull request, with findings as inline comments and fixes as suggestions (requires --pr; implies --structured)")
 	cmd.Flags().Bool("approve", false, "Post the review as an approval when it keeps no finding at or above --approve-below and no earlier point on the pull request may still be open (requires --comment)")
 	cmd.Flags().String("approve-below", "", "With --approve, approve only when every finding is below this severity: "+strings.Join(config.Severities(), ", ")+" (default medium, so low findings are left as comments on the approval; a lower --fail-on wins)")
+	cmd.Flags().Bool("no-resolve", false, "With --comment, leave open the threads of Bark's earlier inline comments that its check finds fixed (by default Bark replies on each with the reason and resolves it)")
 	cmd.Flags().Bool("full", false, "Review the whole pull request, not only the changes since Bark's last posted review of it (requires --pr; matters with --comment)")
 	addPlainFlag(cmd)
 
@@ -79,6 +80,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	full, _ := cmd.Flags().GetBool("full")
 	approve, _ := cmd.Flags().GetBool("approve")
 	approveBelow, _ := cmd.Flags().GetString("approve-below")
+	noResolve, _ := cmd.Flags().GetBool("no-resolve")
 
 	if withDescription && pr == "" {
 		return fmt.Errorf("--with-description requires --pr")
@@ -90,6 +92,10 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 
 	if approve && !comment {
 		return fmt.Errorf("--approve requires --comment")
+	}
+
+	if noResolve && !comment {
+		return fmt.Errorf("--no-resolve requires --comment")
 	}
 
 	if cmd.Flags().Changed("approve-below") && !approve {
@@ -186,6 +192,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 			Full:              full,
 			Approve:           approve,
 			ApproveBelow:      findings.Severity(approveBelow),
+			NoResolve:         noResolve,
 		})
 	}
 

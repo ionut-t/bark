@@ -7,39 +7,32 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// loadingMessagePicker shows the messages in a random order, each once per
+// round, and never the same one twice in a row.
 type loadingMessagePicker struct {
-	messages     []string
-	usedMessages map[int]struct{}
+	messages []string
+	// order is what is left of the current round, as indexes into messages.
+	order []int
+	last  int
 }
 
 func newLoadingMessagePicker(messages []string) *loadingMessagePicker {
-	return &loadingMessagePicker{
-		messages:     messages,
-		usedMessages: make(map[int]struct{}, len(messages)),
-	}
+	return &loadingMessagePicker{messages: messages, last: -1}
 }
 
 func (p *loadingMessagePicker) next() string {
 	if len(p.messages) == 0 {
 		return "Loading..."
 	}
-
-	// Reset if we've used all messages
-	if len(p.usedMessages) >= len(p.messages) {
-		p.usedMessages = make(map[int]struct{}, len(p.messages))
-	}
-
-	// Try to find an unused message
-	for attempts := 0; attempts < len(p.messages)*2; attempts++ {
-		index := rand.Intn(len(p.messages))
-		if _, used := p.usedMessages[index]; !used {
-			p.usedMessages[index] = struct{}{}
-			return p.messages[index]
+	if len(p.order) == 0 {
+		p.order = rand.Perm(len(p.messages))
+		// A new round doesn't start with the message the last one ended on.
+		if len(p.order) > 1 && p.order[0] == p.last {
+			p.order[0], p.order[1] = p.order[1], p.order[0]
 		}
 	}
-
-	// Fallback
-	return p.messages[0]
+	p.last, p.order = p.order[0], p.order[1:]
+	return p.messages[p.last]
 }
 
 func dispatchLoadingMessage(msg tea.Msg) tea.Cmd {

@@ -93,3 +93,35 @@ func TestGetLineMap(t *testing.T) {
 	_, err = GetLineMap(t.Context(), strings.Repeat("0", 40), to, "f.txt")
 	require.ErrorIs(t, err, ErrCommitMissing)
 }
+
+// Span says where lines are at the later commit even when they changed:
+// a changed line becomes what replaced it, so the code that was there can
+// be shown.
+func TestLineMapSpan(t *testing.T) {
+	t.Parallel()
+
+	m := parseLineMap(zeroContextDiff)
+	tests := []struct {
+		name       string
+		start, end int
+		want       [2]int
+	}{
+		{"unchanged", 2, 5, [2]int{4, 7}},
+		{"a changed line", 6, 6, [2]int{8, 8}},
+		{"a range around a changed line", 5, 7, [2]int{7, 9}},
+		{"a deleted line is where it was", 9, 9, [2]int{10, 10}},
+		{"an insertion inside the range is taken in", 12, 13, [2]int{13, 15}},
+		{"an insertion at the top", 1, 1, [2]int{1, 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			start, end := m.Span(tt.start, tt.end)
+			assert.Equal(t, tt.want, [2]int{start, end})
+		})
+	}
+
+	// A whole file deleted: there's nothing left, and its span is empty.
+	start, end := parseLineMap("@@ -1,3 +0,0 @@\n-a\n-b\n-c\n").Span(2, 3)
+	assert.Equal(t, [2]int{0, 0}, [2]int{start, end})
+}

@@ -18,11 +18,12 @@ import (
 // the thread doesn't count: threads are also resolved after a fix.
 
 // reviewCommentsQuery prints each inline comment of a pull request as a
-// JSON object on a line of its own. The line is the first one the comment
-// covered on the commit it was posted on, as the review recorded it.
+// JSON object on a line of its own. The lines are the first and last ones
+// the comment covered on the commit it was posted on, as the review
+// recorded it.
 const reviewCommentsQuery = `.[] | {id, review_id: .pull_request_review_id, in_reply_to: .in_reply_to_id, path, ` +
-	`line: (.original_start_line // .original_line), body, user: .user.login, user_type: .user.type, author_association, ` +
-	`thumbs_down: .reactions["-1"]} | @json`
+	`line: (.original_start_line // .original_line), end_line: .original_line, commit: .original_commit_id, ` +
+	`body, user: .user.login, user_type: .user.type, author_association, thumbs_down: .reactions["-1"]} | @json`
 
 // reactionsQuery prints who left each reaction, one JSON object per line.
 const reactionsQuery = `.[] | {user: .user.login, user_type: .user.type} | @json`
@@ -41,6 +42,8 @@ type reviewComment struct {
 	InReplyTo   int64  `json:"in_reply_to"`
 	Path        string `json:"path"`
 	Line        int    `json:"line"`
+	EndLine     int    `json:"end_line"`
+	Commit      string `json:"commit"`
 	Body        string `json:"body"`
 	User        string `json:"user"`
 	UserType    string `json:"user_type"`
@@ -55,15 +58,31 @@ type dismissedComment struct {
 	how     string
 }
 
-// dismissals returns the inline comments of the reviews in bark (by id)
-// that were dismissed, by review id. pull is the pull request's API path;
-// trusted holds logins known to have write access, and gets the ones this
-// finds. Comments it couldn't decide on are left out and the error says
-// why; the rest are still returned.
-func dismissals(ctx context.Context, run gh, pull string, bark map[int64]bool, trusted map[string]bool) (map[int64][]dismissedComment, error) {
+// inlineComments is what the inline comments of a pull request say about
+// the ones Bark posted.
+type inlineComments struct {
+	// bark are the inline comments of Bark's reviews, without replies.
+	bark []reviewComment
+	// dismissed are those that were dismissed, by review id.
+	dismissed map[int64][]dismissedComment
+	// answered are those someone other than a bot replied to, and those
+	// Bark said were fixed, by comment id.
+	answered map[int64]bool
+	// fixed are those Bark said were fixed, by comment id.
+	fixed map[int64]bool
+}
+
+// readInline reads the inline comments of the reviews in bark (by id):
+// which were dismissed, and which were answered. pull is the pull
+// request's API path; trusted holds logins known to have write access, and
+// gets the ones this finds. Comments whose dismissal it couldn't decide on
+// count as not dismissed and the error says why; the rest are still
+// returned.
+func readInline(ctx context.Context, run gh, pull string, bark map[int64]bool, trusted map[string]bool) (inlineComments, error) {
+	var in inlineComments
 	out, err := run(ctx, nil, "api", "--paginate", pull+"/comments", "--jq", reviewCommentsQuery)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read review comments: %w", err)
+		return in, fmt.Errorf("failed to read review comments: %w", err)
 	}
 
 	var comments, barks []reviewComment
@@ -84,8 +103,23 @@ func dismissals(ctx context.Context, run gh, pull string, bark map[int64]bool, t
 	}
 
 	how := map[int64]string{}
+	in.answered = map[int64]bool{}
+	in.fixed = map[int64]bool{}
 	for _, c := range comments {
-		if isBark[c.InReplyTo] && how[c.InReplyTo] == "" && c.UserType != "Bot" &&
+		if !isBark[c.InReplyTo] {
+			continue
+		}
+		// Bark's own reply saying the point is fixed is posted as whoever
+		// runs it, which may be a member: it's never a dismissal.
+		if fixedReply(c.Body) {
+			in.answered[c.InReplyTo] = true
+			in.fixed[c.InReplyTo] = true
+			continue
+		}
+		if c.UserType != "Bot" {
+			in.answered[c.InReplyTo] = true
+		}
+		if how[c.InReplyTo] == "" && c.UserType != "Bot" &&
 			trustedReviewer(c.UserType, c.Association) && wontFix(c.Body) {
 			how[c.InReplyTo] = fmt.Sprintf("%q from %s", "won't fix", c.User)
 		}
@@ -130,13 +164,15 @@ func dismissals(ctx context.Context, run gh, pull string, bark map[int64]bool, t
 		}
 	}
 
-	byReview := map[int64][]dismissedComment{}
+	in.bark = barks
+	in.dismissed = map[int64][]dismissedComment{}
 	for _, c := range barks {
 		if how[c.ID] != "" {
-			byReview[c.ReviewID] = append(byReview[c.ReviewID], dismissedComment{comment: c, how: how[c.ID]})
+			in.dismissed[c.ReviewID] = append(in.dismissed[c.ReviewID], dismissedComment{comment: c, how: how[c.ID]})
+			in.answered[c.ID] = true
 		}
 	}
-	return byReview, errors.Join(errs...)
+	return in, errors.Join(errs...)
 }
 
 // writeAccess reports whether login has write access to repo (an API path
@@ -170,16 +206,29 @@ var commentHeading = regexp.MustCompile(`^\*\*\[[^\]]*\] (.+)\*\*$`)
 // commentFinding returns the title and the body's first sentence of the
 // finding an inline comment of Bark's posted.
 func commentFinding(body string) (title, first string, ok bool) {
+	title, para, ok := commentParts(body)
+	return title, findings.FirstSentence(para), ok
+}
+
+// commentParts returns the title and the first paragraph of the body of
+// the finding an inline comment of Bark's posted (see commentBody): the
+// note that Bark's check didn't check it is skipped, and a suggestion or
+// remark isn't the body.
+func commentParts(body string) (title, para string, ok bool) {
 	head, rest, _ := strings.Cut(strings.TrimSpace(body), "\n")
 	m := commentHeading.FindStringSubmatch(strings.TrimSpace(head))
 	if m == nil {
 		return "", "", false
 	}
-	para, _, _ := strings.Cut(strings.TrimSpace(rest), "\n\n")
+	rest = strings.TrimSpace(rest)
+	if strings.HasPrefix(rest, findings.UncheckedNote) {
+		_, rest, _ = strings.Cut(rest, "\n\n")
+	}
+	para, _, _ = strings.Cut(strings.TrimSpace(rest), "\n\n")
 	if strings.HasPrefix(para, "```") || strings.HasPrefix(para, "> _") {
 		para = ""
 	}
-	return m[1], findings.FirstSentence(para), true
+	return findings.CleanTitle(m[1]), strings.TrimSpace(para), true
 }
 
 // markDismissed marks the findings a review recorded that the comments in
