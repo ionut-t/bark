@@ -1,6 +1,7 @@
 package plain
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/prreview"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const postedOn = "c0ffee1234567890c0ffee1234567890c0ffee12"
@@ -76,4 +78,31 @@ func TestChangedThreadsSameErrorOnce(t *testing.T) {
 	assert.Empty(t, kept)
 	assert.Equal(t, "bark: warning: couldn't compare 2 open thread(s) with the code now, so they're left open: "+
 		"commit isn't in the local repository: c0ffee1\n", w.String())
+}
+
+// After the check, the run says how many threads it found fixed and why
+// each other one stays open, one line each, in order.
+func TestThreadSummary(t *testing.T) {
+	t.Parallel()
+
+	threads := []check.Thread{
+		{Point: findings.Finding{Title: "Nil map"}},
+		{Point: findings.Finding{Title: "Non-atomic"}},
+		{Point: findings.Finding{Title: "Ellipsis"}},
+	}
+	var out bytes.Buffer
+	threadSummary(&out, threads, check.Result{
+		Fixed: map[int]string{0: "Checked now."},
+		Open: map[int]string{
+			2: "the check gave no verdict",
+			1: "Resolving and replying\n  are still two calls. " + strings.Repeat("x", 400),
+		},
+	})
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	require.Len(t, lines, 3)
+	assert.Equal(t, "bark: the check found 1 of 3 open thread(s) fixed", lines[0])
+	assert.True(t, strings.HasPrefix(lines[1], `bark: left open: "Non-atomic": Resolving and replying are still two calls. xxx`), lines[1])
+	assert.True(t, strings.HasSuffix(lines[1], "x…"), "a long reason is cut")
+	assert.Less(t, len(lines[1]), 360)
+	assert.Equal(t, `bark: left open: "Ellipsis": the check gave no verdict`, lines[2])
 }

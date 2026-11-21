@@ -105,39 +105,58 @@ func parseThreadVerdicts(output string) map[int]Verdict {
 }
 
 // applyThreads returns the open threads of in that the verdicts find fixed,
-// by index, with the check's reason. A thread is fixed only with a reason,
-// and with evidence quoted from the new code the check was shown (the
-// files, around fs and the threads, and the related code) of which at
-// least one line wasn't in the file when the point was raised: the code
-// that fixes it, not code that was already there.
-func applyThreads(in Input, fs []findings.Finding, verdicts map[int]Verdict) map[int]string {
+// by index, with the check's reason, and why each other thread stays open.
+// A thread is fixed only with a reason, and with evidence quoted from the
+// new code the check was shown (the files, around fs and the threads, and
+// the related code) of which at least one line wasn't in the file when the
+// point was raised: the code that fixes it, not code that was already
+// there.
+func applyThreads(in Input, fs []findings.Finding, verdicts map[int]Verdict) (fixed, open map[int]string) {
 	if len(in.Threads) == 0 {
-		return nil
+		return nil, nil
 	}
 	now := newCorpus("", excerpts(in.Files, shownFor(fs, in.Threads)), in.Related)
-	var fixed map[int]string
+	fixed, open = map[int]string{}, map[int]string{}
 	for i, t := range in.Threads {
 		v, ok := verdicts[i+1]
-		if !ok || v.Verdict != "fixed" || strings.TrimSpace(v.Reason) == "" || t.Before == "" {
-			continue
+		reason := strings.TrimSpace(v.Reason)
+		switch {
+		case !ok:
+			open[i] = "the check gave no verdict"
+		case v.Verdict != "fixed":
+			if reason == "" {
+				reason = "the check's verdict was " + v.Verdict
+			}
+			open[i] = reason
+		case reason == "":
+			open[i] = "the check called it fixed without a reason"
+		case t.Before == "":
+			open[i] = "the check called it fixed, but Bark couldn't read the code it was about then"
+		case !now.contains(v.Evidence):
+			open[i] = "the check called it fixed, but the code it quoted isn't in the code now"
+		case !newLine(v.Evidence, t.Before):
+			open[i] = "the check called it fixed, but the code it quoted was already there when the point was raised"
+		default:
+			fixed[i] = reason
 		}
-		if !now.contains(v.Evidence) || !newLine(v.Evidence, t.Before) {
-			continue
-		}
-		if fixed == nil {
-			fixed = map[int]string{}
-		}
-		fixed[i] = strings.TrimSpace(v.Reason)
 	}
-	return fixed
+	return orNil(fixed), orNil(open)
 }
 
-// withoutRepeated returns fixed without the threads whose point a finding
-// was dropped as a repeat of, by the verdicts: the check can't find the
-// point both fixed and raised again, so those threads stay open.
-func withoutRepeated(fixed map[int]string, in Input, fs []findings.Finding, verdicts map[int]Verdict) map[int]string {
+// orNil returns m, or nil when it's empty.
+func orNil(m map[int]string) map[int]string {
+	if len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
+// withoutRepeated moves the fixed threads whose point a finding was
+// dropped as a repeat of, by the verdicts, to open: the check can't find
+// the point both fixed and raised again, so those threads stay open.
+func withoutRepeated(fixed, open map[int]string, in Input, fs []findings.Finding, verdicts map[int]Verdict) (map[int]string, map[int]string) {
 	if len(fixed) == 0 {
-		return fixed
+		return fixed, open
 	}
 	points := priorPoints(in.Prior)
 	repeated := map[string]bool{}
@@ -151,12 +170,13 @@ func withoutRepeated(fixed map[int]string, in Input, fs []findings.Finding, verd
 	for i := range fixed {
 		if repeated[priorKey(in.Threads[i].Point)] {
 			delete(fixed, i)
+			if open == nil {
+				open = map[int]string{}
+			}
+			open[i] = "the check called it fixed, but also set aside a new finding as a repeat of its point"
 		}
 	}
-	if len(fixed) == 0 {
-		return nil
-	}
-	return fixed
+	return orNil(fixed), open
 }
 
 // newLine reports whether a line of evidence long enough to count isn't

@@ -123,14 +123,18 @@ To tell Bark you won't fix a finding, react 👎 to its inline comment or reply 
 
 #### Resolving fixed threads
 
-With `--comment`, Bark resolves the threads of its own earlier inline comments once they're fixed. A thread is a candidate when:
+With `--comment`, Bark resolves the threads of its own inline comments once the code fixes them, and replies on each with the reason ("Fixed in `abc1234`: …").
 
-- nobody replied to it (bots aside) and nobody [dismissed](#dismissing-a-finding) it;
-- the lines it was posted on changed since. This needs the commit it was posted on in the local repository (in CI, check out with `fetch-depth: 0`).
+It only looks at a thread when:
 
-Bark's check (no extra call when the review has findings; one small call when it has none) is shown each candidate's point, the code it was about then and the file now. It must say the point is fixed and quote the new code that fixes it, a line that wasn't there before. Bark then resolves the thread and replies on it ("Fixed in `abc1234`: …"). A thread it can't resolve gets no reply, and the next review tries again; one it resolved but couldn't reply on is unresolved again, so a resolved thread always says why. A point is never resolved because a later review didn't raise it again. A finding that makes a point Bark resolved as fixed again isn't set aside as raised before: it's a regression, and is posted as new. If the check calls a thread fixed while setting aside a finding as a repeat of the same point, the thread stays open.
+- nobody replied to it or [dismissed](#dismissing-a-finding) it;
+- the lines it was posted on have changed since. In CI, check out with `fetch-depth: 0`.
 
-If you unresolve a thread Bark resolved, it stays open: Bark doesn't touch it again. Resolving needs the token to have `contents: write` as well as `pull-requests: write`: GitHub refuses it to a GitHub Actions token with only `pull-requests: write`. Without it, the threads stay open and the run warns. To leave fixed threads open:
+Bark's check decides, and it must quote the new code that fixes the point. When it isn't sure, the thread stays open and the run's log says why. A thread is never resolved just because a later review didn't raise the point again. The check costs no extra call when the review has findings, and one small call when it has none.
+
+If the problem comes back after Bark resolved it, Bark posts it as a new finding. If you unresolve a thread, Bark leaves it alone.
+
+In GitHub Actions, resolving needs `contents: write` as well as `pull-requests: write`; without it, threads stay open and the run warns. To turn resolving off:
 
 ```bash
 bark review --pr 42 --comment --no-resolve

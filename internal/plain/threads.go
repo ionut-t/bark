@@ -176,3 +176,23 @@ func (l *lineMaps) get(commit, path string) (git.LineMap, error) {
 	l.lookups[key] = lineLookup{m, err}
 	return m, err
 }
+
+// maxOpenReason caps the reason printed for a thread left open.
+const maxOpenReason = 300
+
+// threadSummary says on w how many of threads res found fixed, and why
+// each other one stays open, in order.
+func threadSummary(w io.Writer, threads []check.Thread, res check.Result) {
+	_, _ = fmt.Fprintf(w, "bark: the check found %d of %d open thread(s) fixed\n", len(res.Fixed), len(threads))
+	for i, t := range threads {
+		why, ok := res.Open[i]
+		if !ok {
+			continue
+		}
+		why = strings.Join(strings.Fields(why), " ")
+		if len(why) > maxOpenReason {
+			why = strings.ToValidUTF8(why[:maxOpenReason], "") + "…"
+		}
+		_, _ = fmt.Fprintf(w, "bark: left open: %q: %s\n", t.Point.Title, why)
+	}
+}

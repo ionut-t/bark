@@ -711,7 +711,7 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter)
 		fmt.Fprint(os.Stderr, checkSummary(res))
 	}
 	if len(r.Threads) > 0 {
-		fmt.Fprintf(os.Stderr, "bark: the check found %d of %d open thread(s) fixed\n", len(res.Fixed), len(r.Threads))
+		threadSummary(os.Stderr, r.Threads, res)
 	}
 
 	// The intro and verdict were written before the check; rewrite them so

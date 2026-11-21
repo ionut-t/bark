@@ -64,8 +64,11 @@ func TestApplyThreads(t *testing.T) {
 
 	threads := []Thread{
 		nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(),
-		nilMapThread(), nilMapThread(),
+		nilMapThread(), nilMapThread(), nilMapThread(),
 	}
+	noBefore := nilMapThread()
+	noBefore.Before = ""
+	threads = append(threads, noBefore)
 	verdicts := parseThreadVerdicts(strings.Join([]string{
 		`{"thread":1,"verdict":"fixed","evidence":"if m == nil {\n\t\treturn","reason":"f returns early on a nil map."}`,
 		`{"thread":2,"verdict":"fixed","evidence":"m[\"x\"] = 1","reason":"Looks fine."}`,
@@ -76,10 +79,25 @@ func TestApplyThreads(t *testing.T) {
 		// An elided line isn't new code, whichever ellipsis marks it.
 		`{"thread":7,"verdict":"fixed","evidence":"m[\"x\"] = 1\n…","reason":"Elided."}`,
 		`{"thread":8,"verdict":"fixed","evidence":"m[\"x\"] = 1\n...","reason":"Elided."}`,
+		// Thread 9 gets no verdict.
+		`{"thread":10,"verdict":"fixed","evidence":"if m == nil {","reason":"Checked now."}`,
+		`{"thread":3,"verdict":"open","evidence":"","reason":"  Still panics:\n m is written first.  "}`,
 	}, "\n"))
 
-	got := applyThreads(threadInput(threads...), nil, verdicts)
-	assert.Equal(t, map[int]string{0: "f returns early on a nil map."}, got)
+	fixed, open := applyThreads(threadInput(threads...), nil, verdicts)
+	assert.Equal(t, map[int]string{0: "f returns early on a nil map."}, fixed)
+	const old = "the check called it fixed, but the code it quoted was already there when the point was raised"
+	assert.Equal(t, map[int]string{
+		1: old,
+		2: "Still panics:\n m is written first.",
+		3: "the check called it fixed, but the code it quoted isn't in the code now",
+		4: "the check called it fixed without a reason",
+		5: "the check gave no verdict", // a finding's verdict isn't a thread's
+		6: old,
+		7: old,
+		8: "the check gave no verdict",
+		9: "the check called it fixed, but Bark couldn't read the code it was about then",
+	}, open)
 }
 
 func TestRunWithOnlyThreads(t *testing.T) {
@@ -94,6 +112,7 @@ func TestRunWithOnlyThreads(t *testing.T) {
 	assert.Equal(t, 1, calls, "open threads are checked without findings")
 	assert.Equal(t, events, res.Events)
 	assert.Equal(t, map[int]string{0: "Checked now."}, res.Fixed)
+	assert.Empty(t, res.Open)
 
 	_, err = Run(context.Background(), fakeLLM{output: "Can't tell.", calls: &calls}, threadInput(nilMapThread()), events, nil)
 	require.EqualError(t, err, "the check gave no verdict on any of the 1 open thread(s)")
@@ -137,6 +156,7 @@ func TestRunKeepsThreadOpenWhenItsPointIsRaisedAgain(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.Events[0].Finding.RaisedBefore)
 	assert.Empty(t, res.Fixed)
+	assert.Equal(t, map[int]string{0: "the check called it fixed, but also set aside a new finding as a repeat of its point"}, res.Open)
 }
 
 func TestLinesOf(t *testing.T) {

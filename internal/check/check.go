@@ -50,6 +50,10 @@ type Result struct {
 	// Fixed are the open threads of Input.Threads the check found fixed,
 	// by index, with its reason.
 	Fixed map[int]string
+	// Open are the other threads of Input.Threads, by index, with why
+	// they stay open: the check's reason, or why Bark didn't accept its
+	// verdict.
+	Open map[int]string
 	// Usage is the check call's token usage, if the provider reported it
 	// (also on a failed call, which may still be billed).
 	Usage *llm.Usage
@@ -99,8 +103,9 @@ func Run(ctx context.Context, client llm.LLM, in Input, events []findings.Event,
 		}
 		return Result{Usage: resp.Usage}, noVerdict
 	}
-	res := Result{Events: make([]findings.Event, len(events)), Usage: resp.Usage,
-		Fixed: withoutRepeated(applyThreads(in, fs, threadVerdicts), in, fs, ParseVerdicts(resp.Content))}
+	res := Result{Events: make([]findings.Event, len(events)), Usage: resp.Usage}
+	fixed, open := applyThreads(in, fs, threadVerdicts)
+	res.Fixed, res.Open = withoutRepeated(fixed, open, in, fs, ParseVerdicts(resp.Content))
 	i := 0
 	for j, e := range events {
 		if e.Finding != nil {
