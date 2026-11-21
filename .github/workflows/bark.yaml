@@ -5,6 +5,9 @@ name: Bark
 # (the review job removes it again). With inline comments, "bark: review"
 # reviews only the commits since Bark's last review; "bark: full review"
 # reviews the whole PR. "bark: describe" regenerates the PR description.
+# With the BARK_APPROVE variable set to "true" (and BARK_INLINE_COMMENTS),
+# a review with nothing blocking approves the PR; the repository must allow
+# GitHub Actions to approve pull requests (Settings → Actions → General).
 # Pushes to an open PR don't trigger anything.
 on:
   pull_request:
@@ -102,7 +105,18 @@ jobs:
           go-version-file: go.mod
 
       - name: Build bark
-        run: go build -o /tmp/bark .
+        env:
+          APPROVE: ${{ vars.BARK_APPROVE == 'true' && vars.BARK_INLINE_COMMENTS == 'true' }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # A review that can approve runs the base branch's Bark, so a pull
+          # request can't change the code that decides whether it's approved.
+          if [ "$APPROVE" = "true" ]; then
+            git worktree add --detach /tmp/bark-base "$BASE_SHA"
+            go build -C /tmp/bark-base -o /tmp/bark .
+          else
+            go build -o /tmp/bark .
+          fi
 
       - name: Run bark review
         env:
@@ -115,6 +129,7 @@ jobs:
           BARK_MAX_DIFF_TOKENS: ${{ vars.BARK_MAX_DIFF_TOKENS }}
           BARK_WITH_CONTEXT: ${{ vars.BARK_WITH_CONTEXT }}
           BARK_INLINE_COMMENTS: ${{ vars.BARK_INLINE_COMMENTS }}
+          BARK_APPROVE: ${{ vars.BARK_APPROVE }}
           WITH_DESCRIPTION: ${{ needs.pr-description.result == 'success' }}
           FULL_REVIEW: "${{ github.event.label.name == 'bark: full review' }}"
         run: |
@@ -138,6 +153,17 @@ jobs:
           # Posts a review with inline comments itself; the next step is skipped.
           [ "$BARK_INLINE_COMMENTS" = "true" ] && ARGS+=(--comment)
           [ "$FULL_REVIEW" = "true" ] && ARGS+=(--full)
+          # Approving needs the review posted with inline comments, and a
+          # base branch whose Bark knows --approve.
+          if [ "$BARK_APPROVE" = "true" ] && [ "$BARK_INLINE_COMMENTS" = "true" ]; then
+            if /tmp/bark review --help | grep -q -- '--approve'; then
+              ARGS+=(--approve)
+            else
+              echo "::warning::BARK_APPROVE is set, but the base branch's Bark has no --approve; posting the review without approving."
+            fi
+          elif [ "$BARK_APPROVE" = "true" ]; then
+            echo "::warning::BARK_APPROVE needs BARK_INLINE_COMMENTS=true; posting the review without approving."
+          fi
           /tmp/bark "${ARGS[@]}" > /tmp/bark-review.txt
 
       - name: Post or update PR comment

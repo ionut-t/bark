@@ -233,7 +233,7 @@ func TestPost(t *testing.T) {
 	events := []findings.Event{finding(2, 0, "x"), finding(10, 0, "")}
 	gh := &fakeGH{}
 
-	got, err := post(context.Background(), gh.run, "7", events, diff, Scope{})
+	got, err := post(context.Background(), gh.run, "7", events, diff, Scope{}, false)
 	require.NoError(t, err)
 	assert.Equal(t, Result{URL: "https://github.com/o/r/pull/7#pullrequestreview-1", Inline: 1}, got)
 	require.Len(t, gh.posted, 1)
@@ -247,7 +247,7 @@ func TestPostFallsBackToBody(t *testing.T) {
 	events := []findings.Event{finding(2, 0, "x")}
 	gh := &fakeGH{postErrs: []error{errors.New("HTTP 422: Line could not be resolved")}}
 
-	got, err := post(context.Background(), gh.run, "7", events, diff, Scope{})
+	got, err := post(context.Background(), gh.run, "7", events, diff, Scope{}, false)
 	require.NoError(t, err)
 	assert.True(t, got.Fallback)
 	assert.Zero(t, got.Inline)
@@ -261,7 +261,7 @@ func TestPostReportsBothErrors(t *testing.T) {
 
 	gh := &fakeGH{postErrs: []error{errors.New("first"), errors.New("second")}}
 
-	_, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{})
+	_, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, false)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "first")
 	assert.ErrorContains(t, err, "second")
@@ -518,7 +518,7 @@ func TestPostRecordsReviewedHead(t *testing.T) {
 	t.Parallel()
 
 	gh := &fakeGH{}
-	_, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "x")}, diff, Scope{Head: "def4567", Base: "aaa1111"})
+	_, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "x")}, diff, Scope{Head: "def4567", Base: "aaa1111"}, false)
 	require.NoError(t, err)
 	require.Len(t, gh.posted, 1)
 	assert.Equal(t, "def4567", gh.posted[0].CommitID)

@@ -81,6 +81,24 @@ inputs:
       pass. Set full-review to review the whole pull request every time.
     required: false
     default: ""
+  approve:
+    description: |
+      Approve the pull request when the review keeps no finding at or above
+      fail-on (no finding at all when fail-on is empty), saw the whole
+      change, and gave a verdict. Needs inline-comments. Otherwise the
+      review is posted as a comment.
+
+      With only the changes since Bark's last review reviewed, it also
+      needs every point raised earlier to be dismissed, since it can't
+      tell whether they were fixed. Set full-review to check them again on
+      every push.
+
+      GitHub only lets GitHub Actions approve when the repository (or
+      organization) allows it: Settings → Actions → General → "Allow
+      GitHub Actions to create and approve pull requests". When it
+      doesn't, the review is posted as a comment with a warning.
+    required: false
+    default: "false"
   github-token:
     description: GitHub token for posting PR comments
     required: false
@@ -150,6 +168,7 @@ runs:
         BARK_INLINE_COMMENTS: ${{ inputs.inline-comments }}
         BARK_FULL_REVIEW: ${{ inputs.full-review }}
         BARK_FAIL_ON: ${{ inputs.fail-on }}
+        BARK_APPROVE: ${{ inputs.approve }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         PROVIDER=$(echo "$BARK_PROVIDER" | tr '[:upper:]' '[:lower:]')
@@ -193,6 +212,13 @@ runs:
         # Only when set, so a pinned older Bark doesn't get a flag it lacks.
         [ "$BARK_FULL_REVIEW" = "true" ] && ARGS+=(--full)
         [ -n "$BARK_FAIL_ON" ] && ARGS+=(--fail-on "$BARK_FAIL_ON")
+        if [ "$BARK_APPROVE" = "true" ]; then
+          if [ "$BARK_INLINE_COMMENTS" != "true" ]; then
+            echo "Error: approve needs inline-comments: true." >&2
+            exit 1
+          fi
+          ARGS+=(--approve)
+        fi
 
         # Exit status 3 means the review kept findings at or above fail-on.
         # The review is still posted and labelled; the last step fails the

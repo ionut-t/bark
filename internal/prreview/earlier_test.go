@@ -351,7 +351,7 @@ func TestPostPartialReviewStillGoesOnHead(t *testing.T) {
 
 	gh := &fakeGH{}
 	_, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "x")}, diff,
-		Scope{Head: "def4567", Since: "0001111", Partial: true})
+		Scope{Head: "def4567", Since: "0001111", Partial: true}, false)
 	require.NoError(t, err)
 	require.Len(t, gh.posted, 1)
 	assert.Equal(t, "def4567", gh.posted[0].CommitID, "the comments are on the lines of the head")

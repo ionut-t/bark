@@ -45,6 +45,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().String("fail-on", "", "Exit with status 3 when the review keeps a structured finding of this severity or higher: "+strings.Join(config.Severities(), ", ")+"; doubted findings and repeats of points dismissed on the pull request don't count, repeats of other points raised before do (overrides config; implies --structured and plain output)")
 	addEffortFlag(cmd)
 	cmd.Flags().Bool("comment", false, "Post the review to the pull request, with findings as inline comments and fixes as suggestions (requires --pr; implies --structured)")
+	cmd.Flags().Bool("approve", false, "Post the review as an approval when it keeps no finding at or above --fail-on (no finding at all without it) and no earlier point on the pull request may still be open (requires --comment)")
 	cmd.Flags().Bool("full", false, "Review the whole pull request, not only the changes since Bark's last posted review of it (requires --pr; matters with --comment)")
 	addPlainFlag(cmd)
 
@@ -74,6 +75,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	provider, _ := cmd.Flags().GetString("provider")
 	comment, _ := cmd.Flags().GetBool("comment")
 	full, _ := cmd.Flags().GetBool("full")
+	approve, _ := cmd.Flags().GetBool("approve")
 
 	if withDescription && pr == "" {
 		return fmt.Errorf("--with-description requires --pr")
@@ -81,6 +83,10 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 
 	if comment && pr == "" {
 		return fmt.Errorf("--comment requires --pr")
+	}
+
+	if approve && !comment {
+		return fmt.Errorf("--approve requires --comment")
 	}
 
 	if full && pr == "" {
@@ -167,6 +173,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 			WithPRDescription: withDescription,
 			Comment:           comment,
 			Full:              full,
+			Approve:           approve,
 		})
 	}
 

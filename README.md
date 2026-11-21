@@ -151,6 +151,22 @@ In GitHub Actions, set the `fail-on` input of the `bark-review` action. It posts
 
 With `--comment`, a pull request Bark reviewed before is reviewed only from the commits since its last review. A later push that doesn't touch the code an earlier finding is about won't find it again, so it can pass while the issue is still there. Pass `--full` (or set `full-review`) to review the whole pull request each time, so every unfixed finding fails the run again. To get past a finding you won't fix, [dismiss it](#dismissing-a-finding).
 
+#### Approving pull requests
+
+To have Bark approve a pull request when its review raises nothing that should stop it, add `--approve` to `--comment`:
+
+```bash
+bark review --pr 42 --comment --approve
+bark review --pr 42 --comment --approve --fail-on high   # approve unless something high or critical is found
+```
+
+The review is posted as an approval when:
+
+- it keeps no finding at or above `fail_on`, counted the way [`--fail-on`](#failing-on-findings) counts them. Without `fail_on`, any finding stops the approval;
+- it saw the whole change: the diff wasn't cut to fit its limit, and the model's output didn't end early;
+- the model gave a verdict, and Bark could read every finding;
+- when it reviewed only the changes since the last review, every point raised in earlier reviews was [dismissed](#dismissing-a-finding). Bark can't tell whether those were fixed without reviewing the code again. Pass `--full` (or set `full-review`) to check them again each time.
+
 #### House rules
 
 Bark reviews a change against your repository's own rules. By default it reads `AGENTS.md` and `CLAUDE.md`. If your repository has neither, nothing changes.
