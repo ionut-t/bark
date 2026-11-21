@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.34.0](https://github.com/ionut-t/bark/compare/v2.33.0...v2.34.0) (2026-11-21)
+
+
+### Features
+
+* **review:** add automatic pull request approval support ([#154](https://github.com/ionut-t/bark/issues/154)) ([9452c95](https://github.com/ionut-t/bark/commit/9452c959dd3539668cd0ed715bc584aeb7c1b1da))
+* **review:** automatically resolve fixed review threads ([#155](https://github.com/ionut-t/bark/issues/155)) ([2dd2577](https://github.com/ionut-t/bark/commit/2dd2577aa2d3bc5fa003db533da33e34b7b64d21))
+
+
+### Bug Fixes
+
+* **check:** handle empty or partial LLM answers ([#151](https://github.com/ionut-t/bark/issues/151)) ([201833a](https://github.com/ionut-t/bark/commit/201833a02b9a8c903e2ea9994193c845f2dedfcc))
+* **findings:** mark findings as unchecked when validation provides no verdict ([#153](https://github.com/ionut-t/bark/issues/153)) ([9ed60ce](https://github.com/ionut-t/bark/commit/9ed60ce23356c99b2007b7b30f39a1393afd44a5))
+
 ## [2.33.0](https://github.com/ionut-t/bark/compare/v2.32.0...v2.33.0) (2026-11-20)
 
 
