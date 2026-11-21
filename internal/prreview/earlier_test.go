@@ -58,7 +58,7 @@ func TestBuildRecordsFindings(t *testing.T) {
 		assert.Equal(t, 1, strings.Count(hidden, "-->"), "a title can't end the hidden block")
 		assert.Equal(t, []findings.Finding{
 			{File: "a.go", Line: 2, Title: "Kept", Body: "First sentence."},
-			{File: "a.go", Line: 3, EndLine: 4, Title: "Ends a comment -->", Body: "b"},
+			{File: "a.go", Line: 3, EndLine: 4, Title: "Ends a comment -->", Body: "b", Doubt: findings.DoubtedEarlier},
 		}, Recorded(review.Body))
 	}
 }
@@ -200,7 +200,7 @@ func TestEarlier(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []findings.Finding{
 		{File: "a.go", Line: 2, Title: "One", Body: "b"},
-		{File: "a.go", Line: 3, Title: "Two", Body: "c"},
+		{File: "a.go", Line: 3, Title: "Two", Body: "c", Doubt: findings.DoubtedEarlier},
 	}, got)
 
 	require.Len(t, gh.args, 3)
@@ -356,4 +356,19 @@ func TestPostPartialReviewStillGoesOnHead(t *testing.T) {
 	require.Len(t, gh.posted, 1)
 	assert.Equal(t, "def4567", gh.posted[0].CommitID, "the comments are on the lines of the head")
 	assert.Equal(t, "0001111", RecordedScope(gh.posted[0].Body).Head)
+}
+
+// A finding Bark's check doubted is recorded as doubted, so a later review
+// of only the newer changes doesn't take it for a point still open.
+func TestRecordedKeepsDoubt(t *testing.T) {
+	t.Parallel()
+
+	events := []findings.Event{
+		{Finding: &findings.Finding{File: "a.go", Line: 2, Severity: findings.Low, Title: "Nit", Doubt: "A preference."}},
+		{Finding: &findings.Finding{File: "a.go", Line: 3, Severity: findings.High, Title: "Bug"}},
+	}
+	got := Recorded(build(events, diff, Scope{}).Body)
+	require.Len(t, got, 2)
+	assert.Equal(t, findings.DoubtedEarlier, got[0].Doubt)
+	assert.Empty(t, got[1].Doubt)
 }

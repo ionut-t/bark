@@ -387,7 +387,7 @@ func approvalThreshold(failOn findings.Severity) findings.Severity {
 // every finding read) that keeps no finding at or above threshold, counted
 // as fail_on counts them. A review of only the changes since the last one
 // doesn't see the code earlier findings were about, so it also needs every
-// point raised earlier to have been dismissed.
+// point raised earlier to have been dismissed or doubted by Bark's check.
 func approval(events []findings.Event, scope prreview.Scope, hist prreview.History, threshold findings.Severity) (bool, string) {
 	if scope.Partial {
 		return false, "the review didn't see the whole change (the diff was cut to fit its limit, or the model's output ended early)"
@@ -402,7 +402,13 @@ func approval(events []findings.Event, scope prreview.Scope, hist prreview.Histo
 		return false, fmt.Sprintf("the review kept %d finding(s) at or above %s severity", len(blocking), threshold)
 	}
 	if scope.Since != "" {
-		if open := len(hist.Findings) - hist.Dismissed(); open > 0 {
+		open := 0
+		for _, f := range hist.Findings {
+			if f.Dismissed == "" && f.Doubt == "" {
+				open++
+			}
+		}
+		if open > 0 {
 			return false, fmt.Sprintf("it reviewed only the changes since the last review, and %d point(s) raised earlier on the pull request may still be open (review the whole pull request to check them again, or dismiss them)", open)
 		}
 	}

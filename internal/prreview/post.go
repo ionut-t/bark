@@ -85,8 +85,8 @@ func post(ctx context.Context, run gh, pr string, events []findings.Event, diff 
 	}
 	var errs []error
 	var approvalErr error
+	review := build(events, diff, scope)
 	for _, withLines := range []bool{true, false} {
-		review := build(events, diff, scope)
 		if !withLines {
 			if len(review.Comments) == 0 {
 				break
