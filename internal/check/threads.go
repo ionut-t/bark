@@ -80,7 +80,7 @@ func writeThreads(b *strings.Builder, threads []Thread) {
 // linesOf returns lines start..end of file, each after its number and a
 // tab, or "" if file has none of them.
 func linesOf(file string, start, end int) string {
-	if start <= 0 {
+	if file == "" || start <= 0 {
 		return ""
 	}
 	lines := strings.Split(strings.TrimSuffix(file, "\n"), "\n")

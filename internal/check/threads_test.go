@@ -62,8 +62,10 @@ func TestPromptShowsOpenThreads(t *testing.T) {
 func TestApplyThreads(t *testing.T) {
 	t.Parallel()
 
-	threads := []Thread{nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(),
-		nilMapThread(), nilMapThread()}
+	threads := []Thread{
+		nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(),
+		nilMapThread(), nilMapThread(),
+	}
 	verdicts := parseThreadVerdicts(strings.Join([]string{
 		`{"thread":1,"verdict":"fixed","evidence":"if m == nil {\n\t\treturn","reason":"f returns early on a nil map."}`,
 		`{"thread":2,"verdict":"fixed","evidence":"m[\"x\"] = 1","reason":"Looks fine."}`,
@@ -135,4 +137,27 @@ func TestRunKeepsThreadOpenWhenItsPointIsRaisedAgain(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.Events[0].Finding.RaisedBefore)
 	assert.Empty(t, res.Fixed)
+}
+
+func TestLinesOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		file       string
+		start, end int
+		want       string
+	}{
+		{"lines", "a\nb\nc\n", 2, 3, "2\tb\n3\tc\n"},
+		{"past the end", "a\n", 1, 3, "1\ta\n"},
+		{"empty file", "", 1, 1, ""},
+		{"no start", "a\n", 0, 1, ""},
+		{"start past the end", "a\n", 2, 2, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, linesOf(tt.file, tt.start, tt.end))
+		})
+	}
 }
