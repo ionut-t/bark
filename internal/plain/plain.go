@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -47,6 +48,12 @@ type ReviewOptions struct {
 	// Full reviews the whole pull request even when Bark reviewed part of
 	// it before.
 	Full bool
+	// Approve posts the review as an approval when it keeps no finding at
+	// or above ApproveBelow; see approval. It needs Comment.
+	Approve bool
+	// ApproveBelow is the severity from which a finding stops the review
+	// from approving: medium when empty, or fail_on when that's lower.
+	ApproveBelow findings.Severity
 
 	// Diff source flags (used when Diff is empty)
 	Staged bool
@@ -77,6 +84,12 @@ type PROptions struct {
 func RunReview(opts ReviewOptions) error {
 	if opts.Comment && (opts.PR == "" || opts.Diff != nil) {
 		return fmt.Errorf("posting the review needs a pull request diff (--pr), not a diff from stdin")
+	}
+	if opts.Approve && !opts.Comment {
+		return fmt.Errorf("approving needs the review to be posted (--comment)")
+	}
+	if opts.ApproveBelow != "" && !opts.Approve {
+		return fmt.Errorf("approve_below needs approving to be on (--approve)")
 	}
 
 	// fail_on needs findings to count, so it turns on structured findings
@@ -158,6 +171,10 @@ func RunReview(opts ReviewOptions) error {
 	}
 	minSeverity := findings.Severity(opts.Config.GetMinSeverity())
 	warnFailOnBelowMin(os.Stderr, failOn, minSeverity)
+	var approveThreshold findings.Severity
+	if opts.Approve {
+		approveThreshold = approvalThreshold(os.Stderr, opts.ApproveBelow, failOn)
+	}
 	var rules houserules.Rules
 	if opts.Config.GetHouseRules() {
 		rulesCtx, rulesCancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -269,20 +286,37 @@ func RunReview(opts ReviewOptions) error {
 	if opts.Comment {
 		post = func() error {
 			scope := postScope(reviewDiff, truncated)
-			if skipPost(os.Stderr, events, scope, hist) {
+			approve := false
+			if opts.Approve {
+				var why string
+				approve, why = approval(events, scope, hist, approveThreshold)
+				if !approve {
+					fmt.Fprintf(os.Stderr, "bark: not approving: %s\n", why)
+				}
+			}
+			// An approval changes the pull request's review state, so it
+			// is posted even when the review adds no new finding.
+			if !approve && skipPost(os.Stderr, events, scope, hist) {
 				return nil
 			}
 			postCtx, postCancel := context.WithTimeout(context.Background(), gitTimeout)
 			defer postCancel()
 			result, err := prreview.Post(postCtx, opts.PR, withPartialNote(events, reviewDiff.Cut), reviewDiff.CommentDiff(),
-				scope)
+				scope, approve)
 			if err != nil {
 				return err
 			}
 			if result.Fallback {
 				fmt.Fprintln(os.Stderr, "bark: GitHub rejected the inline comments; posted every finding in the review body instead")
 			}
-			fmt.Fprintf(os.Stderr, "bark: posted review with %d inline comment(s): %s\n", result.Inline, result.URL)
+			if result.ApprovalErr != nil {
+				fmt.Fprintf(os.Stderr, "bark: warning: GitHub refused to approve the pull request, so the review was posted as a comment: %v\n", result.ApprovalErr)
+			}
+			kind := "review"
+			if result.Approved {
+				kind = "approving review"
+			}
+			fmt.Fprintf(os.Stderr, "bark: posted %s with %d inline comment(s): %s\n", kind, result.Inline, result.URL)
 			return nil
 		}
 	}
@@ -344,6 +378,60 @@ func gate(w io.Writer, events []findings.Event, failOn findings.Severity) error 
 		_, _ = fmt.Fprintf(w, "bark:   [%s] %s%s%s\n", strings.ToLower(strings.TrimSpace(string(f.Severity))), where, f.Title, note)
 	}
 	return err
+}
+
+// approvalThreshold is the severity from which a finding stops a review
+// from approving: approveBelow, medium when empty, so findings below it
+// (nits) are left as comments on an approval. A review that fails its
+// fail_on gate doesn't approve, so a lower fail_on wins; when approveBelow
+// was set above it, it says so on w.
+func approvalThreshold(w io.Writer, approveBelow, failOn findings.Severity) findings.Severity {
+	threshold := approveBelow
+	if threshold == "" {
+		threshold = findings.Medium
+	}
+	if failOn == "" || failOn.AtLeast(threshold) {
+		return threshold
+	}
+	if approveBelow != "" {
+		_, _ = fmt.Fprintf(w, "bark: warning: approve_below %s is above fail_on %s; a review with a finding at %s or above fails, so it doesn't approve either\n",
+			approveBelow, failOn, failOn)
+	}
+	return failOn
+}
+
+// approval reports whether a review of scope with events, posted on a pull
+// request whose earlier reviews recorded hist, approves it, or why not. It
+// approves only a complete review (the whole diff seen, a verdict given,
+// every finding read) that keeps no finding at or above threshold, counted
+// as fail_on counts them. A review of only the changes since the last one
+// doesn't see the code earlier findings were about, so it also needs every
+// point raised earlier to have been dismissed or doubted by Bark's check.
+func approval(events []findings.Event, scope prreview.Scope, hist prreview.History, threshold findings.Severity) (bool, string) {
+	if scope.Partial {
+		return false, "the review didn't see the whole change (the diff was cut to fit its limit, or the model's output ended early)"
+	}
+	if !slices.ContainsFunc(events, func(e findings.Event) bool { return e.Verdict != "" }) {
+		return false, "the review has no verdict, so it may be incomplete"
+	}
+	if slices.ContainsFunc(events, func(e findings.Event) bool { return strings.HasPrefix(strings.TrimSpace(e.Text), "{") }) {
+		return false, "Bark couldn't read one of the review's findings"
+	}
+	if blocking := findings.Blocking(events, threshold); len(blocking) > 0 {
+		return false, fmt.Sprintf("the review kept %d finding(s) at or above %s severity", len(blocking), threshold)
+	}
+	if scope.Since != "" {
+		open := 0
+		for _, f := range hist.Findings {
+			if f.Dismissed == "" && f.Doubt == "" {
+				open++
+			}
+		}
+		if open > 0 {
+			return false, fmt.Sprintf("it reviewed only the changes since the last review, and %d point(s) raised earlier on the pull request may still be open (review the whole pull request to check them again, or dismiss them)", open)
+		}
+	}
+	return true, ""
 }
 
 // warnFailOnBelowMin says on w when fail_on is less severe than

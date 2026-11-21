@@ -15,6 +15,12 @@ import (
 	"github.com/ionut-t/bark/v2/internal/findings"
 )
 
+// The events a review is posted with.
+const (
+	eventComment = "COMMENT"
+	eventApprove = "APPROVE"
+)
+
 // Marker starts the body of every review Bark posts, so it can be found
 // again.
 const Marker = "<!-- bark-review -->"
@@ -131,7 +137,7 @@ func build(events []findings.Event, diff string, scope Scope) Review {
 	body = strings.TrimSpace(body) + "\n" + record(events, scope)
 	return Review{
 		Body:     body,
-		Event:    "COMMENT",
+		Event:    eventComment,
 		Comments: comments,
 	}
 }

@@ -25,6 +25,11 @@ const (
 // Finding is one issue in the reviewed diff. Every field except Remark is
 // plain and neutral; Remark carries the reviewer persona's voice and is meant
 // for people only.
+// DoubtedEarlier is the Doubt of a point raised before that Bark's check
+// doubted in the review that raised it. A later finding that repeats it
+// isn't doubted for that: the check judges it afresh.
+const DoubtedEarlier = "Bark's check doubted this point in an earlier review."
+
 type Finding struct {
 	File string `json:"file"`
 	// Line is the first line of the issue in the new version of File, or 0

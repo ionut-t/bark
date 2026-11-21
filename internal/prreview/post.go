@@ -25,6 +25,11 @@ type Result struct {
 	// Fallback is true when GitHub rejected the inline comments and every
 	// finding was posted in the review body instead.
 	Fallback bool
+	// Approved is true when the review was posted as an approval.
+	Approved bool
+	// ApprovalErr is why GitHub refused to approve the pull request, when
+	// the review was to approve it but was posted as a comment instead.
+	ApprovalErr error
 }
 
 // Post posts the events of a structured review of diff to pull request pr
@@ -36,13 +41,19 @@ type Result struct {
 // the review is posted on and is recorded for the next review; otherwise
 // the review goes on the pull request's current head and records none.
 //
+// With approve, the review approves the pull request; otherwise it's a
+// comment.
+//
 // If GitHub rejects the review (for example because a line is no longer
 // in the pull request), Post posts it again with every finding in the body.
-func Post(ctx context.Context, pr string, events []findings.Event, diff string, scope Scope) (Result, error) {
-	return post(ctx, runGH, pr, events, diff, scope)
+// If GitHub refuses the approval (GitHub Actions isn't allowed to approve
+// pull requests, or the pull request is the poster's own), the review is
+// posted as a comment, and Result.ApprovalErr says why.
+func Post(ctx context.Context, pr string, events []findings.Event, diff string, scope Scope, approve bool) (Result, error) {
+	return post(ctx, runGH, pr, events, diff, scope, approve)
 }
 
-func post(ctx context.Context, run gh, pr string, events []findings.Event, diff string, scope Scope) (Result, error) {
+func post(ctx context.Context, run gh, pr string, events []findings.Event, diff string, scope Scope, approve bool) (Result, error) {
 	out, err := run(ctx, nil, "pr", "view", pr, "--json", "url,headRefOid")
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to look up pull request %s: %w", pr, err)
@@ -66,21 +77,47 @@ func post(ctx context.Context, run gh, pr string, events []findings.Event, diff 
 		commit = meta.HeadRefOid
 	}
 
+	// Each attempt drops something GitHub may have rejected: first the
+	// approval, then the inline comments, then both.
+	kinds := []string{eventComment}
+	if approve {
+		kinds = []string{eventApprove, eventComment}
+	}
+	var errs []error
+	var approvalErr error
 	review := build(events, diff, scope)
-	review.CommitID = commit
-	result, err := send(ctx, run, endpoint, review)
-	if err == nil || len(review.Comments) == 0 {
-		return result, err
+	for _, withLines := range []bool{true, false} {
+		if !withLines {
+			if len(review.Comments) == 0 {
+				break
+			}
+			review = build(events, "", scope)
+		}
+		review.CommitID = commit
+		for _, event := range kinds {
+			review.Event = event
+			result, err := send(ctx, run, endpoint, review)
+			if err != nil {
+				if event == eventApprove {
+					// The last one: without inline comments, only the
+					// approval can be what GitHub rejected.
+					approvalErr = err
+				}
+				errs = append(errs, err)
+				continue
+			}
+			result.Fallback = !withLines
+			result.Approved = event == eventApprove
+			if approve && !result.Approved {
+				result.ApprovalErr = approvalErr
+			}
+			return result, nil
+		}
 	}
-
-	review = build(events, "", scope)
-	review.CommitID = commit
-	result, retryErr := send(ctx, run, endpoint, review)
-	if retryErr != nil {
-		return Result{}, fmt.Errorf("failed to post review: %w", errors.Join(err, retryErr))
+	if len(errs) == 1 {
+		return Result{}, errs[0]
 	}
-	result.Fallback = true
-	return result, nil
+	return Result{}, fmt.Errorf("failed to post review: %w", errors.Join(errs...))
 }
 
 // Earlier returns the findings that reviews Bark posted earlier on pull

@@ -153,3 +153,38 @@ func TestReviewActionFailsOnFindingsLast(t *testing.T) {
 	assert.Contains(t, last.If, "steps."+run.ID+".outputs.status == '3'", "the failing step comes after posting and labelling")
 	assert.Contains(t, last.Run, "exit 1")
 }
+
+// TestApprovePassedOnlyWithInlineComments checks that the review action and
+// Bark's own workflow pass --approve, and --approve-below with it, only when
+// the review is posted with inline comments, which --approve needs.
+func TestApprovePassedOnlyWithInlineComments(t *testing.T) {
+	data, err := os.ReadFile(".github/actions/bark-review/action.yaml")
+	require.NoError(t, err)
+	var action struct {
+		Inputs map[string]any `yaml:"inputs"`
+		compositeAction `yaml:",inline"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &action))
+	assert.Contains(t, action.Inputs, "approve")
+	assert.Contains(t, action.Inputs, "approve-below")
+
+	data, err = os.ReadFile(".github/workflows/bark.yaml")
+	require.NoError(t, err)
+	var wf workflow
+	require.NoError(t, yaml.Unmarshal(data, &wf))
+
+	scripts := map[string][]step{"action": action.Runs.Steps, "workflow": wf.Jobs["review"].Steps}
+	for name, steps := range scripts {
+		var run string
+		for _, s := range steps {
+			if s.Name == "Run bark review" {
+				run = s.Run
+			}
+		}
+		require.NotEmpty(t, run, name)
+		i := strings.Index(run, "ARGS+=(--approve)")
+		require.Positive(t, i, name)
+		assert.Contains(t, run[:i], `"$BARK_INLINE_COMMENTS"`, "%s: --approve only with inline comments", name)
+		assert.Contains(t, run[i:], `ARGS+=(--approve-below "$BARK_APPROVE_BELOW")`, "%s: --approve-below only with --approve", name)
+	}
+}

@@ -26,6 +26,9 @@ type recorded struct {
 	// dismissed on the pull request. Bark no longer records repeats (see
 	// record), but still reads it from reviews that did.
 	Dismissed string `json:"dismissed,omitempty"`
+	// Doubted is true when Bark's check doubted the finding, so it wasn't
+	// posted as a point to fix.
+	Doubted bool `json:"doubted,omitempty"`
 }
 
 // reviewedCommits is the line of the hidden block that names the commit
@@ -65,7 +68,7 @@ func record(events []findings.Event, scope Scope) string {
 		// comment early.
 		line, err := json.Marshal(recorded{
 			File: f.File, Line: f.Line, EndLine: f.EndLine, Title: f.Title,
-			Body: findings.FirstSentence(f.Body),
+			Body: findings.FirstSentence(f.Body), Doubted: f.Doubt != "",
 		})
 		if err != nil {
 			continue
@@ -123,10 +126,14 @@ func Recorded(body string) []findings.Finding {
 		if line == "" || json.Unmarshal([]byte(line), &r) != nil || r.File == "" || r.Title == "" {
 			continue
 		}
-		out = append(out, findings.Finding{
+		f := findings.Finding{
 			File: r.File, Line: r.Line, EndLine: r.EndLine, Title: r.Title, Body: r.Body,
 			Dismissed: r.Dismissed,
-		})
+		}
+		if r.Doubted {
+			f.Doubt = findings.DoubtedEarlier
+		}
+		out = append(out, f)
 	}
 	return out
 }
