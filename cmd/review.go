@@ -23,8 +23,8 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	}
 
 	cmd.Flags().String("as", "", "Specify the reviewer to use directly")
-	cmd.Flags().StringP("model", "m", "", "LLM model to use (overrides config)")
-	cmd.Flags().StringP("provider", "P", "", "LLM provider to use (overrides config; by default inferred from the model name): "+strings.Join(config.SupportedProviders(), ", "))
+	cmd.Flags().StringP("model", "m", "", "Model to use (overrides config)")
+	cmd.Flags().StringP("provider", "P", "", "Model provider to use (overrides config; by default inferred from the model name): "+strings.Join(config.SupportedProviders(), ", "))
 	cmd.Flags().BoolP("commit", "t", false, "Select commit to review")
 	cmd.Flags().BoolP("changes", "c", false, "Review current changes")
 	cmd.Flags().StringArrayP("instructions", "i", nil, "Custom instructions to guide the reviewer's feedback: a saved instruction name, file path or raw text (repeat to combine several)")
