@@ -370,3 +370,51 @@ func TestRelated_TooCommonNames(t *testing.T) {
 
 	assert.Empty(t, findRelated(t, repo, addDiff(repo, "app/app.go", 4, 4), RelatedOptions{}))
 }
+
+func TestRelated_MethodSignaturesAreNotCallers(t *testing.T) {
+	tests := []struct {
+		name   string
+		repo   fakeRepo
+		file   string
+		change string
+		want   []string
+	}{
+		{
+			name: "go interface",
+			repo: fakeRepo{
+				"app/app.go":     appGo,
+				"store/store.go": storeGo,
+				"app/loader.go":  "package app\n\ntype Loader interface {\n\tLoad(key string) string\n}\n",
+			},
+			file: "store/store.go", change: "return s.data[key]",
+			want: []string{"app/app.go:5-9 Run calls Load"},
+		},
+		{
+			name: "typescript interface",
+			repo: fakeRepo{
+				"src/app.ts":    "export function run(x: string) {\n  return x.trim();\n}\n",
+				"src/main.ts":   "import { run } from './app';\n\nfunction main() {\n  run('x');\n}\n",
+				"src/runner.ts": "export interface Runner {\n  run(x: string): string;\n}\n",
+			},
+			file: "src/app.ts", change: "return x.trim()",
+			want: []string{"src/main.ts:3-5 main calls run"},
+		},
+		{
+			name: "rust trait",
+			repo: fakeRepo{
+				"src/app.rs":  "pub fn run(x: &str) -> String {\n    x.trim().to_owned()\n}\n",
+				"src/main.rs": "fn main() {\n    run(\"x\");\n}\n",
+				"src/lib.rs":  "pub trait Runner {\n    fn run(x: &str) -> String;\n}\n",
+			},
+			file: "src/app.rs", change: "x.trim()",
+			want: []string{"src/main.rs:1-3 main calls run"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			line := lineOf(t, tt.repo[tt.file], tt.change)
+			got := findRelated(t, tt.repo, addDiff(tt.repo, tt.file, line, line), RelatedOptions{})
+			assert.Equal(t, tt.want, labels(got))
+		})
+	}
+}

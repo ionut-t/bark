@@ -426,7 +426,7 @@ func (r *related) callers(d decl) []Piece {
 		seen := map[int]bool{}
 		for i, line := range f.lines {
 			n := i + 1
-			if !callRe.MatchString(line) || (p == d.path && d.start <= n && n <= d.end) {
+			if !callRe.MatchString(line) || f.signatures[n] || (p == d.path && d.start <= n && n <= d.end) {
 				continue
 			}
 			enc, ok := f.enclosing(n)
@@ -523,6 +523,9 @@ type spec struct {
 	calls map[string]string
 	// builtins are names never looked up.
 	builtins map[string]bool
+	// signatures are the nodes that declare a method without a body (an
+	// interface or trait method); their lines look like calls but aren't.
+	signatures map[string]bool
 }
 
 type declKind struct {
@@ -559,8 +562,9 @@ var jsSpec = spec{
 		"type_alias_declaration": {},
 		"enum_declaration":       {},
 	},
-	calls:    map[string]string{"call_expression": "function", "new_expression": "constructor"},
-	builtins: set("require", "log", "push", "map", "filter", "then", "catch", "toString", "parseInt", "String", "Number", "Error", "Promise", "Array", "Object", "Map", "Set"),
+	calls:      map[string]string{"call_expression": "function", "new_expression": "constructor"},
+	signatures: set("method_signature", "abstract_method_signature"),
+	builtins:   set("require", "log", "push", "map", "filter", "then", "catch", "toString", "parseInt", "String", "Number", "Error", "Promise", "Array", "Object", "Map", "Set"),
 }
 
 var specs = map[string]spec{
@@ -571,7 +575,8 @@ var specs = map[string]spec{
 			"method_declaration":   {callable: true},
 			"type_spec":            {outer: "type_declaration"},
 		},
-		calls: map[string]string{"call_expression": "function", "composite_literal": "type"},
+		calls:      map[string]string{"call_expression": "function", "composite_literal": "type"},
+		signatures: set("method_elem", "method_spec"),
 		builtins: set("append", "cap", "clear", "close", "complex", "copy", "delete", "imag", "len", "make",
 			"max", "min", "new", "panic", "print", "println", "real", "recover",
 			"bool", "byte", "error", "float32", "float64", "int", "int8", "int16", "int32", "int64",
@@ -596,8 +601,9 @@ var specs = map[string]spec{
 			"trait_item":    {},
 			"type_item":     {},
 		},
-		calls:    map[string]string{"call_expression": "function", "struct_expression": "name"},
-		builtins: set("new", "clone", "unwrap", "expect", "into", "from", "to_string", "iter", "map", "collect", "Some", "Ok", "Err", "Box", "Vec", "String"),
+		calls:      map[string]string{"call_expression": "function", "struct_expression": "name"},
+		signatures: set("function_signature_item"),
+		builtins:   set("new", "clone", "unwrap", "expect", "into", "from", "to_string", "iter", "map", "collect", "Some", "Ok", "Err", "Box", "Vec", "String"),
 	},
 	"typescript": jsSpec,
 	"tsx":        jsSpec,
@@ -622,6 +628,9 @@ type parsedFile struct {
 	decls []decl
 	// uses are the calls and type uses in the file, by line.
 	uses map[int][]call
+	// signatures are the lines that start a method signature without a
+	// body.
+	signatures map[int]bool
 }
 
 func parse(p string, src []byte) *parsedFile {
@@ -639,7 +648,7 @@ func parse(p string, src []byte) *parsedFile {
 		return nil
 	}
 
-	f := &parsedFile{path: p, spec: sp, lines: strings.Split(strings.TrimSuffix(string(src), "\n"), "\n"), uses: map[int][]call{}}
+	f := &parsedFile{path: p, spec: sp, lines: strings.Split(strings.TrimSuffix(string(src), "\n"), "\n"), uses: map[int][]call{}, signatures: map[int]bool{}}
 	var visit func(n *gotreesitter.Node)
 	visit = func(n *gotreesitter.Node) {
 		t := n.Type(lang)
@@ -648,6 +657,9 @@ func parse(p string, src []byte) *parsedFile {
 				d.path = p
 				f.decls = append(f.decls, d)
 			}
+		}
+		if sp.signatures[t] {
+			f.signatures[int(n.StartPoint().Row)+1] = true
 		}
 		if field, ok := sp.calls[t]; ok {
 			if c, ok := readCall(n.ChildByFieldName(field, lang), lang, src); ok {
