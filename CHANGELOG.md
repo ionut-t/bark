@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.34.1](https://github.com/ionut-t/bark/compare/v2.34.0...v2.34.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **cli:** wrap help flag descriptions to fit terminal width ([#156](https://github.com/ionut-t/bark/issues/156)) ([befc986](https://github.com/ionut-t/bark/commit/befc9862b791dbd00d83aa4d785ddfe4952944d6))
+
 ## [2.34.0](https://github.com/ionut-t/bark/compare/v2.33.0...v2.34.0) (2026-11-21)
 
 
