@@ -127,7 +127,7 @@ func Recorded(body string) []findings.Finding {
 			continue
 		}
 		f := findings.Finding{
-			File: r.File, Line: r.Line, EndLine: r.EndLine, Title: r.Title, Body: r.Body,
+			File: r.File, Line: r.Line, EndLine: r.EndLine, Title: findings.CleanTitle(r.Title), Body: r.Body,
 			Dismissed: r.Dismissed,
 		}
 		if r.Doubted {

@@ -636,7 +636,7 @@ func (c corpus) contains(evidence string) bool {
 	found := false
 	for l := range strings.SplitSeq(evidence, "\n") {
 		l = normalise(stripEvidenceLine(l))
-		if l == "" || l == "..." || l == "…" {
+		if l == "" || elided(l) {
 			continue
 		}
 		if len(l) < minEvidence {
@@ -648,6 +648,12 @@ func (c corpus) contains(evidence string) bool {
 		found = true
 	}
 	return found
+}
+
+// elided reports whether a line of evidence only marks lines the model
+// left out.
+func elided(l string) bool {
+	return l == "..." || l == "…"
 }
 
 func (c corpus) has(s string) bool {

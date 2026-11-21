@@ -168,7 +168,7 @@ func newLine(evidence, before string) bool {
 	}
 	for l := range strings.SplitSeq(evidence, "\n") {
 		l = normalise(stripEvidenceLine(l))
-		if len(l) >= minEvidence && l != "..." && !old.has(l) {
+		if len(l) >= minEvidence && !elided(l) && !old.has(l) {
 			return true
 		}
 	}

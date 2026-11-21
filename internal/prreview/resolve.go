@@ -171,18 +171,39 @@ func resolve(ctx context.Context, run gh, fixed []Fixed, head string) ([]Thread,
 			errs = append(errs, err)
 			continue
 		}
-		if _, err := run(ctx, payload, "api", "--method", "POST",
-			fmt.Sprintf("%s/comments/%d/replies", t.pull, t.Comment), "--input", "-"); err != nil {
+		out, err := run(ctx, payload, "api", "--method", "POST",
+			fmt.Sprintf("%s/comments/%d/replies", t.pull, t.Comment), "--input", "-")
+		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to reply on the thread of %q: %w", t.Point.Title, err))
 			continue
 		}
 		if _, err := run(ctx, nil, "api", "graphql", "-f", "query="+resolveMutation, "-f", "id="+t.ID); err != nil {
 			errs = append(errs, fmt.Errorf("failed to resolve the thread of %q: %w", t.Point.Title, err))
+			if err := unreply(ctx, run, t.pull, out); err != nil {
+				errs = append(errs, fmt.Errorf("failed to delete Bark's reply on the thread of %q, so the next review won't resolve it: %w",
+					t.Point.Title, err))
+			}
 			continue
 		}
 		resolved = append(resolved, t)
 	}
 	return resolved, errors.Join(errs...)
+}
+
+// unreply deletes the reply Bark posted on a thread it then couldn't
+// resolve. Left there, the reply would say the thread is resolved when it
+// isn't, and on an open thread it reads as someone having unresolved it, so
+// no later review would try again. posted is the reply as the API returned it.
+func unreply(ctx context.Context, run gh, pull string, posted []byte) error {
+	var reply struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(posted, &reply); err != nil || reply.ID <= 0 {
+		return errors.New("GitHub's answer to the reply had no comment ID")
+	}
+	repo := pull[:max(strings.LastIndex(pull, "/pulls/"), 0)]
+	_, err := run(ctx, nil, "api", "--method", "DELETE", fmt.Sprintf("%s/pulls/comments/%d", repo, reply.ID))
+	return err
 }
 
 // maxReason caps the check's reason Bark quotes on a thread it resolves.

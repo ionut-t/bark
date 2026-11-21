@@ -29,6 +29,8 @@ func TestRendererMatchesWholeRender(t *testing.T) {
 		`{"file":"a.go","line":4,"end_line":5,"severity":"high","category":"bug","title":"Nil map write","body":"m is nil when\nn == 0.","original":"var m map[string]int\n\tm[k]++","suggestion":"m := map[string]int{}\n\tm[k]++\n","remark":"Ugh — again."}` + "\n" +
 		"\n" +
 		`{"file":"README","severity":"LOW","category":"docs","title":"Typo"}` + "\r\n" +
+		`{"file":"c.go","severity":"medium","title":"[MEDIUM · error-handling] [major] Non-atomic reply","body":"x"}` + "\n" +
+		`{"file":"c.go","severity":"low","title":"[WIP] Not a severity","body":"x"}` + "\n" +
 		"some stray text é\n" +
 		`{"file":"b.md","line":1,"severity":"low","title":"Fence","suggestion":"` + "```go\\n```" + `"}` + "\n" +
 		"```\n" +

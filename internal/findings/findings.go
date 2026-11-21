@@ -209,6 +209,7 @@ func parseLine(raw string) (Event, bool) {
 
 func normaliseFinding(f Finding) Finding {
 	f.Severity = normaliseSeverity(f.Severity)
+	f.Title = CleanTitle(f.Title)
 	if f.EndLine <= f.Line {
 		f.EndLine = 0
 	}

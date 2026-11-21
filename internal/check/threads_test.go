@@ -62,7 +62,8 @@ func TestPromptShowsOpenThreads(t *testing.T) {
 func TestApplyThreads(t *testing.T) {
 	t.Parallel()
 
-	threads := []Thread{nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread()}
+	threads := []Thread{nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(), nilMapThread(),
+		nilMapThread(), nilMapThread()}
 	verdicts := parseThreadVerdicts(strings.Join([]string{
 		`{"thread":1,"verdict":"fixed","evidence":"if m == nil {\n\t\treturn","reason":"f returns early on a nil map."}`,
 		`{"thread":2,"verdict":"fixed","evidence":"m[\"x\"] = 1","reason":"Looks fine."}`,
@@ -70,6 +71,9 @@ func TestApplyThreads(t *testing.T) {
 		`{"thread":4,"verdict":"fixed","evidence":"if m != nil && ok {","reason":"Made up."}`,
 		`{"thread":5,"verdict":"fixed","evidence":"if m == nil {"}`,
 		`{"id":6,"verdict":"keep","evidence":"if m == nil {","reason":"A finding's verdict."}`,
+		// An elided line isn't new code, whichever ellipsis marks it.
+		`{"thread":7,"verdict":"fixed","evidence":"m[\"x\"] = 1\n…","reason":"Elided."}`,
+		`{"thread":8,"verdict":"fixed","evidence":"m[\"x\"] = 1\n...","reason":"Elided."}`,
 	}, "\n"))
 
 	got := applyThreads(threadInput(threads...), nil, verdicts)

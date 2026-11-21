@@ -187,3 +187,17 @@ func TestCommentFindingSkipsUncheckedNote(t *testing.T) {
 	assert.Equal(t, "Nil map", title)
 	assert.Equal(t, "m may be nil.", body)
 }
+
+// A finding posted with the model's own severity tag in its title reads
+// back without it, so it matches the same point found again.
+func TestPostedTitlesReadBackClean(t *testing.T) {
+	t.Parallel()
+
+	title, _, ok := commentFinding("**[MEDIUM · error-handling] [major] Non-atomic reply**\n\nThe reply comes first.")
+	require.True(t, ok)
+	assert.Equal(t, "Non-atomic reply", title)
+
+	got := Recorded("<!-- bark-findings v1\n" + `{"file":"a.go","line":1,"title":"[minor] Missing ellipsis","body":"b"}` + "\n-->")
+	require.Len(t, got, 1)
+	assert.Equal(t, "Missing ellipsis", got[0].Title)
+}

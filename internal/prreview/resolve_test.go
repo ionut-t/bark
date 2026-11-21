@@ -153,6 +153,7 @@ func TestHistoryThreadsNeedCommitAndLine(t *testing.T) {
 type fakeResolve struct {
 	replyErr   map[int64]error
 	resolveErr map[string]error
+	deleteErr  map[int64]error
 	replies    map[int64]string
 	resolved   []string
 	order      []string
@@ -172,6 +173,16 @@ func (f *fakeResolve) run(_ context.Context, stdin []byte, args ...string) ([]by
 		return []byte(`{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}`), nil
 	}
 	var id int64
+	if args[0] == "api" && len(args) == 4 && args[1] == "--method" && args[2] == "DELETE" {
+		if _, err := fmt.Sscanf(args[3], "repos/o/r/pulls/comments/%d", &id); err == nil {
+			f.order = append(f.order, fmt.Sprintf("delete %d", id))
+			if err := f.deleteErr[id]; err != nil {
+				return nil, err
+			}
+			delete(f.replies, id-900)
+			return nil, nil
+		}
+	}
 	if args[0] == "api" && len(args) == 6 && args[1] == "--method" && args[2] == "POST" {
 		if _, err := fmt.Sscanf(args[3], "repos/o/r/pulls/7/comments/%d/replies", &id); err == nil {
 			f.order = append(f.order, fmt.Sprintf("reply %d", id))
@@ -188,7 +199,8 @@ func (f *fakeResolve) run(_ context.Context, stdin []byte, args ...string) ([]by
 				f.replies = map[int64]string{}
 			}
 			f.replies[id] = body.Body
-			return []byte(`{}`), nil
+			// The reply's own ID is 900 more than the comment's.
+			return fmt.Appendf(nil, `{"id":%d,"body":"x"}`, id+900), nil
 		}
 	}
 	return nil, errors.New("unexpected gh call " + strings.Join(args, " "))
@@ -200,18 +212,22 @@ func openThread(id string, comment int64, title string) Thread {
 }
 
 // Bark says on the thread why it's fixed before resolving it, so it can be
-// checked. A thread it couldn't reply on isn't resolved.
+// checked. A thread it couldn't reply on isn't resolved; one it couldn't
+// resolve loses the reply again, as Bark's reply on an open thread means
+// someone unresolved it, and the next review would leave it be.
 func TestResolve(t *testing.T) {
 	t.Parallel()
 
 	gh := &fakeResolve{
 		replyErr:   map[int64]error{102: errors.New("HTTP 403")},
-		resolveErr: map[string]error{"T103": errors.New("HTTP 502")},
+		resolveErr: map[string]error{"T103": errors.New("HTTP 502"), "T104": errors.New("HTTP 503")},
+		deleteErr:  map[int64]error{1004: errors.New("HTTP 404")},
 	}
 	fixed := []Fixed{
 		{Thread: openThread("T101", 101, "Nil map"), Reason: "m is checked\n  for nil   now."},
 		{Thread: openThread("T102", 102, "Two"), Reason: "x"},
 		{Thread: openThread("T103", 103, "Three"), Reason: "y"},
+		{Thread: openThread("T104", 104, "Four"), Reason: "z"},
 	}
 	got, err := resolve(context.Background(), gh.run, fixed, "abcdef1234567890")
 
@@ -219,7 +235,11 @@ func TestResolve(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "HTTP 403")
 	assert.ErrorContains(t, err, "HTTP 502")
-	assert.Equal(t, []string{"reply 101", "resolve T101", "reply 102", "reply 103", "resolve T103"}, gh.order)
+	assert.ErrorContains(t, err, "HTTP 503")
+	assert.ErrorContains(t, err, `failed to delete Bark's reply on the thread of "Four", so the next review won't resolve it: HTTP 404`)
+	assert.Equal(t, []string{"reply 101", "resolve T101", "reply 102", "reply 103", "resolve T103", "delete 1003",
+		"reply 104", "resolve T104", "delete 1004"}, gh.order)
+	assert.NotContains(t, gh.replies, int64(103), "the reply on a thread Bark couldn't resolve is deleted")
 	assert.Equal(t, fixedMarker+"\nFixed in `abcdef1`: m is checked for nil now.\n\n"+
 		"_Bark's check found this fixed, so it resolved the thread. Unresolve it if it isn't fixed._", gh.replies[101])
 }

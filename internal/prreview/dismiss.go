@@ -228,7 +228,7 @@ func commentParts(body string) (title, para string, ok bool) {
 	if strings.HasPrefix(para, "```") || strings.HasPrefix(para, "> _") {
 		para = ""
 	}
-	return m[1], strings.TrimSpace(para), true
+	return findings.CleanTitle(m[1]), strings.TrimSpace(para), true
 }
 
 // markDismissed marks the findings a review recorded that the comments in
