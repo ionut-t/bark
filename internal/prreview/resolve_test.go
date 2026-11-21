@@ -159,9 +159,16 @@ type fakeResolve struct {
 	replies      map[int64]string
 	resolved     map[string]bool
 	order        []string
+	// cancel, if set, is called after a thread is resolved, as if the
+	// context timed out then.
+	cancel context.CancelFunc
 }
 
-func (f *fakeResolve) run(_ context.Context, stdin []byte, args ...string) ([]byte, error) {
+func (f *fakeResolve) run(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		f.order = append(f.order, "cancelled")
+		return nil, err
+	}
 	if args[0] == "api" && args[1] == "graphql" {
 		id := strings.TrimPrefix(args[len(args)-1], "id=")
 		if f.resolved == nil {
@@ -174,6 +181,9 @@ func (f *fakeResolve) run(_ context.Context, stdin []byte, args ...string) ([]by
 				return nil, err
 			}
 			f.resolved[id] = true
+			if f.cancel != nil {
+				f.cancel()
+			}
 		case slices.Contains(args, "query="+unresolveMutation):
 			f.order = append(f.order, "unresolve "+id)
 			if err := f.unresolveErr[id]; err != nil {
@@ -245,6 +255,21 @@ func TestResolve(t *testing.T) {
 	assert.Equal(t, []int64{101}, slices.Sorted(maps.Keys(gh.replies)))
 	assert.Equal(t, fixedMarker+"\nFixed in `abcdef1`: m is checked for nil now.\n\n"+
 		"_Bark's check found this fixed, so it resolved the thread. Unresolve it if it isn't fixed._", gh.replies[101])
+}
+
+// When the time for resolving runs out between resolving a thread and
+// replying on it, the thread is still unresolved again.
+func TestResolveUnresolvesAfterTimeout(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	gh := &fakeResolve{cancel: cancel}
+	got, err := resolve(ctx, gh.run, []Fixed{{Thread: openThread("T101", 101, "Nil map"), Reason: "x"}}, "abcdef1234")
+
+	assert.Empty(t, got)
+	assert.ErrorContains(t, err, `failed to reply on the thread of "Nil map", so it was unresolved again`)
+	assert.Equal(t, []string{"resolve T101", "cancelled", "unresolve T101"}, gh.order)
+	assert.Empty(t, gh.resolved)
 }
 
 // A point whose thread Bark resolved no longer counts as open.

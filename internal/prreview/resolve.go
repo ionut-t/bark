@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ionut-t/bark/v2/internal/findings"
 )
@@ -182,7 +183,7 @@ func resolve(ctx context.Context, run gh, fixed []Fixed, head string) ([]Thread,
 		}
 		if _, err := run(ctx, payload, "api", "--method", "POST",
 			fmt.Sprintf("%s/comments/%d/replies", t.pull, t.Comment), "--input", "-"); err != nil {
-			if _, uerr := run(ctx, nil, "api", "graphql", "-f", "query="+unresolveMutation, "-f", "id="+t.ID); uerr != nil {
+			if uerr := unresolve(ctx, run, t.ID); uerr != nil {
 				errs = append(errs, fmt.Errorf("failed to reply on the thread of %q: %w; and failed to unresolve it again, so it's resolved without saying why: %w",
 					t.Point.Title, err, uerr))
 			} else {
@@ -193,6 +194,20 @@ func resolve(ctx context.Context, run gh, fixed []Fixed, head string) ([]Thread,
 		resolved = append(resolved, t)
 	}
 	return resolved, errors.Join(errs...)
+}
+
+// unresolveTimeout is how long unresolving a thread may take, even once
+// the time for resolving has run out.
+const unresolveTimeout = 15 * time.Second
+
+// unresolve reopens a thread Bark resolved but couldn't reply on. It has
+// its own time limit: the reply may have failed because ctx ran out, and
+// the thread mustn't stay resolved without saying why.
+func unresolve(ctx context.Context, run gh, id string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unresolveTimeout)
+	defer cancel()
+	_, err := run(ctx, nil, "api", "graphql", "-f", "query="+unresolveMutation, "-f", "id="+id)
+	return err
 }
 
 // maxReason caps the check's reason Bark quotes on a thread it resolves.
