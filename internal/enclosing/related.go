@@ -80,7 +80,7 @@ const (
 // line numbers match the diff's. Files that can't be read, and languages
 // without a spec, are skipped.
 func Related(ctx context.Context, diff string, repo Repo, opt RelatedOptions) []Piece {
-	r := &related{ctx: ctx, repo: repo, diffFiles: changedFiles(diff), files: map[string]*parsedFile{}, greps: map[string][]string{}}
+	r := &related{ctx: ctx, repo: repo, diffFiles: changedFiles(diff), files: map[string]*parsedFile{}, greps: map[string][]string{}, modules: map[string]string{}}
 
 	targets := addedLines(diff)
 	modified := ModifiedLinesFromDiff(diff)
@@ -254,6 +254,8 @@ type related struct {
 	// greps caches grep results by name and globs; a diff calls the same
 	// names from many places, and each search is a git process.
 	greps map[string][]string
+	// modules caches go.mod module paths by directory (see goModule).
+	modules map[string]string
 }
 
 // maxGrepFiles skips a name found in more files than this: too common to
@@ -426,7 +428,8 @@ func (r *related) callers(d decl) []Piece {
 		seen := map[int]bool{}
 		for i, line := range f.lines {
 			n := i + 1
-			if !callRe.MatchString(line) || f.signatures[n] || (p == d.path && d.start <= n && n <= d.end) {
+			if !callRe.MatchString(line) || f.signatures[n] || (p == d.path && d.start <= n && n <= d.end) ||
+				(d.packageScoped && !r.callsPackageFunc(f, line, callRe, d, from)) {
 				continue
 			}
 			enc, ok := f.enclosing(n)
@@ -454,6 +457,98 @@ func (r *related) callers(d decl) []Piece {
 		return test[:1]
 	}
 	return prod[:min(len(prod), maxCallers)]
+}
+
+// qualifierRe matches the name before the dot of a qualified call, and
+// whether a dot comes before that name too.
+var qualifierRe = regexp.MustCompile(`(\.\s*)?\b([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*$`)
+
+// callsPackageFunc reports whether line, in f, may call the package-scoped
+// function d, declared in from: by bare name from d's own directory, or
+// through d's package name or an alias that imports d's directory. Calls
+// of a same-named method (err.ExitCode(), wait().Start()) are left out.
+func (r *related) callsPackageFunc(f *parsedFile, line string, callRe *regexp.Regexp, d decl, from *parsedFile) bool {
+	dir := path.Dir(d.path)
+	importsDir := func(imp string) bool { return r.importsDir(imp, dir) }
+	importsAny := func(imps []string) bool { return slices.ContainsFunc(imps, importsDir) }
+	for _, m := range callRe.FindAllStringIndex(line, -1) {
+		before := strings.TrimRight(line[:m[0]], " \t")
+		if !strings.HasSuffix(before, ".") {
+			if path.Dir(f.path) == dir || importsAny(f.dotImports) {
+				return true
+			}
+			continue
+		}
+		q := qualifierRe.FindStringSubmatch(before)
+		if q == nil || q[1] != "" {
+			continue // a call's result or a field: a method
+		}
+		if imp, ok := f.imports[q[2]]; ok {
+			if importsDir(imp) {
+				return true
+			}
+		} else if q[2] == from.pkg && importsAny(f.plainImports) {
+			// A package named unlike its directory, imported without an
+			// alias. Without the import, q is a variable named like it.
+			return true
+		}
+	}
+	return false
+}
+
+// importsDir reports whether the import path imp names the repository
+// directory dir: the module path of the nearest go.mod plus dir's path
+// below it. Without a go.mod, a path ending in dir matches, and nothing
+// matches the root directory: only a module root can be imported there.
+func (r *related) importsDir(imp, dir string) bool {
+	switch want := r.importPath(dir); {
+	case imp == "":
+		return false
+	case want != "":
+		return imp == want
+	case dir == ".":
+		return false
+	}
+	return strings.HasSuffix(imp, "/"+dir)
+}
+
+var moduleRe = regexp.MustCompile(`(?m)^module\s+"?([^\s"]+)"?`)
+
+// importPath returns the import path of the package in dir, or "" if no
+// go.mod is found in it or above it.
+func (r *related) importPath(dir string) string {
+	for d := dir; ; d = path.Dir(d) {
+		if mod := r.goModule(d); mod != "" {
+			rel := strings.TrimPrefix(strings.TrimPrefix(dir, d), "/")
+			if d == "." {
+				rel = dir
+			}
+			return path.Join(mod, rel)
+		}
+		if d == "." {
+			return ""
+		}
+	}
+}
+
+// goModule returns the module path in dir's go.mod, or "".
+func (r *related) goModule(dir string) string {
+	if mod, ok := r.modules[dir]; ok {
+		return mod
+	}
+	p := path.Join(dir, "go.mod")
+	read := r.repo.RepoFile
+	if r.diffFiles[p] {
+		read = r.repo.NewSideFile
+	}
+	mod := ""
+	if src, err := read(r.ctx, p); err == nil {
+		if m := moduleRe.FindSubmatch(src); m != nil {
+			mod = string(m[1])
+		}
+	}
+	r.modules[dir] = mod
+	return mod
 }
 
 func isTestFile(p string) bool {
@@ -530,6 +625,10 @@ type spec struct {
 
 type declKind struct {
 	callable bool
+	// packageScoped is a function called by bare name only from its own
+	// package, and through the package's name or an import alias from
+	// others (a Go function without a receiver).
+	packageScoped bool
 	// outer, if set, is a parent node type that should be shown instead
 	// (Go's "type" keyword, a JavaScript const declaration).
 	outer string
@@ -571,7 +670,7 @@ var specs = map[string]spec{
 	"go": {
 		globs: []string{"*.go"},
 		decls: map[string]declKind{
-			"function_declaration": {callable: true},
+			"function_declaration": {callable: true, packageScoped: true},
 			"method_declaration":   {callable: true},
 			"type_spec":            {outer: "type_declaration"},
 		},
@@ -611,10 +710,11 @@ var specs = map[string]spec{
 }
 
 type decl struct {
-	path       string
-	name       string
-	callable   bool
-	start, end int // 1-based, inclusive
+	path          string
+	name          string
+	callable      bool
+	packageScoped bool
+	start, end    int // 1-based, inclusive
 }
 
 type call struct {
@@ -631,6 +731,13 @@ type parsedFile struct {
 	// signatures are the lines that start a method signature without a
 	// body.
 	signatures map[int]bool
+	// pkg is the file's Go package name, and imports its Go import paths
+	// by alias.
+	pkg     string
+	imports map[string]string
+	// plainImports are the Go import paths without an alias, and
+	// dotImports those imported with ".".
+	plainImports, dotImports []string
 }
 
 func parse(p string, src []byte) *parsedFile {
@@ -648,7 +755,7 @@ func parse(p string, src []byte) *parsedFile {
 		return nil
 	}
 
-	f := &parsedFile{path: p, spec: sp, lines: strings.Split(strings.TrimSuffix(string(src), "\n"), "\n"), uses: map[int][]call{}, signatures: map[int]bool{}}
+	f := &parsedFile{path: p, spec: sp, lines: strings.Split(strings.TrimSuffix(string(src), "\n"), "\n"), uses: map[int][]call{}, signatures: map[int]bool{}, imports: map[string]string{}}
 	var visit func(n *gotreesitter.Node)
 	visit = func(n *gotreesitter.Node) {
 		t := n.Type(lang)
@@ -656,6 +763,30 @@ func parse(p string, src []byte) *parsedFile {
 			if d, ok := readDecl(n, k, t, lang, src); ok {
 				d.path = p
 				f.decls = append(f.decls, d)
+			}
+		}
+		switch t {
+		case "package_clause":
+			if n.NamedChildCount() > 0 {
+				f.pkg = n.NamedChild(0).Text(src)
+			}
+		case "import_spec":
+			alias, imp := n.ChildByFieldName("name", lang), n.ChildByFieldName("path", lang)
+			if imp == nil {
+				break
+			}
+			p := strings.Trim(imp.Text(src), "`\"")
+			switch {
+			case alias == nil:
+				// By the path's last element: usually the package name.
+				// When it isn't, callsPackageFunc checks the callee's
+				// package name against plainImports.
+				f.imports[path.Base(p)] = p
+				f.plainImports = append(f.plainImports, p)
+			case alias.Text(src) == ".":
+				f.dotImports = append(f.dotImports, p)
+			default:
+				f.imports[alias.Text(src)] = p
 			}
 		}
 		if sp.signatures[t] {
@@ -692,10 +823,11 @@ func readDecl(n *gotreesitter.Node, k declKind, t string, lang *gotreesitter.Lan
 		shown = p
 	}
 	return decl{
-		name:     name.Text(src),
-		callable: k.callable,
-		start:    int(shown.StartPoint().Row) + 1,
-		end:      int(shown.EndPoint().Row) + 1,
+		name:          name.Text(src),
+		callable:      k.callable,
+		packageScoped: k.packageScoped,
+		start:         int(shown.StartPoint().Row) + 1,
+		end:           int(shown.EndPoint().Row) + 1,
 	}, true
 }
 
