@@ -2,6 +2,7 @@ package check
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -68,7 +69,7 @@ func TestApplyThreads(t *testing.T) {
 	}
 	noBefore := nilMapThread()
 	noBefore.Before = ""
-	threads = append(threads, noBefore)
+	threads = append(threads, noBefore, nilMapThread())
 	verdicts := parseThreadVerdicts(strings.Join([]string{
 		`{"thread":1,"verdict":"fixed","evidence":"if m == nil {\n\t\treturn","reason":"f returns early on a nil map."}`,
 		`{"thread":2,"verdict":"fixed","evidence":"m[\"x\"] = 1","reason":"Looks fine."}`,
@@ -82,10 +83,12 @@ func TestApplyThreads(t *testing.T) {
 		// Thread 9 gets no verdict.
 		`{"thread":10,"verdict":"fixed","evidence":"if m == nil {","reason":"Checked now."}`,
 		`{"thread":3,"verdict":"open","evidence":"","reason":"  Still panics:\n m is written first.  "}`,
+		// No line is new, but the write now comes after a block it didn't.
+		`{"thread":11,"verdict":"fixed","evidence":"}\n\tm[\"x\"] = 1","reason":"The nil check comes first."}`,
 	}, "\n"))
 
 	fixed, open := applyThreads(threadInput(threads...), nil, verdicts)
-	assert.Equal(t, map[int]string{0: "f returns early on a nil map."}, fixed)
+	assert.Equal(t, map[int]string{0: "f returns early on a nil map.", 10: "The nil check comes first."}, fixed)
 	const old = "the check called it fixed, but the code it quoted was already there when the point was raised"
 	assert.Equal(t, map[int]string{
 		1: old,
@@ -180,4 +183,64 @@ func TestLinesOf(t *testing.T) {
 			assert.Equal(t, tt.want, linesOf(tt.file, tt.start, tt.end))
 		})
 	}
+}
+
+// A fix that reorders or removes code adds no line, so the lines quoted
+// as evidence count when they're together in the new file and weren't in
+// the old one. Lines quoted from all over, or a block that was already
+// there, don't.
+func TestNewCode(t *testing.T) {
+	t.Parallel()
+
+	before := "func f() {\n\ta()\n\tb()\n\tlog(x)\n\tc()\n}\n"
+	after := "func f() {\n\tb()\n\n\ta()\n\tc()\n}\n"
+	tests := []struct {
+		name     string
+		evidence string
+		want     bool
+	}{
+		{"a new line", "d()", true},
+		{"now next to the start", "func f() {\n\tb()", true},
+		{"reordered", "b()\na()", true},
+		{"reordered, across a blank line", "b()\n\na()", true},
+		{"removed between", "a()\nc()", true},
+		{"with line numbers", "4\ta()\n5\tc()", true},
+		{"one line", "a()", false},
+		{"already together", "c()\n}", false},
+		{"not together now", "b()\nc()", false},
+		{"elided between", "b()\n...\nc()", false},
+		{"elided, one part new", "func f() {\n…\na()\nc()", true},
+		{"only short lines", "}\n}", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, newCode(tt.evidence, before, after))
+		})
+	}
+}
+
+// The fix that made PR 155's "Non-atomic" thread fixed resolved the
+// thread before replying: no line was new, only their order.
+func TestNewCodeReorderedCalls(t *testing.T) {
+	t.Parallel()
+
+	before, err := os.ReadFile("testdata/resolve_before.go.txt")
+	require.NoError(t, err)
+	after, err := os.ReadFile("testdata/resolve_after.go.txt")
+	require.NoError(t, err)
+
+	evidence := `if _, err := run(ctx, nil, "api", "graphql", "-f", "query="+resolveMutation, "-f", "id="+t.ID); err != nil {
+	errs = append(errs, fmt.Errorf("failed to resolve the thread of %q: %w", t.Point.Title, err))
+	continue
+}
+if _, err := run(ctx, payload, "api", "--method", "POST",`
+	assert.False(t, newLine(evidence, string(before)), "every line was there before")
+	assert.True(t, newCode(evidence, string(before), string(after)))
+
+	unchanged := `if err != nil {
+	errs = append(errs, err)
+	continue
+}`
+	assert.False(t, newCode(unchanged, string(before), string(after)))
 }

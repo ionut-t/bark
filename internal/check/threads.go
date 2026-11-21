@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/findings"
@@ -20,7 +21,7 @@ type Thread struct {
 	// them.
 	Line, EndLine int
 	// Before is the file at Point.Commit. A thread is found fixed only
-	// with evidence that wasn't in it.
+	// with evidence that wasn't in it (newCode).
 	Before string
 }
 
@@ -108,9 +109,8 @@ func parseThreadVerdicts(output string) map[int]Verdict {
 // by index, with the check's reason, and why each other thread stays open.
 // A thread is fixed only with a reason, and with evidence quoted from the
 // new code the check was shown (the files, around fs and the threads, and
-// the related code) of which at least one line wasn't in the file when the
-// point was raised: the code that fixes it, not code that was already
-// there.
+// the related code) that changed since the point was raised (newCode): the
+// code that fixes it, not code that was already there.
 func applyThreads(in Input, fs []findings.Finding, verdicts map[int]Verdict) (fixed, open map[int]string) {
 	if len(in.Threads) == 0 {
 		return nil, nil
@@ -134,7 +134,7 @@ func applyThreads(in Input, fs []findings.Finding, verdicts map[int]Verdict) (fi
 			open[i] = "the check called it fixed, but Bark couldn't read the code it was about then"
 		case !now.contains(v.Evidence):
 			open[i] = "the check called it fixed, but the code it quoted isn't in the code now"
-		case !newLine(v.Evidence, t.Before):
+		case !newCode(v.Evidence, t.Before, in.Files[t.Point.File]):
 			open[i] = "the check called it fixed, but the code it quoted was already there when the point was raised"
 		default:
 			fixed[i] = reason
@@ -177,6 +177,66 @@ func withoutRepeated(fixed, open map[int]string, in Input, fs []findings.Finding
 		}
 	}
 	return orNil(fixed), open
+}
+
+// newCode reports whether evidence shows code that changed since before:
+// a line that wasn't there (newLine), or two or more lines that are
+// together in now but weren't in before, as when a fix reorders code or
+// removes a line. Lines elided with "..." split the evidence into parts,
+// each judged on its own.
+func newCode(evidence, before, now string) bool {
+	if newLine(evidence, before) {
+		return true
+	}
+	old, cur := codeLines(before), codeLines(now)
+	var part []string
+	judge := func() bool {
+		ok := len(part) >= 2 && slices.ContainsFunc(part, func(l string) bool { return len(l) >= minEvidence }) &&
+			together(part, cur) && !together(part, old)
+		part = part[:0]
+		return ok
+	}
+	for l := range strings.SplitSeq(evidence, "\n") {
+		l = normalise(stripEvidenceLine(l))
+		switch {
+		case elided(l):
+			if judge() {
+				return true
+			}
+		case l != "":
+			part = append(part, l)
+		}
+	}
+	return judge()
+}
+
+// codeLines returns the lines of file that aren't blank, normalised.
+func codeLines(file string) []string {
+	var out []string
+	for l := range strings.SplitSeq(file, "\n") {
+		if l = normalise(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// together reports whether part is in lines one after the other, each a
+// part of its line: models often quote a line only in part.
+func together(part, lines []string) bool {
+	for i := 0; i+len(part) <= len(lines); i++ {
+		match := true
+		for k, l := range part {
+			if !strings.Contains(lines[i+k], l) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }
 
 // newLine reports whether a line of evidence long enough to count isn't

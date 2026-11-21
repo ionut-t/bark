@@ -19,7 +19,7 @@ Keep a finding if it describes a real defect: a realistic input or state on whic
 
 The context may list open threads: points earlier reviews of this pull request posted as comments that nobody has answered, about code that has changed since. Each shows the point, the lines it was about then and where that code is now. For each, decide whether the change fixed the problem the point describes:
 
-- `fixed`: the new code shows the problem can no longer happen, through a line that wasn't there when the point was raised (a check added, the call removed, the value now handled). Read the new file around where the code is now, not only those lines.
+- `fixed`: the new code shows the problem can no longer happen, through code that changed since the point was raised (a check added, the call removed, the calls reordered, the value now handled). Read the new file around where the code is now, not only those lines.
 - `open`: anything else: the problem is still there, the change is unrelated to it, the code moved without changing, or you can't tell from the code you were given.
 
 Whether the point was right in the first place isn't your question: a point the new code doesn't fix stays open. A thread you call fixed is resolved on the pull request with your reason, so be sure.
@@ -43,5 +43,5 @@ For an open thread:
 
 - `thread`: the thread's number.
 - `verdict`: `fixed` or `open`.
-- `evidence`: for a fixed thread, the new line or lines that fix it, copied exactly from the files (without line numbers; separate lines with `\n`). Code that was already there when the point was raised doesn't show a fix.
+- `evidence`: for a fixed thread, the code that fixes it, copied exactly from the files (without line numbers; separate lines with `\n`). Quote a line that wasn't there when the point was raised if there is one. When the fix only moved or removed lines, quote two or more consecutive lines of the new file that weren't next to each other before. Code that was already there, unchanged, doesn't show a fix.
 - `reason`: one plain sentence for the people on the pull request: what in the new code fixes the problem, or why it's still open.
