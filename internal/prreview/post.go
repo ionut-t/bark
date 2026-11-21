@@ -130,7 +130,7 @@ func Earlier(ctx context.Context, pr string) ([]findings.Finding, error) {
 
 // earlierReviewsQuery picks Bark's reviews, each as a JSON object on a
 // line of its own: the body, and who posted it (see trustedReviewer).
-const earlierReviewsQuery = `.[] | select(.body | startswith("` + Marker + `")) | {id, commit_id, body, user_type: .user.type, author_association} | @json`
+const earlierReviewsQuery = `.[] | select(.body | startswith("` + Marker + `")) | {id, commit_id, state, body, user_type: .user.type, author_association} | @json`
 
 // trustedReviewer reports whether a review posted by a user of userType
 // with association to the repository (GitHub's author_association) can be
@@ -174,6 +174,9 @@ type History struct {
 	// ThreadsErr is set when the review threads couldn't be read: Threads
 	// is empty, and no finding has Resolved.
 	ThreadsErr error
+	// Approvals are Bark's approving reviews still in force (not
+	// dismissed), oldest first.
+	Approvals []Approval
 }
 
 // Dismissed returns how many of h's findings were dismissed.
@@ -222,6 +225,7 @@ func history(ctx context.Context, run gh, pr string) (History, error) {
 		var r struct {
 			ID          int64  `json:"id"`
 			CommitID    string `json:"commit_id"`
+			State       string `json:"state"`
 			Body        string `json:"body"`
 			UserType    string `json:"user_type"`
 			Association string `json:"author_association"`
@@ -238,6 +242,9 @@ func history(ctx context.Context, run gh, pr string) (History, error) {
 			fs[i].Commit = r.CommitID
 		}
 		reviews = append(reviews, barkReview{id: r.ID, commit: r.CommitID, findings: fs})
+		if r.State == "APPROVED" {
+			h.Approvals = append(h.Approvals, Approval{ID: r.ID, Commit: r.CommitID, pull: pull})
+		}
 		if s := RecordedScope(r.Body); s.Head != "" {
 			h.Head, h.Base = s.Head, s.Base
 		}

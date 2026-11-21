@@ -183,6 +183,8 @@ The review is posted as an approval when:
 - the model gave a verdict, and Bark could read every finding;
 - when it reviewed only the changes since the last review, every point raised in earlier reviews was [dismissed](#dismissing-a-finding), doubted by Bark's check, or resolved: by someone, or by Bark once its check found it [fixed](#resolving-fixed-threads). Pass `--full` (or set `full-review`) to check the rest again each time.
 
+A later review that doesn't approve dismisses Bark's earlier approvals, saying why: on GitHub, a later comment from the same reviewer doesn't replace an approval. Pushing new commits doesn't trigger Bark, so an approval stays on code Bark hasn't seen; to drop it on every push, turn on "Dismiss stale pull request approvals when new commits are pushed" in the branch's ruleset or protection.
+
 #### House rules
 
 Bark reviews a change against your repository's own rules. By default it reads `AGENTS.md` and `CLAUDE.md`. If your repository has neither, nothing changes.

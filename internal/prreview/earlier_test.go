@@ -122,6 +122,8 @@ type fakeReviews struct {
 	commentsErr error
 	reactions   map[int][]map[string]string
 	permissions map[string]string
+	// states are the reviews' states, by index; COMMENTED when unset.
+	states map[int]string
 	// threads are the pull request's review threads, as the threads
 	// query prints them.
 	threads    []map[string]any
@@ -158,7 +160,10 @@ func (f *fakeReviews) run(_ context.Context, _ []byte, args ...string) ([]byte, 
 		}
 		var rs []any
 		for i, b := range f.bodies {
-			r := map[string]any{"id": i + 1, "body": b, "user_type": "Bot", "author_association": "NONE"}
+			r := map[string]any{"id": i + 1, "body": b, "user_type": "Bot", "author_association": "NONE", "state": "COMMENTED"}
+			if st := f.states[i]; st != "" {
+				r["state"] = st
+			}
 			if c := f.commits[i]; c != "" {
 				r["commit_id"] = c
 			}
@@ -218,7 +223,7 @@ func TestEarlier(t *testing.T) {
 
 	require.Len(t, gh.args, 3)
 	assert.Equal(t, []string{"api", "--paginate", "repos/o/r/pulls/7/reviews", "--jq",
-		`.[] | select(.body | startswith("<!-- bark-review -->")) | {id, commit_id, body, user_type: .user.type, author_association} | @json`}, gh.args[1])
+		`.[] | select(.body | startswith("<!-- bark-review -->")) | {id, commit_id, state, body, user_type: .user.type, author_association} | @json`}, gh.args[1])
 	assert.Equal(t, []string{"api", "--paginate", "repos/o/r/pulls/7/comments", "--jq", reviewCommentsQuery}, gh.args[2],
 		"the inline comments, for dismissals")
 }

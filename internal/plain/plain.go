@@ -315,6 +315,10 @@ func RunReview(opts ReviewOptions) error {
 				approve, why = approval(events, scope, hist, approveThreshold)
 				if !approve {
 					fmt.Fprintf(os.Stderr, "bark: not approving: %s\n", why)
+					// A later comment doesn't replace an approval on
+					// GitHub; this one would stand for code Bark no
+					// longer vouches for.
+					withdrawApprovals(os.Stderr, hist.Approvals, scope.Head, why, prreview.Withdraw)
 				}
 			}
 			// An approval changes the pull request's review state, so it

@@ -102,6 +102,11 @@ inputs:
       see resolve-fixed). Set full-review to check them again on every
       push.
 
+      A later review that doesn't approve dismisses Bark's earlier
+      approvals. Pushes don't run Bark, so to drop an approval on every
+      push, turn on "Dismiss stale pull request approvals when new commits
+      are pushed" in the branch's ruleset.
+
       GitHub only lets GitHub Actions approve when the repository (or
       organization) allows it: Settings → Actions → General → "Allow
       GitHub Actions to create and approve pull requests". When it
