@@ -542,6 +542,15 @@ func TestRelated_GoFunctionCallersByImport(t *testing.T) {
 			want:   []string{"main.go:8-10 main calls ExitCode"},
 		},
 		{
+			name: "a method on an index or call that mentions the package",
+			repo: fakeRepo{
+				"go.mod":      "module example.com/m\n",
+				"cmd/root.go": rootGo,
+				"main.go":     "package main\n\nimport \"example.com/m/cmd\"\n\nfunc main() {\n\t_ = values[cmd].ExitCode()\n\t_ = fn(cmd).ExitCode()\n\t_ = fn(cmd) .ExitCode()\n}\n",
+			},
+			change: "cmd/root.go",
+		},
+		{
 			name: "a package in a nested module",
 			repo: fakeRepo{
 				"go.mod":            "module example.com/m\n",
