@@ -418,3 +418,67 @@ func TestRelated_MethodSignaturesAreNotCallers(t *testing.T) {
 		})
 	}
 }
+
+func TestRelated_GoFunctionCallers(t *testing.T) {
+	const rootGo = "package cmd\n\nfunc ExitCode(err error) int {\n\treturn 1\n}\n"
+	change := lineOf(t, rootGo, "return 1")
+
+	tests := []struct {
+		name   string
+		caller string // a file calling something named ExitCode
+		path   string
+		want   []string
+	}{
+		{
+			name:   "unqualified in the same package",
+			path:   "cmd/run.go",
+			caller: "package cmd\n\nfunc Run() int {\n\treturn ExitCode(nil)\n}\n",
+			want:   []string{"cmd/run.go:3-5 Run calls ExitCode"},
+		},
+		{
+			name:   "qualified with the package name",
+			path:   "main.go",
+			caller: "package main\n\nimport \"example.com/m/cmd\"\n\nfunc main() {\n\tos.Exit(cmd.ExitCode(nil))\n}\n",
+			want:   []string{"main.go:5-7 main calls ExitCode"},
+		},
+		{
+			name:   "qualified with an import alias",
+			path:   "main.go",
+			caller: "package main\n\nimport c \"example.com/m/cmd\"\n\nfunc main() {\n\tos.Exit(c.ExitCode(nil))\n}\n",
+			want:   []string{"main.go:5-7 main calls ExitCode"},
+		},
+		{
+			name:   "unqualified through a dot import",
+			path:   "main.go",
+			caller: "package main\n\nimport . \"example.com/m/cmd\"\n\nfunc main() {\n\tos.Exit(ExitCode(nil))\n}\n",
+			want:   []string{"main.go:5-7 main calls ExitCode"},
+		},
+		{
+			name:   "an alias for another package",
+			path:   "main.go",
+			caller: "package main\n\nimport cmd \"example.com/m/other\"\n\nfunc main() {\n\tos.Exit(cmd.ExitCode(nil))\n}\n",
+		},
+		{
+			name:   "a method of the same name",
+			path:   "git/git.go",
+			caller: "package git\n\nfunc Run() int {\n\tvar exitErr *exec.ExitError\n\treturn exitErr.ExitCode()\n}\n",
+		},
+		{
+			name:   "a method on a call's result",
+			path:   "git/git.go",
+			caller: "package git\n\nfunc Run() int {\n\treturn wait().ExitCode()\n}\n",
+		},
+		{
+			name:   "unqualified in another package",
+			path:   "git/git.go",
+			caller: "package git\n\nfunc Run() int {\n\tExitCode := func() int { return 0 }\n\treturn ExitCode()\n}\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := fakeRepo{"cmd/root.go": rootGo, tt.path: tt.caller}
+			got := findRelated(t, repo, addDiff(repo, "cmd/root.go", change, change), RelatedOptions{})
+			assert.Equal(t, tt.want, labels(got))
+		})
+	}
+}
