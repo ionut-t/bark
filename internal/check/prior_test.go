@@ -182,3 +182,29 @@ func TestPriorPointsLeaveOutFixed(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, 3, got[0].Line, "the open copy is listed")
 }
+
+// A point Bark's check doubted was never posted, so it isn't a point
+// raised before: a finding that makes it again is judged afresh and, if
+// kept, posted with a thread that can be resolved or dismissed. A copy of
+// the same point that was posted is still listed.
+func TestPriorPointsLeaveOutDoubted(t *testing.T) {
+	t.Parallel()
+
+	got := priorPoints([]findings.Finding{
+		{File: "a.go", Line: 3, Title: "Root wildcard", Doubt: findings.DoubtedEarlier},
+		{File: "b.go", Line: 3, Title: "Ignored error"},
+	})
+	require.Len(t, got, 1)
+	assert.Equal(t, "b.go", got[0].File)
+
+	got = priorPoints([]findings.Finding{
+		{File: "a.go", Line: 3, Title: "Nil map write"},
+		{File: "a.go", Line: 9, Title: "Nil map write", Doubt: findings.DoubtedEarlier},
+	})
+	require.Len(t, got, 1)
+	assert.Equal(t, 3, got[0].Line, "the posted copy is listed")
+
+	in := input()
+	in.Prior = []findings.Finding{{File: "a.go", Line: 3, Title: "Root wildcard", Body: "b", Doubt: findings.DoubtedEarlier}}
+	assert.NotContains(t, Prompt(in, []findings.Finding{{File: "a.go", Line: 4, Severity: findings.High, Title: "t", Body: "b"}}), "Raised before")
+}

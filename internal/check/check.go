@@ -261,7 +261,9 @@ const maxPriorPoints = 40
 // numbered by: each point once (the same file and title, in any case, is
 // one point; its most recent copy is kept, dismissed if any copy was), the
 // most recent maxPriorPoints. A copy Bark resolved as fixed is left out: a
-// finding that makes that point again is a regression, not a repeat.
+// finding that makes that point again is a regression, not a repeat. So is
+// a copy the check doubted: it was never posted, so a finding that makes
+// that point again is judged afresh and, if kept, posted with a thread.
 func priorPoints(prior []findings.Finding) []findings.Finding {
 	key := priorKey
 	dismissed := map[string]string{}
@@ -274,7 +276,7 @@ func priorPoints(prior []findings.Finding) []findings.Finding {
 	var out []findings.Finding
 	for _, p := range slices.Backward(prior) {
 		k := key(p)
-		if p.File == "" || p.Fixed || seen[k] {
+		if p.File == "" || p.Fixed || p.Doubt != "" || seen[k] {
 			continue
 		}
 		seen[k] = true
