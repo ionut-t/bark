@@ -99,6 +99,7 @@ func TestBlocking(t *testing.T) {
 		{Finding: &Finding{File: "c.go", Line: 3, Severity: "High", Title: "Kept high"}},
 		{Finding: &Finding{File: "d.go", Line: 4, Severity: Critical, Title: "Repeat", RaisedBefore: "Nil map"}},
 		{Finding: &Finding{File: "e.go", Line: 5, Severity: Medium, Title: "Kept medium"}},
+		{Finding: &Finding{File: "f.go", Line: 6, Severity: High, Title: "Unchecked high", Unchecked: "it failed."}},
 		{Verdict: "Done."},
 	}
 
@@ -110,8 +111,8 @@ func TestBlocking(t *testing.T) {
 		return out
 	}
 
-	assert.Equal(t, []string{"Kept critical", "Kept high", "Repeat"}, titles(Blocking(events, High)))
+	assert.Equal(t, []string{"Kept critical", "Kept high", "Repeat", "Unchecked high"}, titles(Blocking(events, High)))
 	assert.Equal(t, []string{"Kept critical", "Repeat"}, titles(Blocking(events, Critical)))
-	assert.Equal(t, []string{"Kept critical", "Kept high", "Repeat", "Kept medium"}, titles(Blocking(events, Low)))
+	assert.Equal(t, []string{"Kept critical", "Kept high", "Repeat", "Kept medium", "Unchecked high"}, titles(Blocking(events, Low)))
 	assert.Empty(t, Blocking(events, ""), "no threshold blocks nothing")
 }

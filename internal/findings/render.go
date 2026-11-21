@@ -3,16 +3,34 @@ package findings
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
 // The notes MarkedMarkdown writes under a set-aside finding's heading start
-// with these.
+// with these; UncheckedNote is under a finding Bark's check didn't check,
+// in Markdown too, as it isn't set aside.
 const (
 	DoubtedNote      = "> **Doubted by Bark's check:**"
 	RaisedBeforeNote = "> **Raised before on this pull request:**"
 	DismissedNote    = "> **Dismissed on this pull request:**"
+	UncheckedNote    = "> **Not checked by Bark's check:**"
 )
+
+// MarkUnchecked returns events with every finding marked Unchecked for
+// reason, for when Bark's check failed. The events passed in are left
+// alone.
+func MarkUnchecked(events []Event, reason string) []Event {
+	out := slices.Clone(events)
+	for i, e := range out {
+		if e.Finding != nil {
+			f := *e.Finding
+			f.Unchecked = reason
+			out[i].Finding = &f
+		}
+	}
+	return out
+}
 
 // Markdown renders events as a Markdown review. Rendering events one batch
 // at a time and joining the results gives the same output as rendering them
@@ -210,6 +228,8 @@ func writeFinding(b *strings.Builder, f Finding, open string) {
 		fmt.Fprintf(b, "%s %s\n\n", RaisedBeforeNote, oneLine(f.RaisedBefore))
 	case f.Doubt != "":
 		fmt.Fprintf(b, "%s %s\n\n", DoubtedNote, oneLine(f.Doubt))
+	case f.Unchecked != "":
+		fmt.Fprintf(b, "%s %s\n\n", UncheckedNote, oneLine(f.Unchecked))
 	}
 
 	if loc := location(f); loc != "" {

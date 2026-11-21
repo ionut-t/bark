@@ -51,6 +51,10 @@ type Finding struct {
 	// Doubt is why Bark's check (a second model call that reads the full
 	// files) didn't keep the finding. Empty if it was kept or not checked.
 	Doubt string `json:"-"`
+	// Unchecked is why Bark's check didn't check the finding: it gave no
+	// verdict on it, or failed. Unlike a doubted one, an unchecked finding
+	// isn't set aside: it's posted and counts for fail_on, with a note.
+	Unchecked string `json:"-"`
 	// RaisedBefore names the point an earlier review of the same pull
 	// request raised that this finding repeats, as Bark's check found. Empty
 	// if it isn't a repeat.

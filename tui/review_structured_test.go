@@ -170,6 +170,7 @@ func TestReviewStructuredCheckAnswersSome(t *testing.T) {
 	m, _ = m.Update(cmd())
 
 	assert.Equal(t, "Bark's check kept the finding; 1 unchecked", m.checkSummary)
+	assert.Contains(t, m.response, "### [LOW] Typo\n\n> **Not checked by Bark's check:** it gave no verdict on this finding.\n\n`b.go:5`")
 }
 
 // An empty answer from the check is a failed check, not one that kept
@@ -216,6 +217,9 @@ func TestReviewCheckKeepsCursorOnFinding(t *testing.T) {
 	assert.Equal(t, 0, followCursor(old, updated, 0), "on the heading")
 	assert.Equal(t, 1, followCursor("intro\n\n### [HIGH] Nil map\n", updated, 1), "above every heading, the cursor stays put")
 	assert.Equal(t, 13, followCursor(old+"\n\n\n\n\n\n\n", updated, 20), "clamped to the new content")
+
+	unchecked := "### [HIGH] Nil map\n\n`a.go:2`\n\nb\n\n### [LOW] Typo\n\n> **Not checked by Bark's check:** it gave no verdict on this finding.\n\n`b.go:5`\n\nt\n"
+	assert.Equal(t, 10, followCursor(old, unchecked, 8), "on Typo's location line, below its unchecked note")
 }
 
 // Two findings can share a heading; the cursor stays on its own one.

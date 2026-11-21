@@ -239,7 +239,7 @@ func TestRun(t *testing.T) {
 		{Intro: "Hello."},
 		{Finding: &findings.Finding{File: "a.go", Line: 4, Severity: findings.Critical, Title: "Nil map"}},
 		{Finding: &findings.Finding{File: "a.go", Line: 3, Severity: findings.Low, Title: "Style", Doubt: "the check gave no reason"}},
-		{Finding: &findings.Finding{File: "a.go", Line: 1, Severity: findings.Medium, Title: "Unchecked"}},
+		{Finding: &findings.Finding{File: "a.go", Line: 1, Severity: findings.Medium, Title: "Unchecked", Unchecked: "it gave no verdict on this finding."}},
 		{Verdict: "Bye."},
 	}, res.Events)
 	assert.Equal(t, findings.High, events[1].Finding.Severity, "the events passed in are left alone")
@@ -311,6 +311,9 @@ func TestRun_SomeVerdicts(t *testing.T) {
 	assert.Equal(t, 1, res.Checked)
 	assert.Equal(t, 1, res.Doubted)
 	assert.Equal(t, 2, res.Unchecked)
+	assert.Equal(t, "it gave no verdict on this finding.", res.Events[0].Finding.Unchecked)
+	assert.Empty(t, res.Events[1].Finding.Unchecked)
+	assert.Equal(t, "it gave no verdict on this finding.", res.Events[2].Finding.Unchecked)
 }
 
 // longFile returns a file of n lines, "line 1" to "line n".
