@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.35.1](https://github.com/ionut-t/bark/compare/v2.35.0...v2.35.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **check:** confine finding paths to files in the diff ([#166](https://github.com/ionut-t/bark/issues/166)) ([20f6385](https://github.com/ionut-t/bark/commit/20f6385676aeb6e2bec2a35208fa8ec7b8d0528e))
+* **prreview:** use the recorded finding range for review threads ([#165](https://github.com/ionut-t/bark/issues/165)) ([3b3a3de](https://github.com/ionut-t/bark/commit/3b3a3deb9e77c8b0330bf7cefa2b231ac5394ed9))
+* **review:** prevent auto-approval when configuration files change ([#163](https://github.com/ionut-t/bark/issues/163)) ([18e06a4](https://github.com/ionut-t/bark/commit/18e06a49a480a14d8cc177c503f65a972a1c69bf))
+
 ## [2.35.0](https://github.com/ionut-t/bark/compare/v2.34.1...v2.35.0) (2026-11-21)
 
 
