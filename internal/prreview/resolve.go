@@ -2,13 +2,13 @@ package prreview
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/ionut-t/bark/v2/internal/findings"
+	"github.com/ionut-t/bark/v2/internal/github"
 )
 
 // Bark resolves the thread of one of its inline comments when its check
@@ -27,8 +27,8 @@ type Thread struct {
 	// lines it covered on Commit, the commit it was posted on.
 	Point findings.Finding
 
-	// pull is the pull request's API path.
-	pull string
+	// pull is the pull request it's on.
+	pull github.Pull
 }
 
 // Fixed is a thread Bark's check found fixed, and why.
@@ -47,30 +47,6 @@ func fixedReply(body string) bool {
 	return strings.HasPrefix(strings.TrimSpace(body), fixedMarker)
 }
 
-// threadsQuery lists a pull request's review threads, a page at a time
-// (gh api --paginate fills in $endCursor).
-const threadsQuery = `query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) {
-      reviewThreads(first: 100, after: $endCursor) {
-        pageInfo { hasNextPage endCursor }
-        nodes { id isResolved comments(first: 1) { nodes { databaseId } } }
-      }
-    }
-  }
-}`
-
-// threadsJQ prints each thread as a JSON object on a line of its own: its
-// id, whether it's resolved, and the id of the comment that starts it.
-const threadsJQ = `.data.repository.pullRequest.reviewThreads.nodes[] | ` +
-	`{id, resolved: .isResolved, comment: .comments.nodes[0].databaseId} | @json`
-
-// resolveMutation resolves the review thread with node id $id.
-const resolveMutation = `mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }`
-
-// unresolveMutation reopens a thread Bark resolved but couldn't reply on.
-const unresolveMutation = `mutation($id: ID!) { unresolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }`
-
 // The Resolved of a point whose thread was resolved on the pull request
 // before this review: by someone, or by Bark after saying it's fixed.
 const (
@@ -78,30 +54,18 @@ const (
 	fixedNote    = "fixed, as Bark's check found"
 )
 
-// readThreads reads the review threads of the pull request at pull (an
-// API path) and, of Bark's inline comments in inline, marks the findings
+// readThreads reads the review threads of pull and, of Bark's inline comments in inline, marks the findings
 // whose thread is resolved and keeps the open threads nobody answered as
 // h.Threads. recorded are the findings each of Bark's reviews recorded, by
 // review id: a thread covers every line its finding did (see recordedLines).
-func (h *History) readThreads(ctx context.Context, run gh, pull string, inline inlineComments, recorded map[int64][]findings.Finding) error {
-	parts := strings.Split(pull, "/")
-	if len(parts) != 5 {
-		return fmt.Errorf("unexpected pull request path %q", pull)
-	}
-	out, err := run(ctx, nil, "api", "graphql", "--paginate", "-f", "query="+threadsQuery,
-		"-f", "owner="+parts[1], "-f", "repo="+parts[2], "-F", "number="+parts[4], "--jq", threadsJQ)
+func (h *History) readThreads(ctx context.Context, gh client, pull github.Pull, inline inlineComments, recorded map[int64][]findings.Finding) error {
+	all, err := gh.ReviewThreads(ctx, pull)
 	if err != nil {
 		return fmt.Errorf("failed to read review threads: %w", err)
 	}
-	type thread struct {
-		ID       string `json:"id"`
-		Resolved bool   `json:"resolved"`
-		Comment  int64  `json:"comment"`
-	}
-	threads := map[int64]thread{}
-	for line := range strings.SplitSeq(string(out), "\n") {
-		var t thread
-		if json.Unmarshal([]byte(line), &t) == nil && t.ID != "" && t.Comment != 0 {
+	threads := map[int64]github.ReviewThread{}
+	for _, t := range all {
+		if t.ID != "" && t.Comment != 0 {
 			threads[t.Comment] = t
 		}
 	}
@@ -182,28 +146,20 @@ func (h *History) markResolved(file, title, how string, fixed bool) {
 // says why. It returns the threads it resolved; the errors for the rest are
 // joined.
 func Resolve(ctx context.Context, fixed []Fixed, head string) ([]Thread, error) {
-	return resolve(ctx, runGH, fixed, head)
+	return resolve(ctx, github.New(), fixed, head)
 }
 
-func resolve(ctx context.Context, run gh, fixed []Fixed, head string) ([]Thread, error) {
+func resolve(ctx context.Context, gh client, fixed []Fixed, head string) ([]Thread, error) {
 	var resolved []Thread
 	var errs []error
 	for _, f := range fixed {
 		t := f.Thread
-		payload, err := json.Marshal(struct {
-			Body string `json:"body"`
-		}{fixedBody(f.Reason, head)})
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		if _, err := run(ctx, nil, "api", "graphql", "-f", "query="+resolveMutation, "-f", "id="+t.ID); err != nil {
+		if err := gh.ResolveThread(ctx, t.ID); err != nil {
 			errs = append(errs, fmt.Errorf("failed to resolve the thread of %q: %w", t.Point.Title, err))
 			continue
 		}
-		if _, err := run(ctx, payload, "api", "--method", "POST",
-			fmt.Sprintf("%s/comments/%d/replies", t.pull, t.Comment), "--input", "-"); err != nil {
-			if uerr := unresolve(ctx, run, t.ID); uerr != nil {
+		if err := gh.Reply(ctx, t.pull, t.Comment, fixedBody(f.Reason, head)); err != nil {
+			if uerr := unresolve(ctx, gh, t.ID); uerr != nil {
 				errs = append(errs, fmt.Errorf("failed to reply on the thread of %q: %w; and failed to unresolve it again, so it's resolved without saying why: %w",
 					t.Point.Title, err, uerr))
 			} else {
@@ -223,11 +179,10 @@ const unresolveTimeout = 15 * time.Second
 // unresolve reopens a thread Bark resolved but couldn't reply on. It has
 // its own time limit: the reply may have failed because ctx ran out, and
 // the thread mustn't stay resolved without saying why.
-func unresolve(ctx context.Context, run gh, id string) error {
+func unresolve(ctx context.Context, gh client, id string) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unresolveTimeout)
 	defer cancel()
-	_, err := run(ctx, nil, "api", "graphql", "-f", "query="+unresolveMutation, "-f", "id="+id)
-	return err
+	return gh.UnresolveThread(ctx, id)
 }
 
 // maxReason caps the check's reason Bark quotes on a thread it resolves.

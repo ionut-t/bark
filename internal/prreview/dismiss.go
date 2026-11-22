@@ -2,31 +2,19 @@ package prreview
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"regexp"
 	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/findings"
+	"github.com/ionut-t/bark/v2/internal/github"
 )
 
 // A finding Bark posted as an inline comment is dismissed on the pull
 // request by a 👎 on that comment from someone with write access, or by a
 // reply saying "won't fix" from an owner, member or collaborator. Resolving
 // the thread doesn't count: threads are also resolved after a fix.
-
-// reviewCommentsQuery prints each inline comment of a pull request as a
-// JSON object on a line of its own. The lines are the first and last ones
-// the comment covered on the commit it was posted on, as the review
-// recorded it.
-const reviewCommentsQuery = `.[] | {id, review_id: .pull_request_review_id, in_reply_to: .in_reply_to_id, path, ` +
-	`line: (.original_start_line // .original_line), end_line: .original_line, commit: .original_commit_id, ` +
-	`body, user: .user.login, user_type: .user.type, author_association, thumbs_down: .reactions["-1"]} | @json`
-
-// reactionsQuery prints who left each reaction, one JSON object per line.
-const reactionsQuery = `.[] | {user: .user.login, user_type: .user.type} | @json`
 
 // barkReview is a review Bark posted, from a trusted reviewer: the commit
 // it was posted on (if it's a valid hash) and the findings it recorded.
@@ -36,20 +24,8 @@ type barkReview struct {
 	findings []findings.Finding
 }
 
-type reviewComment struct {
-	ID          int64  `json:"id"`
-	ReviewID    int64  `json:"review_id"`
-	InReplyTo   int64  `json:"in_reply_to"`
-	Path        string `json:"path"`
-	Line        int    `json:"line"`
-	EndLine     int    `json:"end_line"`
-	Commit      string `json:"commit"`
-	Body        string `json:"body"`
-	User        string `json:"user"`
-	UserType    string `json:"user_type"`
-	Association string `json:"author_association"`
-	ThumbsDown  int    `json:"thumbs_down"`
-}
+// reviewComment is an inline comment of a review.
+type reviewComment = github.ReviewComment
 
 // dismissedComment is an inline comment of Bark's that someone dismissed,
 // and how.
@@ -72,27 +48,21 @@ type inlineComments struct {
 	fixed map[int64]bool
 }
 
-// readInline reads the inline comments of the reviews in bark (by id):
-// which were dismissed, and which were answered. pull is the pull
-// request's API path; trusted holds logins known to have write access, and
+// readInline reads the inline comments of the reviews in bark (by id) on
+// pull: which were dismissed, and which were answered. trusted holds logins known to have write access, and
 // gets the ones this finds. Comments whose dismissal it couldn't decide on
 // count as not dismissed and the error says why; the rest are still
 // returned.
-func readInline(ctx context.Context, run gh, pull string, bark map[int64]bool, trusted map[string]bool) (inlineComments, error) {
+func readInline(ctx context.Context, gh client, pull github.Pull, bark map[int64]bool, trusted map[string]bool) (inlineComments, error) {
 	var in inlineComments
-	out, err := run(ctx, nil, "api", "--paginate", pull+"/comments", "--jq", reviewCommentsQuery)
+	comments, err := gh.ReviewComments(ctx, pull)
 	if err != nil {
 		return in, fmt.Errorf("failed to read review comments: %w", err)
 	}
 
-	var comments, barks []reviewComment
+	var barks []reviewComment
 	isBark := map[int64]bool{}
-	for line := range strings.SplitSeq(string(out), "\n") {
-		var c reviewComment
-		if json.Unmarshal([]byte(line), &c) != nil {
-			continue
-		}
-		comments = append(comments, c)
+	for _, c := range comments {
 		if c.UserType != "Bot" && trustedReviewer(c.UserType, c.Association) {
 			trusted[c.User] = true
 		}
@@ -125,15 +95,14 @@ func readInline(ctx context.Context, run gh, pull string, bark map[int64]bool, t
 		}
 	}
 
-	repo := pull[:strings.LastIndex(pull, "/pulls/")]
 	var errs []error
 	canWrite := func(login string) bool {
 		if ok, known := trusted[login]; known {
 			return ok
 		}
-		ok, err := writeAccess(ctx, run, repo, login)
+		ok, err := gh.CanWrite(ctx, pull.Repo, login)
 		if err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("failed to look up %s's permission: %w", login, err))
 			return false
 		}
 		trusted[login] = ok
@@ -143,18 +112,13 @@ func readInline(ctx context.Context, run gh, pull string, bark map[int64]bool, t
 		if c.ThumbsDown == 0 || how[c.ID] != "" {
 			continue
 		}
-		out, err := run(ctx, nil, "api", "--paginate", fmt.Sprintf("%s/pulls/comments/%d/reactions?content=-1", repo, c.ID),
-			"--jq", reactionsQuery)
+		reactors, err := gh.ThumbsDown(ctx, pull.Repo, c.ID)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to read reactions to comment %d: %w", c.ID, err))
 			continue
 		}
-		for line := range strings.SplitSeq(string(out), "\n") {
-			var r struct {
-				User     string `json:"user"`
-				UserType string `json:"user_type"`
-			}
-			if json.Unmarshal([]byte(line), &r) != nil || r.User == "" || r.UserType == "Bot" {
+		for _, r := range reactors {
+			if r.User == "" || r.UserType == "Bot" {
 				continue
 			}
 			if canWrite(r.User) {
@@ -173,23 +137,6 @@ func readInline(ctx context.Context, run gh, pull string, bark map[int64]bool, t
 		}
 	}
 	return in, errors.Join(errs...)
-}
-
-// writeAccess reports whether login has write access to repo (an API path
-// such as repos/owner/repo). A user who isn't a collaborator has none.
-func writeAccess(ctx context.Context, run gh, repo, login string) (bool, error) {
-	out, err := run(ctx, nil, "api", fmt.Sprintf("%s/collaborators/%s/permission", repo, url.PathEscape(login)), "--jq", ".permission")
-	if err != nil {
-		if strings.Contains(err.Error(), "HTTP 404") {
-			return false, nil
-		}
-		return false, fmt.Errorf("failed to look up %s's permission: %w", login, err)
-	}
-	switch strings.TrimSpace(string(out)) {
-	case "admin", "maintain", "write":
-		return true, nil
-	}
-	return false, nil
 }
 
 var wontFixRe = regexp.MustCompile(`(?i)\bwon['’]?t[ -]?fix\b`)

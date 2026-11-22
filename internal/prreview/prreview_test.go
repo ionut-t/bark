@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/findings"
+	"github.com/ionut-t/bark/v2/internal/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -188,43 +190,27 @@ func TestBuildWithoutDiffPutsEverythingInBody(t *testing.T) {
 	assert.Contains(t, got.Body, "### [HIGH · bug] T\n\n`a.go:2`")
 }
 
-func TestReviewsEndpoint(t *testing.T) {
-	t.Parallel()
-
-	got, err := reviewsEndpoint("https://github.com/ionut-t/bark/pull/12")
-	require.NoError(t, err)
-	assert.Equal(t, "repos/ionut-t/bark/pulls/12/reviews", got)
-
-	_, err = reviewsEndpoint("https://github.com/ionut-t/bark")
-	assert.Error(t, err)
-}
-
-// fakeGH answers gh pr view and records the reviews posted; postErrs are
-// returned by successive gh api calls.
+// fakeGH answers PullRef and records the reviews posted; postErrs are
+// returned by successive posts.
 type fakeGH struct {
+	noGitHub
 	posted   []Review
 	postErrs []error
 }
 
-func (f *fakeGH) run(_ context.Context, stdin []byte, args ...string) ([]byte, error) {
-	switch args[0] {
-	case "pr":
-		return []byte(`{"url":"https://github.com/o/r/pull/7","headRefOid":"abc123"}`), nil
-	case "api":
-		if args[3] != "repos/o/r/pulls/7/reviews" {
-			return nil, errors.New("wrong endpoint " + args[3])
-		}
-		var r Review
-		if err := json.Unmarshal(stdin, &r); err != nil {
-			return nil, err
-		}
-		f.posted = append(f.posted, r)
-		if n := len(f.posted); n <= len(f.postErrs) && f.postErrs[n-1] != nil {
-			return nil, f.postErrs[n-1]
-		}
-		return []byte(`{"html_url":"https://github.com/o/r/pull/7#pullrequestreview-1"}`), nil
+func (f *fakeGH) PullRef(context.Context, string) (github.PullRef, error) {
+	return testRef, nil
+}
+
+func (f *fakeGH) PostReview(_ context.Context, pull github.Pull, review any) (string, error) {
+	if pull != testPull {
+		return "", fmt.Errorf("wrong pull request %v", pull)
 	}
-	return nil, errors.New("unexpected gh call")
+	f.posted = append(f.posted, review.(Review))
+	if n := len(f.posted); n <= len(f.postErrs) && f.postErrs[n-1] != nil {
+		return "", f.postErrs[n-1]
+	}
+	return "https://github.com/o/r/pull/7#pullrequestreview-1", nil
 }
 
 func TestPost(t *testing.T) {
@@ -233,7 +219,7 @@ func TestPost(t *testing.T) {
 	events := []findings.Event{finding(2, 0, "x"), finding(10, 0, "")}
 	gh := &fakeGH{}
 
-	got, err := post(context.Background(), gh.run, "7", events, diff, Scope{}, false)
+	got, err := post(context.Background(), gh, "7", events, diff, Scope{}, false)
 	require.NoError(t, err)
 	assert.Equal(t, Result{URL: "https://github.com/o/r/pull/7#pullrequestreview-1", Inline: 1}, got)
 	require.Len(t, gh.posted, 1)
@@ -247,7 +233,7 @@ func TestPostFallsBackToBody(t *testing.T) {
 	events := []findings.Event{finding(2, 0, "x")}
 	gh := &fakeGH{postErrs: []error{errors.New("HTTP 422: Line could not be resolved")}}
 
-	got, err := post(context.Background(), gh.run, "7", events, diff, Scope{}, false)
+	got, err := post(context.Background(), gh, "7", events, diff, Scope{}, false)
 	require.NoError(t, err)
 	assert.True(t, got.Fallback)
 	assert.Zero(t, got.Inline)
@@ -261,7 +247,7 @@ func TestPostReportsBothErrors(t *testing.T) {
 
 	gh := &fakeGH{postErrs: []error{errors.New("first"), errors.New("second")}}
 
-	_, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, false)
+	_, err := post(context.Background(), gh, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, false)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "first")
 	assert.ErrorContains(t, err, "second")
@@ -518,7 +504,7 @@ func TestPostRecordsReviewedHead(t *testing.T) {
 	t.Parallel()
 
 	gh := &fakeGH{}
-	_, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "x")}, diff, Scope{Head: "def4567", Base: "aaa1111"}, false)
+	_, err := post(context.Background(), gh, "7", []findings.Event{finding(2, 0, "x")}, diff, Scope{Head: "def4567", Base: "aaa1111"}, false)
 	require.NoError(t, err)
 	require.Len(t, gh.posted, 1)
 	assert.Equal(t, "def4567", gh.posted[0].CommitID)

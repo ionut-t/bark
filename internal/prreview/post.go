@@ -1,21 +1,30 @@
 package prreview
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"os/exec"
 	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/findings"
-	"github.com/ionut-t/bark/v2/internal/git"
+	"github.com/ionut-t/bark/v2/internal/github"
 )
 
-// gh runs the gh CLI with stdin and returns its stdout. Tests replace it.
-type gh func(ctx context.Context, stdin []byte, args ...string) ([]byte, error)
+// client is what prreview asks of GitHub (github.Client). Tests replace
+// it.
+type client interface {
+	PullRef(ctx context.Context, pr string) (github.PullRef, error)
+	PostReview(ctx context.Context, pull github.Pull, review any) (string, error)
+	DismissReview(ctx context.Context, pull github.Pull, id int64, message string) error
+	Reviews(ctx context.Context, pull github.Pull) ([]github.Review, error)
+	ReviewComments(ctx context.Context, pull github.Pull) ([]github.ReviewComment, error)
+	Reply(ctx context.Context, pull github.Pull, id int64, body string) error
+	ThumbsDown(ctx context.Context, repo github.Repo, id int64) ([]github.Reactor, error)
+	CanWrite(ctx context.Context, repo github.Repo, login string) (bool, error)
+	ReviewThreads(ctx context.Context, pull github.Pull) ([]github.ReviewThread, error)
+	ResolveThread(ctx context.Context, id string) error
+	UnresolveThread(ctx context.Context, id string) error
+}
 
 // Result says how a review was posted.
 type Result struct {
@@ -50,22 +59,11 @@ type Result struct {
 // pull requests, or the pull request is the poster's own), the review is
 // posted as a comment, and Result.ApprovalErr says why.
 func Post(ctx context.Context, pr string, events []findings.Event, diff string, scope Scope, approve bool) (Result, error) {
-	return post(ctx, runGH, pr, events, diff, scope, approve)
+	return post(ctx, github.New(), pr, events, diff, scope, approve)
 }
 
-func post(ctx context.Context, run gh, pr string, events []findings.Event, diff string, scope Scope, approve bool) (Result, error) {
-	out, err := run(ctx, nil, "pr", "view", pr, "--json", "url,headRefOid")
-	if err != nil {
-		return Result{}, fmt.Errorf("failed to look up pull request %s: %w", pr, err)
-	}
-	var meta struct {
-		URL        string `json:"url"`
-		HeadRefOid string `json:"headRefOid"`
-	}
-	if err := json.Unmarshal(out, &meta); err != nil {
-		return Result{}, fmt.Errorf("failed to parse pull request %s: %w", pr, err)
-	}
-	endpoint, err := reviewsEndpoint(meta.URL)
+func post(ctx context.Context, gh client, pr string, events []findings.Event, diff string, scope Scope, approve bool) (Result, error) {
+	ref, err := lookUp(ctx, gh, pr)
 	if err != nil {
 		return Result{}, err
 	}
@@ -74,7 +72,7 @@ func post(ctx context.Context, run gh, pr string, events []findings.Event, diff 
 	// pull request may have moved on while the review ran.
 	commit := scope.Head
 	if commit == "" {
-		commit = meta.HeadRefOid
+		commit = ref.HeadSHA
 	}
 
 	// Each attempt drops something GitHub may have rejected: first the
@@ -96,7 +94,7 @@ func post(ctx context.Context, run gh, pr string, events []findings.Event, diff 
 		review.CommitID = commit
 		for _, event := range kinds {
 			review.Event = event
-			result, err := send(ctx, run, endpoint, review)
+			result, err := send(ctx, gh, ref.Pull, review)
 			if err != nil {
 				if event == eventApprove {
 					// The last one: without inline comments, only the
@@ -125,12 +123,8 @@ func post(ctx context.Context, run gh, pr string, events []findings.Event, diff 
 // first: the points already raised there. Reviews posted before Bark
 // recorded findings add none.
 func Earlier(ctx context.Context, pr string) ([]findings.Finding, error) {
-	return earlier(ctx, runGH, pr)
+	return earlier(ctx, github.New(), pr)
 }
-
-// earlierReviewsQuery picks Bark's reviews, each as a JSON object on a
-// line of its own: the body, and who posted it (see trustedReviewer).
-const earlierReviewsQuery = `.[] | select(.body | startswith("` + Marker + `")) | {id, commit_id, state, body, user_type: .user.type, author_association} | @json`
 
 // trustedReviewer reports whether a review posted by a user of userType
 // with association to the repository (GitHub's author_association) can be
@@ -148,8 +142,8 @@ func trustedReviewer(userType, association string) bool {
 	return false
 }
 
-func earlier(ctx context.Context, run gh, pr string) ([]findings.Finding, error) {
-	h, err := history(ctx, run, pr)
+func earlier(ctx context.Context, gh client, pr string) ([]findings.Finding, error) {
+	h, err := history(ctx, gh, pr)
 	return h.Findings, err
 }
 
@@ -194,26 +188,17 @@ func (h History) Dismissed() int {
 // pr (a number, URL or branch, as gh accepts) recorded. Reviews posted by
 // anyone but a bot or someone with write access are skipped.
 func ReadHistory(ctx context.Context, pr string) (History, error) {
-	return history(ctx, runGH, pr)
+	return history(ctx, github.New(), pr)
 }
 
-func history(ctx context.Context, run gh, pr string) (History, error) {
-	out, err := run(ctx, nil, "pr", "view", pr, "--json", "url")
-	if err != nil {
-		return History{}, fmt.Errorf("failed to look up pull request %s: %w", pr, err)
-	}
-	var meta struct {
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(out, &meta); err != nil {
-		return History{}, fmt.Errorf("failed to parse pull request %s: %w", pr, err)
-	}
-	pull, err := pullPath(meta.URL)
+func history(ctx context.Context, gh client, pr string) (History, error) {
+	ref, err := lookUp(ctx, gh, pr)
 	if err != nil {
 		return History{}, err
 	}
+	pull := ref.Pull
 
-	out, err = run(ctx, nil, "api", "--paginate", pull+"/reviews", "--jq", earlierReviewsQuery)
+	all, err := gh.Reviews(ctx, pull)
 	if err != nil {
 		return History{}, fmt.Errorf("failed to read earlier reviews: %w", err)
 	}
@@ -221,16 +206,10 @@ func history(ctx context.Context, run gh, pr string) (History, error) {
 	var reviews []barkReview
 	// Logins known to have write access, so their 👎 needs no lookup.
 	trusted := map[string]bool{}
-	for line := range strings.SplitSeq(string(out), "\n") {
-		var r struct {
-			ID          int64  `json:"id"`
-			CommitID    string `json:"commit_id"`
-			State       string `json:"state"`
-			Body        string `json:"body"`
-			UserType    string `json:"user_type"`
-			Association string `json:"author_association"`
-		}
-		if json.Unmarshal([]byte(line), &r) != nil || !trustedReviewer(r.UserType, r.Association) {
+	for _, r := range all {
+		// Who posted it decides whether it can be Bark's: see
+		// trustedReviewer.
+		if !strings.HasPrefix(r.Body, Marker) || !trustedReviewer(r.UserType, r.Association) {
 			continue
 		}
 		// It's read back into git commands: take only a hash.
@@ -257,7 +236,7 @@ func history(ctx context.Context, run gh, pr string) (History, error) {
 	for _, r := range reviews {
 		ids[r.id] = true
 	}
-	inline, err := readInline(ctx, run, pull, ids, trusted)
+	inline, err := readInline(ctx, gh, pull, ids, trusted)
 	h.DismissalsErr = err
 	for _, r := range reviews {
 		h.Findings = append(h.Findings, markDismissed(r.findings, inline.dismissed[r.id], r.commit)...)
@@ -267,70 +246,24 @@ func history(ctx context.Context, run gh, pr string) (History, error) {
 		for _, r := range reviews {
 			recorded[r.id] = r.findings
 		}
-		h.ThreadsErr = h.readThreads(ctx, run, pull, inline, recorded)
+		h.ThreadsErr = h.readThreads(ctx, gh, pull, inline, recorded)
 	}
 	return h, nil
 }
 
-func send(ctx context.Context, run gh, endpoint string, review Review) (Result, error) {
-	payload, err := json.Marshal(review)
+// lookUp finds pull request pr (a number, URL or branch, as gh accepts).
+func lookUp(ctx context.Context, gh client, pr string) (github.PullRef, error) {
+	ref, err := gh.PullRef(ctx, pr)
 	if err != nil {
-		return Result{}, err
+		return github.PullRef{}, fmt.Errorf("failed to look up pull request %s: %w", pr, err)
 	}
-	out, err := run(ctx, payload, "api", "--method", "POST", endpoint, "--input", "-")
+	return ref, nil
+}
+
+func send(ctx context.Context, gh client, pull github.Pull, review Review) (Result, error) {
+	url, err := gh.PostReview(ctx, pull, review)
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to post review: %w", err)
 	}
-
-	var created struct {
-		HTMLURL string `json:"html_url"`
-	}
-	_ = json.Unmarshal(out, &created)
-	return Result{URL: created.HTMLURL, Inline: len(review.Comments)}, nil
-}
-
-// reviewsEndpoint returns the reviews API path for a pull request URL such
-// as https://github.com/owner/repo/pull/12.
-func reviewsEndpoint(prURL string) (string, error) {
-	pull, err := pullPath(prURL)
-	if err != nil {
-		return "", err
-	}
-	return pull + "/reviews", nil
-}
-
-// pullPath returns the API path of a pull request from its URL, such as
-// repos/owner/repo/pulls/12 for https://github.com/owner/repo/pull/12.
-// Taking the repository from the URL, rather than gh's {owner}/{repo},
-// keeps it right when pr is a URL to another repository.
-func pullPath(prURL string) (string, error) {
-	u, err := url.Parse(prURL)
-	if err == nil {
-		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-		if len(parts) == 4 && parts[2] == "pull" {
-			return fmt.Sprintf("repos/%s/%s/pulls/%s", parts[0], parts[1], parts[3]), nil
-		}
-	}
-	return "", fmt.Errorf("unexpected pull request URL %q", prURL)
-}
-
-func runGH(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "gh", args...)
-	if stdin != nil {
-		cmd.Stdin = bytes.NewReader(stdin)
-	}
-	out, err := cmd.Output()
-	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
-			return nil, git.ErrGHNotInstalled
-		}
-		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
-			// gh api prints the response body on stdout and the status on stderr.
-			if msg := strings.TrimSpace(string(exitErr.Stderr) + "\n" + string(out)); msg != "" {
-				return nil, fmt.Errorf("%w: %s", err, msg)
-			}
-		}
-		return nil, err
-	}
-	return out, nil
+	return Result{URL: url, Inline: len(review.Comments)}, nil
 }
