@@ -465,6 +465,20 @@ func (m *actionsWorkflowSummaryModel) setWorkflows(options []actionsWorkflowOpti
 	m.editorFocused = combinedWorkflow || len(options) == 1
 	m.selectedOptions = options
 
+	selected := map[string]bool{}
+	if combinedWorkflow {
+		selected["bark.yaml"] = true
+	} else {
+		for _, workflow := range options {
+			selected[workflow.workflowFileName()] = true
+		}
+	}
+	for key := range m.workflows {
+		if !selected[key] {
+			delete(m.workflows, key)
+		}
+	}
+
 	items := []list.Item{}
 	if combinedWorkflow {
 		if _, ok := m.workflows["bark.yaml"]; !ok {
@@ -540,11 +554,7 @@ func (m actionsWorkflowSummaryModel) Update(msg tea.Msg) (actionsWorkflowSummary
 
 		m.editor.SetBytes(msg.content)
 
-		if selected, ok := m.list.SelectedItem().(item); ok {
-			m.workflows[selected.key] = m.editor.GetCurrentContent()
-		} else if m.combinedWorkflow {
-			m.workflows["bark.yaml"] = m.editor.GetCurrentContent()
-		}
+		m.storeEditorContent()
 
 	case utils.ClearMsg:
 		m.error = nil
@@ -580,11 +590,7 @@ func (m actionsWorkflowSummaryModel) Update(msg tea.Msg) (actionsWorkflowSummary
 
 	if m.editorFocused {
 		if m.editor.HasChanges() {
-			if item, ok := m.list.SelectedItem().(item); ok {
-				m.workflows[item.key] = m.editor.GetCurrentContent()
-			} else if m.combinedWorkflow {
-				m.workflows["bark.yaml"] = m.editor.GetCurrentContent()
-			}
+			m.storeEditorContent()
 		}
 
 		editor, cmd := m.editor.Update(msg)
@@ -606,6 +612,21 @@ func (m actionsWorkflowSummaryModel) Update(msg tea.Msg) (actionsWorkflowSummary
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+// storeEditorContent saves the editor's content as the shown workflow. The
+// editor drops the final newline, so it's added back.
+func (m *actionsWorkflowSummaryModel) storeEditorContent() {
+	content := m.editor.GetCurrentContent()
+	if !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+
+	if selected, ok := m.list.SelectedItem().(item); ok {
+		m.workflows[selected.key] = content
+	} else if m.combinedWorkflow {
+		m.workflows["bark.yaml"] = content
+	}
 }
 
 func (m actionsWorkflowSummaryModel) View() string {
@@ -696,18 +717,38 @@ func (m actionsWorkflowSummaryModel) openInEditor() tea.Cmd {
 		return utils.DispatchMsg(actionsExternalEditorMsg{err: err})
 	}
 
-	if _, err = tmpFile.WriteString(m.editor.GetCurrentContent()); err != nil {
-		return utils.DispatchMsg(actionsExternalEditorMsg{err: err})
-	}
+	path := tmpFile.Name()
 
-	cmd, err := utils.OpenInEditorCmd(m.config.GetEditor(), tmpFile.Name())
+	_, err = tmpFile.WriteString(m.editor.GetCurrentContent())
+	if closeErr := tmpFile.Close(); err == nil {
+		err = closeErr
+	}
 	if err != nil {
+		_ = os.Remove(path)
 		return utils.DispatchMsg(actionsExternalEditorMsg{err: err})
 	}
 
-	return tea.ExecProcess(cmd, func(error) tea.Msg {
-		content, err := os.ReadFile(tmpFile.Name())
-		_ = os.Remove(tmpFile.Name())
-		return actionsExternalEditorMsg{content: content, err: err}
+	cmd, err := utils.OpenInEditorCmd(m.config.GetEditor(), path)
+	if err != nil {
+		_ = os.Remove(path)
+		return utils.DispatchMsg(actionsExternalEditorMsg{err: err})
+	}
+
+	return tea.ExecProcess(cmd, func(execErr error) tea.Msg {
+		return editedWorkflowMsg(path, execErr)
 	})
+}
+
+// editedWorkflowMsg reads the workflow back from the external editor's
+// temporary file and removes the file. If the editor failed (e.g. vim's :cq),
+// its error is reported and the file isn't used as an edit.
+func editedWorkflowMsg(path string, execErr error) tea.Msg {
+	defer func() { _ = os.Remove(path) }()
+
+	if execErr != nil {
+		return actionsExternalEditorMsg{err: execErr}
+	}
+
+	content, err := os.ReadFile(path)
+	return actionsExternalEditorMsg{content: content, err: err}
 }
