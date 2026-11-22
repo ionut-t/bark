@@ -326,6 +326,28 @@ func TestActionsSummaryExternalEditor(t *testing.T) {
 		assert.Empty(t, entries)
 	})
 
+	t.Run("a failed editor run is reported", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "workflow.yaml")
+		require.NoError(t, os.WriteFile(path, []byte("name: partly edited\n"), 0o600))
+
+		msg := editedWorkflowMsg(path, errors.New("exit status 1"))
+		require.IsType(t, actionsExternalEditorMsg{}, msg)
+		assert.EqualError(t, msg.(actionsExternalEditorMsg).err, "exit status 1")
+		assert.Empty(t, msg.(actionsExternalEditorMsg).content, "the file isn't used as an edit")
+		_, err := os.Stat(path)
+		assert.ErrorIs(t, err, os.ErrNotExist, "the temporary file is removed")
+	})
+
+	t.Run("a finished editor run returns the file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "workflow.yaml")
+		require.NoError(t, os.WriteFile(path, []byte("name: edited\n"), 0o600))
+
+		msg := editedWorkflowMsg(path, nil)
+		assert.Equal(t, actionsExternalEditorMsg{content: []byte("name: edited\n")}, msg)
+		_, err := os.Stat(path)
+		assert.ErrorIs(t, err, os.ErrNotExist, "the temporary file is removed")
+	})
+
 	t.Run("a failed read is reported", func(t *testing.T) {
 		m := newTestActionsModel("vi")
 		m, _ = sendActions(m, keySpace, keyEnter)

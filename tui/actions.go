@@ -734,9 +734,21 @@ func (m actionsWorkflowSummaryModel) openInEditor() tea.Cmd {
 		return utils.DispatchMsg(actionsExternalEditorMsg{err: err})
 	}
 
-	return tea.ExecProcess(cmd, func(error) tea.Msg {
-		content, err := os.ReadFile(path)
-		_ = os.Remove(path)
-		return actionsExternalEditorMsg{content: content, err: err}
+	return tea.ExecProcess(cmd, func(execErr error) tea.Msg {
+		return editedWorkflowMsg(path, execErr)
 	})
+}
+
+// editedWorkflowMsg reads the workflow back from the external editor's
+// temporary file and removes the file. If the editor failed (e.g. vim's :cq),
+// its error is reported and the file isn't used as an edit.
+func editedWorkflowMsg(path string, execErr error) tea.Msg {
+	defer func() { _ = os.Remove(path) }()
+
+	if execErr != nil {
+		return actionsExternalEditorMsg{err: execErr}
+	}
+
+	content, err := os.ReadFile(path)
+	return actionsExternalEditorMsg{content: content, err: err}
 }
