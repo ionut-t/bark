@@ -31,3 +31,12 @@ func TestReviewersModel(t *testing.T) {
 
 	assert.Contains(t, m.View(), "Select reviewer")
 }
+
+func TestReviewersModelSetSize(t *testing.T) {
+	m := newReviewersModel([]reviewers.Reviewer{{Name: "Linus", Prompt: "l"}}, styles.New(true), true)
+
+	m.setSize(40, 20)
+
+	assert.Equal(t, 40, m.list.Width())
+	assert.Equal(t, 16, m.list.Height())
+}
