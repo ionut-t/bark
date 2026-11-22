@@ -263,7 +263,11 @@ func history(ctx context.Context, run gh, pr string) (History, error) {
 		h.Findings = append(h.Findings, markDismissed(r.findings, inline.dismissed[r.id], r.commit)...)
 	}
 	if len(inline.bark) > 0 {
-		h.ThreadsErr = h.readThreads(ctx, run, pull, inline)
+		recorded := make(map[int64][]findings.Finding, len(reviews))
+		for _, r := range reviews {
+			recorded[r.id] = r.findings
+		}
+		h.ThreadsErr = h.readThreads(ctx, run, pull, inline, recorded)
 	}
 	return h, nil
 }
