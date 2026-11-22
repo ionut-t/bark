@@ -169,3 +169,14 @@ func TestGetReviewDiffReportsCut(t *testing.T) {
 		assert.Equal(t, want, r.Cut)
 	})
 }
+
+type limitSettings struct{ tokens, lines uint32 }
+
+func (s limitSettings) GetMaxDiffTokens() uint32 { return s.tokens }
+
+func (s limitSettings) GetMaxDiffLines() uint32 { return s.lines }
+
+func TestLimitFrom(t *testing.T) {
+	assert.Equal(t, DiffLimit{Tokens: 1000, Lines: 50}, LimitFrom(limitSettings{tokens: 1000, lines: 50}))
+	assert.Equal(t, DiffLimit{}, LimitFrom(limitSettings{}))
+}

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/config"
@@ -8,6 +9,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/ionut-t/coffee/styles"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // A dollar per million input tokens and two per million output tokens.
@@ -49,4 +51,19 @@ func TestRenderUsageStatsShowsTheCheck(t *testing.T) {
 
 	stats.pricing = nil
 	assert.NotContains(t, renderUsageStats(stats, s), "Cost:")
+}
+
+func TestOverlayCenter(t *testing.T) {
+	base := strings.Repeat(strings.Repeat(".", 20)+"\n", 9) + strings.Repeat(".", 20)
+	got := overlayCenter(base, "XX", 20, 10)
+
+	lines := strings.Split(got, "\n")
+	require.Len(t, lines, 10)
+	assert.Equal(t, strings.Repeat(".", 9)+"XX"+strings.Repeat(".", 9), lines[4], "(10-1)/2 = row 4")
+	assert.Equal(t, strings.Repeat(".", 20), lines[0])
+
+	wide := overlayCenter(base, strings.Repeat("W", 50), 20, 10)
+	for _, l := range strings.Split(wide, "\n") {
+		assert.LessOrEqual(t, len(l), 20, "the modal is clamped to the width")
+	}
 }

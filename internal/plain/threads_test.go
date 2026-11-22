@@ -106,3 +106,71 @@ func TestThreadSummary(t *testing.T) {
 	assert.Less(t, len(lines[1]), 360)
 	assert.Equal(t, `bark: left open: "Ellipsis": the check gave no verdict`, lines[2])
 }
+
+func TestLineMapsCachesLookups(t *testing.T) {
+	t.Chdir(t.TempDir())
+	maps := newLineMaps("HEAD")
+
+	_, err1 := maps.get(postedOn, "a.go")
+	require.Error(t, err1)
+	_, err2 := maps.get(postedOn, "a.go")
+	assert.Same(t, err1, err2, "the failed lookup is kept, not repeated")
+	assert.Len(t, maps.lookups, 1)
+}
+
+func TestThreadsToCheckSkips(t *testing.T) {
+	threads := []prreview.Thread{openThread("t1", "a.go", 3)}
+
+	tests := []struct {
+		name     string
+		hist     prreview.History
+		checking bool
+		head     string
+		out      string
+	}{
+		{
+			name:     "threads couldn't be read",
+			hist:     prreview.History{ThreadsErr: errors.New("no access"), Threads: threads},
+			checking: true, head: "abc",
+			out: "bark: warning: no access; fixed threads won't be resolved\n",
+		},
+		{name: "no open threads", hist: prreview.History{}, checking: true, head: "abc"},
+		{
+			name: "check is off",
+			hist: prreview.History{Threads: threads}, head: "abc",
+			out: "bark: fixed threads aren't resolved without Bark's check (--check)\n",
+		},
+		{name: "head unknown", hist: prreview.History{Threads: threads}, checking: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var w bytes.Buffer
+			kept, toCheck := threadsToCheck(&w, tt.hist, tt.checking, tt.head, newLineMaps(tt.head))
+			assert.Nil(t, kept)
+			assert.Nil(t, toCheck)
+			assert.Equal(t, tt.out, w.String())
+		})
+	}
+}
+
+func TestThreadCodeAtFailsOutsideARepo(t *testing.T) {
+	t.Chdir(t.TempDir())
+	code := threadCodeAt(newLineMaps("HEAD"))
+
+	_, _, _, err := code.span(postedOn, "a.go", 1, 2)
+	assert.Error(t, err)
+	_, err = code.file(postedOn, "a.go")
+	assert.Error(t, err)
+}
+
+func TestResolveFixed(t *testing.T) {
+	var w bytes.Buffer
+	assert.Nil(t, resolveFixed(&w, nil, "abc"))
+	assert.Empty(t, w.String(), "nothing fixed says nothing")
+
+	failingGHOnPath(t)
+	fixed := []prreview.Fixed{{Thread: openThread("t1", "a.go", 3), Reason: "done"}}
+	got := resolveFixed(&w, fixed, "abcdef1234")
+	assert.Empty(t, got)
+	assert.Contains(t, w.String(), "bark: warning: couldn't resolve 1 fixed thread(s):")
+}

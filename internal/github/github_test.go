@@ -240,3 +240,17 @@ func TestRunGH(t *testing.T) {
 	assert.ErrorContains(t, err, "exit status 1: gh: Not Found (HTTP 404)")
 	assert.ErrorContains(t, err, `{"message":"Not Found"}`)
 }
+
+// New's client runs the gh on PATH.
+func TestNewRunsGHFromPath(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	script := "#!/bin/sh\necho '{\"url\":\"https://github.com/o/r/pull/7\",\"headRefOid\":\"abc\"}'\n"
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755))
+
+	ref, err := New().PullRef(t.Context(), "7")
+	require.NoError(t, err)
+	assert.Equal(t, "abc", ref.HeadSHA)
+	assert.Equal(t, 7, ref.Number)
+	assert.Equal(t, Repo{Owner: "o", Name: "r"}, ref.Repo)
+}

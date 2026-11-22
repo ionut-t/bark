@@ -315,3 +315,19 @@ func TestHistoryMarkResolved(t *testing.T) {
 	assert.True(t, h.Findings[0].Fixed)
 	assert.False(t, h.Findings[3].Fixed)
 }
+
+func TestResolveUsesGH(t *testing.T) {
+	ctx := context.Background()
+	log := failingGH(t)
+
+	got, err := Resolve(ctx, nil, "abcdef1234")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	assert.Empty(t, calls(t, log), "nothing to resolve makes no call")
+
+	fixed := []Fixed{{Thread: Thread{ID: "T_1", Point: findings.Finding{Title: "Nil map"}}, Reason: "checked"}}
+	got, err = Resolve(ctx, fixed, "abcdef1234")
+	assert.Empty(t, got)
+	assert.ErrorContains(t, err, `failed to resolve the thread of "Nil map"`)
+	assert.NotEmpty(t, calls(t, log))
+}

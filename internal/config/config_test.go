@@ -5,10 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/ionut-t/bark/v2/internal/templates"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -480,4 +482,99 @@ func TestDeprecations(t *testing.T) {
 			}
 		})
 	}
+}
+
+// isolate points Bark's directories at a fresh temporary tree and returns
+// the config directory.
+func isolate(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("XDG defaults differ on Windows")
+	}
+	root := t.TempDir()
+	t.Setenv("HOME", filepath.Join(root, "home"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	return filepath.Join(root, "config", "bark")
+}
+
+func TestPathsCreatesConfigDir(t *testing.T) {
+	dir := isolate(t)
+
+	p, err := Paths()
+	require.NoError(t, err)
+	assert.Equal(t, dir, p.Config)
+	info, err := os.Stat(dir)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+
+	path, err := DefaultFilePath()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "config.toml"), path)
+}
+
+func TestInstructionFilePaths(t *testing.T) {
+	dir := isolate(t)
+	assert.Equal(t, filepath.Join(dir, commitInstructionsFileName), GetCommitFilePath())
+	assert.Equal(t, filepath.Join(dir, prInstructionsFileName), GetPRFilePath())
+}
+
+func TestInitialiseCommitInstructions(t *testing.T) {
+	dir := isolate(t)
+	_, err := Paths()
+	require.NoError(t, err)
+
+	require.NoError(t, InitialiseCommitInstructions())
+	commit, err := os.ReadFile(GetCommitFilePath())
+	require.NoError(t, err)
+	assert.Equal(t, templates.GetDefaultCommitInstructions(), string(commit))
+	pr, err := os.ReadFile(GetPRFilePath())
+	require.NoError(t, err)
+	assert.Equal(t, templates.GetDefaultPRInstructions(), string(pr))
+
+	// Existing files are kept.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, commitInstructionsFileName), []byte("mine"), 0o644))
+	require.NoError(t, InitialiseCommitInstructions())
+	commit, err = os.ReadFile(GetCommitFilePath())
+	require.NoError(t, err)
+	assert.Equal(t, "mine", string(commit))
+}
+
+func TestInitialiseCommitInstructionsWithoutConfigDir(t *testing.T) {
+	isolate(t)
+	assert.ErrorContains(t, InitialiseCommitInstructions(), "failed to write commit instructions")
+}
+
+func TestGetCommitInstructions(t *testing.T) {
+	dir := isolate(t)
+	cfg := New("", Data{})
+
+	assert.Equal(t, templates.GetDefaultCommitInstructions(), cfg.GetCommitInstructions(), "missing file")
+
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, commitInstructionsFileName)
+	require.NoError(t, os.WriteFile(path, nil, 0o644))
+	assert.Equal(t, templates.GetDefaultCommitInstructions(), cfg.GetCommitInstructions(), "empty file")
+
+	require.NoError(t, os.WriteFile(path, []byte("Use emoji."), 0o644))
+	assert.Equal(t, "Use emoji.", cfg.GetCommitInstructions())
+}
+
+func TestGetPRInstructions(t *testing.T) {
+	dir := isolate(t)
+	t.Chdir(t.TempDir())
+	cfg := New("", Data{})
+
+	assert.Equal(t, templates.GetDefaultPRInstructions(), cfg.GetPRInstructions(), "nothing configured")
+
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, prInstructionsFileName), []byte("User PR rules."), 0o644))
+	assert.Equal(t, "User PR rules.", cfg.GetPRInstructions(), "config dir file")
+
+	require.NoError(t, os.WriteFile(prInstructionsFileName, nil, 0o644))
+	assert.Equal(t, "User PR rules.", cfg.GetPRInstructions(), "an empty file in the working dir is skipped")
+
+	require.NoError(t, os.WriteFile(prInstructionsFileName, []byte("Repo PR rules."), 0o644))
+	assert.Equal(t, "Repo PR rules.", cfg.GetPRInstructions(), "working dir file wins")
 }

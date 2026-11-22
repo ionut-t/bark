@@ -107,3 +107,7 @@ func TestInstructionsMarkWhileFiltered(t *testing.T) {
 	_, cmd = m.Update(keyEnter)
 	assert.Equal(t, "Focus on performance.", selectedInstruction(t, cmd))
 }
+
+func TestInstructionsModelInit(t *testing.T) {
+	assert.Nil(t, newTestInstructionsModel().Init())
+}

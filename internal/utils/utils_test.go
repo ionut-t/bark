@@ -1,9 +1,13 @@
 package utils
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNormaliseCodeFences(t *testing.T) {
@@ -101,4 +105,94 @@ func TestNormaliseCodeFences_DiffWithTabs(t *testing.T) {
 
 	result := NormaliseCodeFences(input)
 	assert.Equal(t, expected, result)
+}
+
+func TestRemoveCodeFences(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "empty", input: "", want: ""},
+		{name: "no fences", input: "  feat: add thing  ", want: "feat: add thing"},
+		{name: "plain fence", input: "```\nfeat: add thing\n```", want: "feat: add thing"},
+		{name: "language fence", input: "```markdown\n## Summary\n```", want: "## Summary"},
+		{name: "text around fence", input: "Here:\n```\nfix: bug\n```\nDone.", want: "Here:\nfix: bug\n\nDone."},
+		{name: "several fences", input: "```\none\n```\n```go\ntwo\n```", want: "one\n\ntwo"},
+		{name: "unclosed fence is left alone", input: "```\nfeat: x", want: "```\nfeat: x"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, RemoveCodeFences(tt.input))
+		})
+	}
+}
+
+func TestOpenInEditorCmd(t *testing.T) {
+	cmd, err := OpenInEditorCmd("code --wait", "/tmp/file.md")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"code", "--wait", "/tmp/file.md"}, cmd.Args)
+
+	cmd, err = OpenInEditorCmd("vim", "a.md")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"vim", "a.md"}, cmd.Args)
+
+	_, err = OpenInEditorCmd("   ", "a.md")
+	assert.EqualError(t, err, "editor is not configured")
+}
+
+func TestOpenEditor(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "out.md")
+	editor := filepath.Join(t.TempDir(), "editor.sh")
+	require.NoError(t, os.WriteFile(editor, []byte("#!/bin/sh\nprintf edited > \"$1\"\n"), 0o755))
+
+	require.NoError(t, OpenEditor(editor, target))
+	content, err := os.ReadFile(target)
+	require.NoError(t, err)
+	assert.Equal(t, "edited", string(content))
+
+	assert.Error(t, OpenEditor("false", target), "a failing editor is reported")
+	assert.Error(t, OpenEditor("", target))
+}
+
+func TestReadLocalOverrideAndGetInstructions(t *testing.T) {
+	dir := t.TempDir()
+	full := filepath.Join(dir, "review.md")
+	require.NoError(t, os.WriteFile(full, []byte("Local rules."), 0o644))
+	empty := filepath.Join(dir, "empty.md")
+	require.NoError(t, os.WriteFile(empty, nil, 0o644))
+	missing := filepath.Join(dir, "missing.md")
+
+	got, err := ReadLocalOverride(full)
+	require.NoError(t, err)
+	assert.Equal(t, "Local rules.", got)
+
+	for _, path := range []string{empty, missing} {
+		got, err = ReadLocalOverride(path)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+
+		got, err = GetInstructions(path, "fallback")
+		require.NoError(t, err)
+		assert.Equal(t, "fallback", got)
+	}
+
+	got, err = GetInstructions(full, "fallback")
+	require.NoError(t, err)
+	assert.Equal(t, "Local rules.", got)
+
+	// A directory can't be read as a file: that's an error, not a fallback.
+	_, err = ReadLocalOverride(dir)
+	assert.ErrorContains(t, err, "could not read")
+	_, err = GetInstructions(dir, "fallback")
+	assert.Error(t, err)
+}
+
+func TestDispatchMsg(t *testing.T) {
+	type ping struct{ n int }
+	assert.Equal(t, ping{n: 3}, DispatchMsg(ping{n: 3})())
+}
+
+func TestDispatchClearMsg(t *testing.T) {
+	assert.Equal(t, ClearMsg{}, DispatchClearMsg(time.Millisecond)())
 }

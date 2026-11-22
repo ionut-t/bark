@@ -44,3 +44,73 @@ func TestResolve(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigAndGet(t *testing.T) {
+	storage := t.TempDir()
+	require.NoError(t, Config(storage, false))
+
+	list, err := Get(storage)
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(list))
+	for _, in := range list {
+		names = append(names, in.Name)
+		assert.NotEmpty(t, in.Prompt, "instruction %q has an empty prompt", in.Name)
+	}
+	assert.ElementsMatch(t, []string{"Angular", "Go", "Python", "Rust", "TypeScript", "Zig"}, names)
+}
+
+func TestGetMissingStorage(t *testing.T) {
+	_, err := Get(filepath.Join(t.TempDir(), "missing"))
+	assert.Error(t, err)
+}
+
+func TestFind(t *testing.T) {
+	list := []Instruction{{Name: "Go", Prompt: "go"}, {Name: "Rust", Prompt: "rust"}}
+
+	got, err := Find("rust", list)
+	require.NoError(t, err)
+	assert.Equal(t, "rust", got.Prompt)
+
+	_, err = Find("zig", list)
+	assert.Error(t, err)
+}
+
+func TestGetEmbedded(t *testing.T) {
+	got, err := GetEmbedded("Go")
+	require.NoError(t, err)
+	assert.Equal(t, "Go", got.Name)
+	assert.NotEmpty(t, got.Prompt)
+
+	_, err = GetEmbedded("COBOL")
+	assert.EqualError(t, err, "instruction 'COBOL' not found")
+}
+
+func TestPathDeleteAndRemoveDir(t *testing.T) {
+	storage := t.TempDir()
+	require.NoError(t, Config(storage, false))
+
+	path, err := GetPath(storage, "Go")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(storage, assetDirName, "Go.md"), path)
+
+	require.NoError(t, Delete(storage, "Go"))
+	_, err = GetPath(storage, "Go")
+	assert.ErrorIs(t, err, os.ErrNotExist)
+
+	require.NoError(t, RemoveDir(storage))
+	_, err = os.Stat(filepath.Join(storage, assetDirName))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestAddWritesEditorOutput(t *testing.T) {
+	storage := t.TempDir()
+	editor := filepath.Join(t.TempDir(), "editor.sh")
+	require.NoError(t, os.WriteFile(editor, []byte("#!/bin/sh\nprintf 'Custom rules.' > \"$1\"\n"), 0o755))
+
+	require.NoError(t, Add(storage, "Custom", editor))
+
+	list, err := Get(storage)
+	require.NoError(t, err)
+	assert.Equal(t, []Instruction{{Name: "Custom", Prompt: "Custom rules."}}, list)
+}

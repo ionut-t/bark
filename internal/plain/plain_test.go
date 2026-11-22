@@ -3,14 +3,21 @@ package plain
 import (
 	"context"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/check"
+	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/bark/v2/internal/llm"
+	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/ionut-t/bark/v2/internal/prreview"
+	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -531,5 +538,276 @@ func TestSkipPost(t *testing.T) {
 		events := []findings.Event{repeat, {Finding: &findings.Finding{File: "a.go", Line: 3, Title: "New"}}}
 		assert.False(t, skipPost(&w, events, scope, last))
 		assert.Empty(t, w.String())
+	})
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+}
+
+// failingGHOnPath puts a gh on PATH that fails every call.
+func failingGHOnPath(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a shell script as gh")
+	}
+	bin := t.TempDir()
+	writeFile(t, filepath.Join(bin, "gh"), "#!/bin/sh\necho 'gh: boom' >&2\nexit 1\n")
+	require.NoError(t, os.Chmod(filepath.Join(bin, "gh"), 0o755))
+	t.Setenv("PATH", bin)
+}
+
+func TestResolveReviewer(t *testing.T) {
+	storage := t.TempDir()
+	require.NoError(t, reviewers.Config(storage, false))
+
+	t.Run("from a file path", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "Mine.md")
+		writeFile(t, path, "Be strict.")
+		r, err := resolveReviewer(path, storage)
+		require.NoError(t, err)
+		assert.Equal(t, &reviewers.Reviewer{Name: "Mine", Prompt: "Be strict."}, r)
+	})
+
+	t.Run("by name", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		r, err := resolveReviewer("linus", storage)
+		require.NoError(t, err)
+		assert.Equal(t, "Linus Torvalds", r.Name)
+	})
+
+	t.Run("unknown name", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		_, err := resolveReviewer("nobody-at-all", storage)
+		assert.ErrorContains(t, err, "reviewer not found")
+	})
+
+	t.Run("missing storage", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		_, err := resolveReviewer("linus", filepath.Join(t.TempDir(), "missing"))
+		assert.ErrorContains(t, err, "error loading reviewers")
+	})
+
+	t.Run("repo reviewer file", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		writeFile(t, filepath.Join(".bark", "reviewer.md"), "Repo persona.")
+		r, err := resolveReviewer("", storage)
+		require.NoError(t, err)
+		assert.Equal(t, &reviewers.Reviewer{Name: "reviewer", Prompt: "Repo persona."}, r)
+	})
+
+	t.Run("none given", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		_, err := resolveReviewer("", storage)
+		assert.ErrorContains(t, err, "reviewer is required in plain mode")
+	})
+}
+
+func TestResolveInstructions(t *testing.T) {
+	t.Chdir(t.TempDir())
+	storage := t.TempDir()
+
+	got, err := resolveInstructions(nil, storage)
+	require.NoError(t, err)
+	assert.Empty(t, got, "no values and no .bark/review.md")
+
+	writeFile(t, filepath.Join(".bark", "review.md"), "Repo review rules.")
+	got, err = resolveInstructions(nil, storage)
+	require.NoError(t, err)
+	assert.Equal(t, "Repo review rules.", got)
+
+	got, err = resolveInstructions([]string{"Be brief."}, storage)
+	require.NoError(t, err)
+	assert.Equal(t, "Be brief.", got, "values win over the repo file")
+
+	writeFile(t, filepath.Join(storage, "instructions", "Security.md"), "Look for injections.")
+	got, err = resolveInstructions([]string{"security"}, storage)
+	require.NoError(t, err)
+	assert.Equal(t, "Look for injections.", got, "saved instructions are looked up by name")
+}
+
+func TestResolvePRInstructions(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	cfg := config.New("", config.Data{})
+
+	got, err := resolvePRInstructions(nil, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, cfg.GetPRInstructions(), got, "the configured instructions by default")
+
+	writeFile(t, filepath.Join(".bark", "pr.md"), "Repo PR rules.")
+	got, err = resolvePRInstructions(nil, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "Repo PR rules.", got)
+
+	got, err = resolvePRInstructions([]string{"Short, please."}, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "Short, please.", got)
+}
+
+type nopLLM struct{}
+
+func (nopLLM) Stream(context.Context, string, string) (<-chan llm.Response, <-chan error) {
+	return nil, nil
+}
+
+func (nopLLM) Generate(context.Context, string, string) (llm.Response, error) {
+	return llm.Response{}, nil
+}
+
+func TestMeterCalls(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cache := t.TempDir()
+	client := nopLLM{}
+
+	got, meter := meterCalls(client, cache, "gemini", "gemini-3.6-flash")
+	assert.Equal(t, client, got, "no prices file: the client is unwrapped")
+	assert.Nil(t, meter)
+
+	got, meter = meterCalls(client, cache, "no-such-provider", "x")
+	assert.Equal(t, client, got)
+	assert.Nil(t, meter)
+
+	require.NoError(t, prices.Save(filepath.Join(cache, prices.FileName), prices.File{
+		Date:      "2026-11-01",
+		Providers: map[string]map[string]prices.Price{"google": {"gemini-3.6-flash": {Input: 1, Output: 2}}},
+	}))
+
+	got, meter = meterCalls(client, cache, "gemini", "gemini-3.6-flash")
+	require.NotNil(t, meter)
+	assert.Equal(t, meter, got, "a priced model's calls go through the meter")
+
+	got, meter = meterCalls(client, cache, "gemini", "unlisted-model")
+	assert.Equal(t, client, got, "an unlisted model is a warning, not an error")
+	assert.Nil(t, meter)
+}
+
+func TestLineMapperWithoutHead(t *testing.T) {
+	assert.Nil(t, lineMapper(newLineMaps("")))
+}
+
+func TestLineMapperReportsEachFailureOnce(t *testing.T) {
+	t.Chdir(t.TempDir()) // not a git repository: every lookup fails
+	m := lineMapper(newLineMaps("HEAD"))
+	require.NotNil(t, m)
+
+	_, _, ok, err := m(postedOn, "a.go", 1, 2)
+	assert.False(t, ok)
+	assert.Error(t, err)
+
+	_, _, ok, err = m(postedOn, "a.go", 3, 4)
+	assert.False(t, ok)
+	assert.NoError(t, err, "a failure already reported is not reported again")
+
+	_, _, _, err = m(postedOn, "b.go", 1, 1)
+	assert.Error(t, err, "another file's failure is reported")
+}
+
+func TestReadHistoryFailure(t *testing.T) {
+	failingGHOnPath(t)
+	h, ok := readHistory("7", true, true)
+	assert.False(t, ok)
+	assert.Empty(t, h.Findings)
+}
+
+func TestPartialReviewNoteNil(t *testing.T) {
+	assert.Empty(t, partialReviewNote(nil))
+}
+
+// captureStderr returns what f writes to os.Stderr.
+func captureStderr(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	old := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+
+	done := make(chan string)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- string(b)
+	}()
+	f()
+	require.NoError(t, w.Close())
+	return <-done
+}
+
+// usageLLM answers every call with usage, so a meter has something to
+// count.
+type usageLLM struct{ nopLLM }
+
+func (usageLLM) Generate(context.Context, string, string) (llm.Response, error) {
+	return llm.Response{Usage: &llm.Usage{InputTokens: 1_000_000, OutputTokens: 1_000_000, TotalTokens: 2_000_000}}, nil
+}
+
+func TestWarnTruncated(t *testing.T) {
+	got := captureStderr(t, func() { warnTruncated("review", "it may be missing findings") })
+	assert.Equal(t, "bark: warning: the model reached its output limit, so the review was cut off; it may be missing findings\n", got)
+}
+
+func TestPrintCost(t *testing.T) {
+	assert.Empty(t, captureStderr(t, func() { printCost(nil) }), "no meter, no cost")
+
+	meter := prices.NewMeter(usageLLM{}, &prices.Pricing{Price: prices.Price{Input: 1, Output: 2}, Date: "2026-11-01"})
+	assert.Empty(t, captureStderr(t, func() { printCost(meter) }), "no calls, no cost")
+
+	_, err := meter.Generate(context.Background(), "s", "p")
+	require.NoError(t, err)
+	got := captureStderr(t, func() { printCost(meter) })
+	assert.Contains(t, got, "bark: ")
+	assert.Contains(t, got, "$3.00")
+}
+
+// isolateProvider clears every provider's credentials and points Bark's
+// directories at a fresh temporary tree. It returns the cache directory.
+func isolateProvider(t *testing.T) string {
+	t.Helper()
+	for _, key := range []string{"GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OLLAMA_HOST", "VERTEXAI_PROJECT_ID", "VERTEXAI_LOCATION", "BARK_DEMO_MOCK"} {
+		t.Setenv(key, "")
+	}
+	root := t.TempDir()
+	t.Setenv("HOME", filepath.Join(root, "home"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Chdir(t.TempDir())
+	return filepath.Join(root, "cache", "bark")
+}
+
+func TestNewMeteredClient(t *testing.T) {
+	cfg := func() config.Config {
+		return config.New("", config.Data{LLMProvider: "gemini", LLMModel: "gemini-3.6-flash"})
+	}
+
+	t.Run("no credentials", func(t *testing.T) {
+		isolateProvider(t)
+		_, _, err := newMeteredClient(cfg())
+		assert.ErrorContains(t, err, "error creating LLM client")
+	})
+
+	t.Run("unpriced model has no meter", func(t *testing.T) {
+		isolateProvider(t)
+		t.Setenv("GEMINI_API_KEY", "fake")
+		client, meter, err := newMeteredClient(cfg())
+		require.NoError(t, err)
+		assert.NotNil(t, client)
+		assert.Nil(t, meter)
+	})
+
+	t.Run("priced model is metered", func(t *testing.T) {
+		cache := isolateProvider(t)
+		t.Setenv("GEMINI_API_KEY", "fake")
+		require.NoError(t, prices.Save(filepath.Join(cache, prices.FileName), prices.File{
+			Date:      "2026-11-01",
+			Providers: map[string]map[string]prices.Price{"google": {"gemini-3.6-flash": {Input: 1, Output: 2}}},
+		}))
+
+		client, meter, err := newMeteredClient(cfg())
+		require.NoError(t, err)
+		require.NotNil(t, meter)
+		assert.Equal(t, meter, client, "calls go through the meter")
 	})
 }

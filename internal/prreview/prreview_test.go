@@ -510,3 +510,26 @@ func TestPostRecordsReviewedHead(t *testing.T) {
 	assert.Equal(t, "def4567", gh.posted[0].CommitID)
 	assert.Equal(t, Scope{Head: "def4567", Base: "aaa1111"}, RecordedScope(gh.posted[0].Body))
 }
+
+func TestCloser(t *testing.T) {
+	tests := []struct {
+		a, b, target int
+		want         bool
+	}{
+		{a: 5, b: 9, target: 6, want: true},
+		{a: 9, b: 5, target: 6, want: false},
+		{a: 4, b: 8, target: 6, want: true}, // tie: the earlier line wins
+		{a: 8, b: 4, target: 6, want: false},
+		{a: 6, b: 6, target: 6, want: false},
+		{a: -1, b: 3, target: 0, want: true},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, closer(tt.a, tt.b, tt.target), "closer(%d, %d, %d)", tt.a, tt.b, tt.target)
+	}
+}
+
+func TestAbs(t *testing.T) {
+	assert.Equal(t, 0, abs(0))
+	assert.Equal(t, 3, abs(3))
+	assert.Equal(t, 3, abs(-3))
+}
