@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.36.0](https://github.com/ionut-t/bark/compare/v2.35.1...v2.36.0) (2026-11-22)
+
+
+### Features
+
+* **redact:** implement secret masking and security reporting ([#169](https://github.com/ionut-t/bark/issues/169)) ([cb8bb99](https://github.com/ionut-t/bark/commit/cb8bb9998a9c75804a647415b185e8c8c4cdedcd))
+
+
+### Bug Fixes
+
+* **actions:** synchronise workflow selection and improve editor manag… ([#173](https://github.com/ionut-t/bark/issues/173)) ([5312b95](https://github.com/ionut-t/bark/commit/5312b9582e51952e27d2a2c811d188986a22f56b))
+* **tui:** use pointer receivers for setSize methods ([#174](https://github.com/ionut-t/bark/issues/174)) ([f23f050](https://github.com/ionut-t/bark/commit/f23f0503ba6564b718118c9f5e103a483e652131))
+
 ## [2.35.1](https://github.com/ionut-t/bark/compare/v2.35.0...v2.35.1) (2026-11-22)
 
 
