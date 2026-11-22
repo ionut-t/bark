@@ -41,9 +41,6 @@ type Options struct {
 // Source is one file the rules were read from.
 type Source struct {
 	Path string
-	// Target is the file Path points to, read in its place (see follow);
-	// "" if Path isn't a pointer.
-	Target string
 	// Tokens is about how many tokens of the file are in Text; 0 if it was
 	// left out.
 	Tokens int
@@ -61,7 +58,11 @@ type Rules struct {
 	Sources []Source
 	// Missing are the listed files that weren't found. Missing default
 	// files aren't recorded: most repositories don't have them.
-	Missing   []string
+	Missing []string
+	// Targets are the files the rules files found point to (see follow),
+	// whether or not their text made it in: a duplicate, empty or missing
+	// target changes the rules as much as one that's read.
+	Targets   []string
 	maxTokens int
 }
 
@@ -176,6 +177,9 @@ func Load(ctx context.Context, read ReadFunc, opts Options) Rules {
 			}
 			found = true
 			content, target := follow(ctx, read, p, content)
+			if target != "" && !slices.Contains(rules.Targets, target) {
+				rules.Targets = append(rules.Targets, target)
+			}
 			key := strings.TrimSpace(content)
 			if key == "" || seen[key] {
 				continue
@@ -183,7 +187,7 @@ func Load(ctx context.Context, read ReadFunc, opts Options) Rules {
 			seen[key] = true
 
 			body := strings.TrimRight(content, "\n") + "\n"
-			src := Source{Path: p, Target: target, FullTokens: tokenCount(body)}
+			src := Source{Path: p, FullTokens: tokenCount(body)}
 			if !full {
 				open := fmt.Sprintf("<file path=%q>\n", p)
 				const closing = "</file>\n\n"
@@ -285,8 +289,9 @@ func readAll(ctx context.Context, read ReadFunc, paths []string) map[string]stri
 
 // follow returns the file a pointer file points to, and its path: one that
 // is only a path, as git show prints a symlink, or only an "@path" import,
-// as a CLAUDE.md that defers to AGENTS.md often is. Anything else, or a
-// pointer that can't be read, is returned as it is, with no path.
+// as a CLAUDE.md that defers to AGENTS.md often is. Anything else is
+// returned as it is, with no path; a pointer whose file can't be read is
+// returned as it is, with the path it points to.
 func follow(ctx context.Context, read ReadFunc, p, content string) (string, string) {
 	target := strings.TrimSpace(content)
 	if target == "" || strings.ContainsAny(target, " \t\n") {
@@ -302,7 +307,7 @@ func follow(ctx context.Context, read ReadFunc, p, content string) (string, stri
 	}
 	data, err := read(ctx, resolved)
 	if err != nil {
-		return content, ""
+		return content, resolved
 	}
 	return string(data), resolved
 }

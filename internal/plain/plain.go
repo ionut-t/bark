@@ -481,12 +481,6 @@ func settingsApproval(changed []string, listErr error, houseRules bool, files []
 	if listErr != nil {
 		return false, fmt.Sprintf("Bark couldn't list the files the pull request changes, to check it doesn't change Bark's own settings: %v", listErr)
 	}
-	pointed := map[string]bool{}
-	for _, s := range rules.Sources {
-		if s.Target != "" {
-			pointed[s.Target] = true
-		}
-	}
 	var hits []string
 	for _, p := range changed {
 		// Every part, not just the folders: a symlink named .bark is
@@ -494,7 +488,7 @@ func settingsApproval(changed []string, listErr error, houseRules bool, files []
 		parts := strings.Split(p, "/")
 		switch {
 		case slices.Contains(parts, ".bark"), path.Base(p) == git.IgnoreFileName,
-			houseRules && (houserules.IsRulesFile(p, files) || pointed[p]):
+			houseRules && (houserules.IsRulesFile(p, files) || slices.Contains(rules.Targets, p)):
 			hits = append(hits, p)
 		}
 	}

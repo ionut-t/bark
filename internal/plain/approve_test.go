@@ -116,7 +116,7 @@ func TestApprovalThreshold(t *testing.T) {
 func TestSettingsApproval(t *testing.T) {
 	t.Parallel()
 
-	pointer := houserules.Rules{Sources: []houserules.Source{{Path: "CLAUDE.md", Target: "docs/rules.md"}}}
+	pointer := houserules.Rules{Targets: []string{"docs/rules.md"}}
 	tests := []struct {
 		name       string
 		changed    []string

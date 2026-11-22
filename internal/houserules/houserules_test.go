@@ -279,17 +279,35 @@ func TestLoad_CutFilesAreReportedCut(t *testing.T) {
 	}
 }
 
-// A file a pointer led to is recorded, so a change to it can be told
-// apart from a change to an unrelated file.
-func TestLoad_RecordsAPointerTarget(t *testing.T) {
+// Every file a pointer points to is recorded, so a change to it can be
+// told apart from a change to an unrelated file: also when its text
+// repeats a file read earlier, is empty, or can't be read.
+func TestLoad_RecordsPointerTargets(t *testing.T) {
 	t.Parallel()
 
-	r := repo{"pkg/AGENTS.md": "Use tabs.\n", "pkg/CLAUDE.md": "@AGENTS.md\n", "AGENTS.md": "Root.\n"}
-	got := Load(context.Background(), r.read, Options{Files: []string{"pkg/CLAUDE.md", "./AGENTS.md"}, Changed: []string{"pkg/x.go"}})
+	tests := []struct {
+		name string
+		r    repo
+		want []string
+	}{
+		{name: "read", r: repo{"pkg/CLAUDE.md": "@AGENTS.md\n", "pkg/AGENTS.md": "Use tabs.\n", "STYLE.md": "Root.\n"},
+			want: []string{"pkg/AGENTS.md"}},
+		{name: "same text as a file read earlier", r: repo{"pkg/CLAUDE.md": "@rules.md\n", "pkg/rules.md": "Root.\n", "STYLE.md": "Root.\n"},
+			want: []string{"pkg/rules.md"}},
+		{name: "empty", r: repo{"pkg/CLAUDE.md": "@rules.md\n", "pkg/rules.md": "", "STYLE.md": "Root.\n"},
+			want: []string{"pkg/rules.md"}},
+		{name: "missing", r: repo{"pkg/CLAUDE.md": "@rules.md\n", "STYLE.md": "Root.\n"},
+			want: []string{"pkg/rules.md"}},
+		{name: "no pointer", r: repo{"pkg/CLAUDE.md": "Use tabs.\n", "STYLE.md": "Root.\n"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.Len(t, got.Sources, 2)
-	assert.Equal(t, "pkg/AGENTS.md", got.Sources[0].Target)
-	assert.Empty(t, got.Sources[1].Target, "not a pointer")
+			got := Load(context.Background(), tt.r.read, Options{Files: []string{"./STYLE.md", "pkg/CLAUDE.md"}, Changed: []string{"pkg/x.go"}})
+			assert.Equal(t, tt.want, got.Targets)
+		})
+	}
 }
 
 func TestIsRulesFile(t *testing.T) {
