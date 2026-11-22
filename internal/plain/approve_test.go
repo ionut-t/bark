@@ -133,6 +133,12 @@ func TestSettingsApproval(t *testing.T) {
 			why: "the pull request changes .bark/review.md, .bark/reviewer.md and .barkignore, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
 		{name: "a .bark folder deeper down", changed: []string{"svc/.bark/review.md"},
 			why: "the pull request changes svc/.bark/review.md, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
+		// A symlink in place of the folder: git lists the link, not
+		// what's under it.
+		{name: "a .bark symlink", changed: []string{".bark", "docs/x/review.md"},
+			why: "the pull request changes .bark, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
+		{name: "a .bark symlink deeper down", changed: []string{"svc/.bark"},
+			why: "the pull request changes svc/.bark, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
 		{name: "house rules", changed: []string{"pkg/AGENTS.md"}, houseRules: true,
 			why: "the pull request changes pkg/AGENTS.md, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
 		{name: "house rules off", changed: []string{"AGENTS.md"}},

@@ -489,9 +489,11 @@ func settingsApproval(changed []string, listErr error, houseRules bool, files []
 	}
 	var hits []string
 	for _, p := range changed {
-		dirs := strings.Split(path.Dir(p), "/")
+		// Every part, not just the folders: a symlink named .bark is
+		// listed as itself, not as the files under it.
+		parts := strings.Split(p, "/")
 		switch {
-		case slices.Contains(dirs, ".bark"), path.Base(p) == git.IgnoreFileName,
+		case slices.Contains(parts, ".bark"), path.Base(p) == git.IgnoreFileName,
 			houseRules && (houserules.IsRulesFile(p, files) || pointed[p]):
 			hits = append(hits, p)
 		}
