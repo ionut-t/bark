@@ -317,6 +317,22 @@ testdata/**/*.golden
 
 A pattern without a slash matches at any depth, and a leading or middle slash anchors it at the top level. A trailing slash matches a directory. `*` and `?` stay within one directory, and `**` crosses them. `!` can only turn off one of the defaults above. `.barkignore` and `.bark/config.toml` are always reviewed, so a pattern that matches either (such as `.bark/`, `.*` or `*`) is not used. In CI a pull request's own copies apply to its review, and this keeps a pull request from hiding files or lowering the bar without the change showing up in the review. Bark prints a warning for lines it can't use and applies the rest. The file applies to reviews, commit messages and pull request descriptions, including `--pr` reviews. Diffs piped on stdin are used as they are.
 
+### Masking secrets
+
+Before anything is sent to the model provider, Bark masks secrets it recognises by their shape: AWS access keys (and secret keys next to their name), GitHub tokens, OpenAI, Anthropic and Google API keys, Google OAuth client secrets, and private keys (`-----BEGIN … PRIVATE KEY-----` blocks). This covers every prompt: the diff, the files and related code the check reads, commit messages, pull request descriptions, house rules and instructions. It applies to every provider, Ollama included. It's a pattern match on the text; no model is called.
+
+A masked secret becomes a placeholder that names its kind, such as `[REDACTED:github-token]`, so the review can still point out a hard-coded key. A prompt with masked secrets ends with a note telling the model that the code holds the real secret, not the placeholder. Bark prints a warning on stderr, once for each secret, naming the kind and the file:
+
+```
+bark: warning: masked 1 secret(s) before sending them to the model provider: aws-access-key-id (config/prod.env)
+```
+
+The TUI prints these warnings when it exits.
+
+In a review with structured findings (on with `--comment`, `fail_on` or `structured_findings`), a secret on a line the change adds is also a critical `security` finding, which Bark makes without asking the model. It comes first in the review (in the TUI too), counts for `--fail-on`, stops `--approve`, and is posted on the pull request like any other finding. The model is told not to report the placeholder itself, so there's no duplicate, but to report a hard-coded secret Bark didn't recognise, such as a password in a connection string. On a pull request, a secret Bark has already reported isn't posted again but still counts, and one you dismiss (👎 or "won't fix", for a fake key in a test, say) is set aside. Secrets on removed or unchanged lines are only warned about.
+
+A suggestion that would put a placeholder into the code isn't offered as one to apply on GitHub. `BARK_DEBUG` logs show the prompts masked, as they were sent. Masking is always on. It catches the shapes above, not every secret, so it doesn't replace a secret scanner.
+
 ## Costs
 
 Bark can show what each run's model calls cost. It needs a prices file, which `bark prices` downloads from [models.dev](https://models.dev) and saves to `$XDG_CACHE_HOME/bark/prices.json` (`~/.cache/bark/prices.json` by default):

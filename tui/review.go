@@ -184,6 +184,10 @@ type reviewModel struct {
 	// houseRules describes the house rules for the BARK_DEBUG log.
 	houseRules string
 	renderer   *findings.Renderer
+	// secrets are the findings Bark made itself for secrets the diff adds
+	// (see redact.Findings). A structured review shows them first; the
+	// model is told not to report them.
+	secrets []findings.Event
 	// minSeverity leaves out less severe findings; "" shows them all.
 	minSeverity findings.Severity
 	// raw is the model's output so far; Bark's check parses it once the
@@ -245,6 +249,11 @@ func newReviewModel(reviewer reviewers.Reviewer, system, prompt string, width, h
 
 func (m *reviewModel) setStructured(structured bool) {
 	m.structured = structured
+}
+
+// setSecrets sets the findings Bark made for the secrets the diff adds.
+func (m *reviewModel) setSecrets(events []findings.Event) {
+	m.secrets = events
 }
 
 func (m *reviewModel) setCheck(r check.Review) {
@@ -402,7 +411,10 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 			// Shown again from the checked events, each finding where it
 			// streamed: set-aside ones get a note under their heading, and
 			// kept ones show the check's changes to them.
-			m.response = m.withTruncatedNote(m.withDiffNote(strings.TrimRight(utils.NormaliseCodeFences(findings.MarkedMarkdown(msg.events)), "\n") + "\n\n"))
+			// The secrets go first again; the check had nothing to doubt in
+			// them, and checkSummary counts only the model's findings.
+			events := append(slices.Clone(m.secrets), msg.events...)
+			m.response = m.withTruncatedNote(m.withDiffNote(strings.TrimRight(utils.NormaliseCodeFences(findings.MarkedMarkdown(events)), "\n") + "\n\n"))
 			m.checkSummary = checkSummary(msg.events, msg.checked, msg.unchecked)
 		}
 		m.setDoneStatusLine()
@@ -561,6 +573,9 @@ func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	m.renderer = nil
 	if m.structured {
 		m.renderer = &findings.Renderer{Min: m.minSeverity}
+		if len(m.secrets) > 0 {
+			m.contentBuilder.WriteString(findings.Markdown(m.secrets))
+		}
 	}
 
 	m.finishLog(errors.New("review restarted"))

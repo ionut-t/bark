@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/findings"
+	"github.com/ionut-t/bark/v2/internal/redact"
 )
 
 // The events a review is posted with.
@@ -185,8 +186,10 @@ func comment(f findings.Finding, lines map[int]diffLine) (Comment, bool) {
 	}
 
 	// A repaired finding's suggestion may have been cut short, so it is
-	// never offered as one to apply.
-	verified = verified && !f.Repaired
+	// never offered as one to apply. Nor is one that holds a masked
+	// secret's placeholder: applying it would put the placeholder in the
+	// code.
+	verified = verified && !f.Repaired && !redact.Masked(f.Suggestion)
 	if verified {
 		file := make([]string, 0, end-start+1)
 		for l := start; l <= end; l++ {
@@ -229,13 +232,19 @@ func locate(f findings.Finding, lines map[int]diffLine) (start, end int, verifie
 
 // matches reports whether the lines from start hold want, in one hunk.
 // Leading and trailing whitespace is ignored: models often drop
-// indentation when they copy code (fixIndent deals with that).
+// indentation when they copy code (fixIndent deals with that). The model
+// was sent the code with secrets masked (see redact.Wrap), so a line also
+// matches with its secrets masked.
 func matches(lines map[int]diffLine, start int, want []string) bool {
 	if !inOneHunk(lines, start, start+len(want)-1) {
 		return false
 	}
 	for i, w := range want {
-		if strings.TrimSpace(lines[start+i].text) != strings.TrimSpace(w) {
+		text, w := strings.TrimSpace(lines[start+i].text), strings.TrimSpace(w)
+		if text == w {
+			continue
+		}
+		if masked, _ := redact.Mask(text); !redact.Masked(w) || masked != w {
 			return false
 		}
 	}

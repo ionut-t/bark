@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/plain"
@@ -210,7 +209,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		reviewOption = tui.ReviewPR
 	}
 
-	m := tui.New(tui.Options{
+	return runTUI(tui.Options{
 		Task:              tui.TaskReview,
 		Paths:             dirs,
 		ReviewerName:      reviewerName,
@@ -224,12 +223,4 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		PR:                pr,
 		WithPRDescription: withDescription,
 	})
-
-	p := tea.NewProgram(m)
-
-	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("error running UI: %w", err)
-	}
-
-	return nil
 }

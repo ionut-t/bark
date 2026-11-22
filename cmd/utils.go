@@ -1,13 +1,17 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"sync"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
+	"github.com/ionut-t/bark/v2/tui"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
@@ -88,4 +92,36 @@ func overrideEffort(cmd *cobra.Command, cfg config.Config) error {
 	}
 	effort, _ := cmd.Flags().GetString("effort")
 	return cfg.OverrideEffort(effort)
+}
+
+// runTUI runs the TUI with opts. Warnings about secrets masked before a
+// call (see redact.Wrap) are held until the TUI exits, so they don't break
+// its screen, then written to stderr.
+func runTUI(opts tui.Options) error {
+	var warnings syncBuffer
+	opts.Warnings = &warnings
+	_, err := tea.NewProgram(tui.New(opts)).Run()
+	_, _ = os.Stderr.Write(warnings.Bytes())
+	if err != nil {
+		return fmt.Errorf("error running UI: %w", err)
+	}
+	return nil
+}
+
+// syncBuffer is a bytes.Buffer safe to write from the TUI's goroutines.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Bytes()
 }

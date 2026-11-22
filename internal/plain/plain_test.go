@@ -79,7 +79,7 @@ func TestReviewOutput(t *testing.T) {
 				raw, _, err = fullResponse(context.Background(), client, "", "", nil)
 			}
 			require.NoError(t, err)
-			finishReview(&out, raw, false, tt.stream, tt.structured, "", nil)
+			finishReview(&out, raw, false, tt.stream, tt.structured, "", nil, nil)
 			assert.Equal(t, tt.want, out.String())
 			assert.Equal(t, structuredOutput, raw)
 		})
@@ -120,7 +120,7 @@ func TestReviewOutputTruncated(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.True(t, truncated)
-			events := finishReview(&out, raw, truncated, tt.stream, tt.structured, "", nil)
+			events := finishReview(&out, raw, truncated, tt.stream, tt.structured, "", nil, nil)
 			assert.Equal(t, tt.want, out.String())
 			if tt.structured {
 				require.NotEmpty(t, events)
@@ -151,7 +151,7 @@ func TestReviewOutputMinSeverity(t *testing.T) {
 		events := finishReview(&out, raw, false, stream, true, findings.Critical, func(events []findings.Event) ([]findings.Event, int) {
 			assert.Zero(t, check.Count(events), "findings below the threshold mustn't be checked")
 			return events, 0
-		})
+		}, nil)
 		assert.Equal(t, want, out.String(), "stream %v", stream)
 		assert.Len(t, events, 1, "only the verdict is left")
 	}
@@ -181,7 +181,7 @@ func TestFinishReviewWithCheck(t *testing.T) {
 		t.Parallel()
 
 		var out strings.Builder
-		events := finishReview(&out, structuredOutput, false, false, true, "", doubtAll)
+		events := finishReview(&out, structuredOutput, false, false, true, "", doubtAll, nil)
 
 		assert.Equal(t, "## Doubted by Bark's check\n\n"+
 			"A second pass checked these findings against the code and doubts them. They are listed in case it's wrong.\n\n"+
@@ -194,7 +194,7 @@ func TestFinishReviewWithCheck(t *testing.T) {
 		t.Parallel()
 
 		var out strings.Builder
-		finishReview(&out, structuredOutput, false, true, true, "", doubtAll)
+		finishReview(&out, structuredOutput, false, true, true, "", doubtAll, nil)
 
 		assert.Equal(t, "## Bark's check\n\nA second pass checked 1 finding against the code and doubts 1:\n\n"+doubted, out.String())
 	})
@@ -206,7 +206,7 @@ func TestFinishReviewWithCheck(t *testing.T) {
 		events := finishReview(&out, "plain text", false, false, false, "", func([]findings.Event) ([]findings.Event, int) {
 			t.Fatal("free text has no findings to check")
 			return nil, 0
-		})
+		}, nil)
 		assert.Nil(t, events)
 		assert.Equal(t, "plain text\n", out.String())
 	})
