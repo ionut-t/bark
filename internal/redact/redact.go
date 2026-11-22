@@ -93,9 +93,14 @@ const privateKey = "private-key"
 var (
 	pemBeginRE = regexp.MustCompile(`-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----`)
 	pemEndRE   = regexp.MustCompile(`-----END (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----`)
-	// pemBodyRE is a run of base64 in a key's body. It starts with a letter
-	// or digit so a diff's "+" before it stays.
-	pemBodyRE = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9+/=]{15,}`)
+	// pemBodyRE is a run of base64 in a key's body, after its linePrefix:
+	// four characters at least, the shortest a line of base64 can be (a
+	// key's last line is often short), so the "n" of an escaped "\n" stays.
+	pemBodyRE = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9+/=]{3,}`)
+	// linePrefix is what a prompt puts before a line of code: a line
+	// number (NumberDiffLines, or a file excerpt's "12\t"), a diff marker,
+	// indentation. It isn't part of a key.
+	linePrefix = regexp.MustCompile(`^(?:\s*\d+(?:\t| [+\- ]))?\s*[+-]?`)
 )
 
 // maxPEMLines bounds how far a private key without an END line is masked.
@@ -207,6 +212,7 @@ func maskPattern(l string, p pattern, m Match, matches *[]Match) string {
 // the key goes into its ID, not the diff markers or line numbers around it,
 // so the key has the same ID in a diff and in a file.
 func writeKey(b *strings.Builder, l string) {
+	l = l[len(linePrefix.FindString(l)):]
 	for _, run := range pemBodyRE.FindAllString(l, -1) {
 		b.WriteString(run)
 	}
@@ -214,7 +220,8 @@ func writeKey(b *strings.Builder, l string) {
 
 // maskBody masks the base64 in a line of a private key's body.
 func maskBody(l string) string {
-	return pemBodyRE.ReplaceAllLiteralString(l, placeholder(privateKey))
+	p := len(linePrefix.FindString(l))
+	return l[:p] + pemBodyRE.ReplaceAllLiteralString(l[p:], placeholder(privateKey))
 }
 
 // hunkLine is a diff's hunk header; a private key's body doesn't run past

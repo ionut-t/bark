@@ -247,3 +247,46 @@ func TestMaskPrivateKeySameIDInDiffAndFile(t *testing.T) {
 		t.Error("a different key has the same ID")
 	}
 }
+
+// A key's last line of base64 is often short. It's masked too, in every
+// format the key reaches a prompt in, and line numbers stay.
+func TestMaskPrivateKeyShortLastLine(t *testing.T) {
+	const tail = "Zx4="
+	tests := []struct{ name, in, want string }{
+		{"raw diff",
+			"+" + pemBegin + "\n+" + pemBody1 + "\n+" + tail + "\n+" + pemEnd,
+			"+[REDACTED:private-key]\n+[REDACTED:private-key]\n+[REDACTED:private-key]\n+[REDACTED:private-key]"},
+		{"numbered diff past line 1000",
+			"  1233 +" + pemBegin + "\n  1234 +" + pemBody1 + "\n  1235 +" + tail + "\n  1236 +" + pemEnd,
+			"  1233 +[REDACTED:private-key]\n  1234 +[REDACTED:private-key]\n  1235 +[REDACTED:private-key]\n  1236 +[REDACTED:private-key]"},
+		{"removed lines",
+			"       -" + pemBegin + "\n       -" + tail + "\n       -" + pemEnd,
+			"       -[REDACTED:private-key]\n       -[REDACTED:private-key]\n       -[REDACTED:private-key]"},
+		{"file excerpt",
+			"1233\t" + pemBegin + "\n1234\t" + tail + "\n1235\t" + pemEnd,
+			"1233\t[REDACTED:private-key]\n1234\t[REDACTED:private-key]\n1235\t[REDACTED:private-key]"},
+		{"string concatenation",
+			"key := \"" + pemBegin + "\\n\" +\n\t\"" + tail + "\\n\" +\n\t\"" + pemEnd + "\"",
+			"key := \"[REDACTED:private-key]\n\t\"[REDACTED:private-key]\\n\" +\n\t\"[REDACTED:private-key]\""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, matches := Mask(tt.in)
+			if got != tt.want {
+				t.Errorf("Mask() =\n%s\nwant\n%s", got, tt.want)
+			}
+			if len(matches) != 1 {
+				t.Errorf("matches = %+v, want one key", matches)
+			}
+		})
+	}
+}
+
+// Line numbers aren't part of a key's ID, past line 1000 too.
+func TestMaskPrivateKeySameIDPastLine1000(t *testing.T) {
+	_, a := Mask("  1234 +" + pemBegin + "\n  1235 +" + pemBody1 + "\n  1236 +" + pemEnd)
+	_, b := Mask("5678\t" + pemBegin + "\n5679\t" + pemBody1 + "\n5680\t" + pemEnd)
+	if a[0].ID != b[0].ID {
+		t.Errorf("IDs differ: %q, %q", a[0].ID, b[0].ID)
+	}
+}
