@@ -14,7 +14,7 @@ func TestPostApproves(t *testing.T) {
 	t.Parallel()
 
 	gh := &fakeGH{}
-	got, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, true)
+	got, err := post(context.Background(), gh, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, true)
 	require.NoError(t, err)
 	assert.True(t, got.Approved)
 	assert.NoError(t, got.ApprovalErr)
@@ -27,7 +27,7 @@ func TestPostWithoutApproveComments(t *testing.T) {
 	t.Parallel()
 
 	gh := &fakeGH{}
-	got, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, false)
+	got, err := post(context.Background(), gh, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, false)
 	require.NoError(t, err)
 	assert.False(t, got.Approved)
 	require.Len(t, gh.posted, 1)
@@ -42,7 +42,7 @@ func TestPostFallsBackToCommentWhenApprovalRefused(t *testing.T) {
 
 	refused := errors.New("HTTP 422: GitHub Actions is not permitted to approve pull requests.")
 	gh := &fakeGH{postErrs: []error{refused}}
-	got, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, true)
+	got, err := post(context.Background(), gh, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, true)
 	require.NoError(t, err)
 	assert.False(t, got.Approved)
 	assert.ErrorContains(t, got.ApprovalErr, "not permitted to approve")
@@ -60,7 +60,7 @@ func TestPostApprovesWithBodyFallback(t *testing.T) {
 
 	lines := errors.New("HTTP 422: Line could not be resolved")
 	gh := &fakeGH{postErrs: []error{lines, lines}}
-	got, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, true)
+	got, err := post(context.Background(), gh, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, true)
 	require.NoError(t, err)
 	assert.True(t, got.Approved)
 	assert.NoError(t, got.ApprovalErr)
@@ -74,7 +74,7 @@ func TestPostReportsEveryErrorWhenApprovalAndCommentsFail(t *testing.T) {
 	t.Parallel()
 
 	gh := &fakeGH{postErrs: []error{errors.New("one"), errors.New("two"), errors.New("three"), errors.New("four")}}
-	_, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, true)
+	_, err := post(context.Background(), gh, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, true)
 	require.Error(t, err)
 	for _, want := range []string{"one", "two", "three", "four"} {
 		assert.ErrorContains(t, err, want)
@@ -90,7 +90,7 @@ func TestPostReportsApprovalErrorWithoutInlineComments(t *testing.T) {
 	lines := errors.New("HTTP 422: Line could not be resolved")
 	refused := errors.New("HTTP 422: Can not approve your own pull request")
 	gh := &fakeGH{postErrs: []error{lines, lines, refused}}
-	got, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, true)
+	got, err := post(context.Background(), gh, "7", []findings.Event{finding(2, 0, "")}, diff, Scope{}, true)
 	require.NoError(t, err)
 	assert.False(t, got.Approved)
 	assert.True(t, got.Fallback)

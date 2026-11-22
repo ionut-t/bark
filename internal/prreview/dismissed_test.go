@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/findings"
+	"github.com/ionut-t/bark/v2/internal/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,15 +38,15 @@ func TestBuildPutsDismissedFindingsInCollapsedBlock(t *testing.T) {
 	}, Recorded(review.Body))
 }
 
-// barkComment is an inline comment as the review comments query prints it.
-func barkComment(id, review int, path string, line int, body string, thumbsDown int) map[string]any {
-	return map[string]any{"id": id, "review_id": review, "path": path, "line": line, "body": body,
-		"user": "github-actions[bot]", "user_type": "Bot", "author_association": "NONE", "thumbs_down": thumbsDown}
+// barkComment is one of Bark's inline comments.
+func barkComment(id, review int64, path string, line int, body string, thumbsDown int) github.ReviewComment {
+	return github.ReviewComment{ID: id, ReviewID: review, Path: path, Line: line, Body: body,
+		User: "github-actions[bot]", UserType: "Bot", Association: "NONE", ThumbsDown: thumbsDown}
 }
 
-func reply(id, to int, user, userType, association, body string) map[string]any {
-	return map[string]any{"id": id, "review_id": 900 + id, "in_reply_to": to, "path": "a.go", "line": 1, "body": body,
-		"user": user, "user_type": userType, "author_association": association, "thumbs_down": 0}
+func reply(id, to int64, user, userType, association, body string) github.ReviewComment {
+	return github.ReviewComment{ID: id, ReviewID: 900 + id, InReplyTo: to, Path: "a.go", Line: 1, Body: body,
+		User: user, UserType: userType, Association: association}
 }
 
 // A 👎 from someone with write access, or a "won't fix" reply from an
@@ -66,7 +67,7 @@ func TestHistoryDismissals(t *testing.T) {
 	gh := &fakeReviews{
 		bodies:    []string{first, forged},
 		untrusted: map[int]bool{1: true},
-		comments: []map[string]any{
+		comments: []github.ReviewComment{
 			barkComment(101, 1, "a.go", 2, "**[HIGH · bug] Nil map**\n\nm may be nil. It panics.", 1),
 			barkComment(102, 1, "a.go", 3, "**[MEDIUM] Ignored error**\n\ne is dropped.", 0),
 			reply(201, 102, "maint", "User", "MEMBER", "Won’t fix, it's on purpose."),
@@ -81,15 +82,15 @@ func TestHistoryDismissals(t *testing.T) {
 			// Someone's own review comment.
 			barkComment(106, 77, "a.go", 2, "**[LOW] Mine**\n\nm.", 1),
 		},
-		reactions: map[int][]map[string]string{
-			101: {{"user": "owner", "user_type": "User"}},
-			103: {{"user": "stranger", "user_type": "User"}, {"user": "dependabot[bot]", "user_type": "Bot"}},
-			104: {{"user": "maint", "user_type": "User"}},
+		reactions: map[int64][]github.Reactor{
+			101: {{User: "owner", UserType: "User"}},
+			103: {{User: "stranger", UserType: "User"}, {User: "dependabot[bot]", UserType: "Bot"}},
+			104: {{User: "maint", UserType: "User"}},
 		},
 		permissions: map[string]string{"owner": "admin", "stranger": "read"},
 	}
 
-	got, err := history(context.Background(), gh.run, "7")
+	got, err := history(context.Background(), gh, "7")
 	require.NoError(t, err)
 	require.NoError(t, got.DismissalsErr)
 	assert.Equal(t, []findings.Finding{
@@ -100,23 +101,19 @@ func TestHistoryDismissals(t *testing.T) {
 	}, got.Findings)
 	assert.Equal(t, 3, got.Dismissed())
 
-	var calls []string
-	for _, a := range gh.args {
-		calls = append(calls, strings.Join(a, " "))
-	}
 	reactionCalls, permissionCalls := 0, 0
-	for _, c := range calls {
-		if strings.Contains(c, "/reactions") {
+	for _, c := range gh.calls {
+		if strings.HasPrefix(c, "ThumbsDown ") {
 			reactionCalls++
 		}
-		if strings.Contains(c, "/permission") {
+		if strings.HasPrefix(c, "CanWrite ") {
 			permissionCalls++
 		}
 	}
-	assert.Equal(t, 3, reactionCalls, "only Bark comments with a 👎 on a trusted review: %v", calls)
-	assert.Equal(t, 2, permissionCalls, "maint is known to be a member; bots aren't asked about: %v", calls)
-	assert.Contains(t, calls, "api --paginate repos/o/r/pulls/comments/101/reactions?content=-1 --jq "+reactionsQuery)
-	assert.Contains(t, calls, "api repos/o/r/collaborators/owner/permission --jq .permission")
+	assert.Equal(t, 3, reactionCalls, "only Bark comments with a 👎 on a trusted review: %v", gh.calls)
+	assert.Equal(t, 2, permissionCalls, "maint is known to be a member; bots aren't asked about: %v", gh.calls)
+	assert.Contains(t, gh.calls, "ThumbsDown o/r 101")
+	assert.Contains(t, gh.calls, "CanWrite o/r owner")
 }
 
 func TestWontFix(t *testing.T) {
@@ -154,24 +151,24 @@ func TestHistoryDismissalsError(t *testing.T) {
 	first := Build([]findings.Event{{Finding: &findings.Finding{File: "a.go", Line: 2, Title: "One", Body: "b"}}}, diff).Body
 	gh := &fakeReviews{bodies: []string{first}, commentsErr: errors.New("HTTP 403")}
 
-	got, err := history(context.Background(), gh.run, "7")
+	got, err := history(context.Background(), gh, "7")
 	require.NoError(t, err)
 	assert.Equal(t, []findings.Finding{{File: "a.go", Line: 2, Title: "One", Body: "b"}}, got.Findings)
 	assert.ErrorContains(t, got.DismissalsErr, "HTTP 403")
 }
 
-// A 👎 from someone who isn't a collaborator (the permission call answers
-// 404) doesn't count, and isn't an error.
+// A 👎 from someone without write access doesn't count, and isn't an
+// error.
 func TestHistoryPermissionError(t *testing.T) {
 	t.Parallel()
 
 	first := Build([]findings.Event{{Finding: &findings.Finding{File: "a.go", Line: 2, Title: "One", Body: "b"}}}, diff).Body
 	gh := &fakeReviews{
 		bodies:    []string{first},
-		comments:  []map[string]any{barkComment(101, 1, "a.go", 2, "**[HIGH] One**\n\nb", 1)},
-		reactions: map[int][]map[string]string{101: {{"user": "nobody", "user_type": "User"}}},
+		comments:  []github.ReviewComment{barkComment(101, 1, "a.go", 2, "**[HIGH] One**\n\nb", 1)},
+		reactions: map[int64][]github.Reactor{101: {{User: "nobody", UserType: "User"}}},
 	}
-	got, err := history(context.Background(), gh.run, "7")
+	got, err := history(context.Background(), gh, "7")
 	require.NoError(t, err)
 	assert.Empty(t, got.Findings[0].Dismissed)
 	assert.NoError(t, got.DismissalsErr, "a 404 only means not a collaborator")

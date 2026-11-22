@@ -3,11 +3,9 @@ package git
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,13 +14,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/ionut-t/bark/v2/internal/github"
 )
 
 var (
 	ErrNotAGitRepository     = errors.New("not a git repository")
 	ErrNoChangesInRepository = errors.New("no changes in repository")
 	ErrNoCommitsInRepository = errors.New("no commits in repository")
-	ErrGHNotInstalled        = errors.New("gh CLI is not installed (see https://cli.github.com)")
 )
 
 var shortStatRegex = regexp.MustCompile(`(?P<files>\d+) files? changed(?:, (?P<additions>\d+) insertions?\(\+\))?(?:, (?P<deletions>\d+) deletions?\(-\))?`)
@@ -559,25 +558,13 @@ func GetBranchInfo(ctx context.Context, baseBranch string, limit DiffLimit) (*Br
 	}, nil
 }
 
-// GetPRDiff returns the diff for a GitHub pull request using the gh CLI.
+// GetPRDiff returns the diff for a GitHub pull request.
 func GetPRDiff(ctx context.Context, prNumber string) (string, error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "diff", prNumber)
-	output, err := cmd.Output()
+	diff, err := github.New().PullRequestDiff(ctx, prNumber)
 	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
-			return "", ErrGHNotInstalled
-		}
-
-		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
-			if stderr := strings.TrimSpace(string(exitErr.Stderr)); stderr != "" {
-				return "", fmt.Errorf("%w:\n%s", exitErr, stderr)
-			}
-		}
-
-		return "", fmt.Errorf("failed to get PR diff: %w", err)
+		return "", err
 	}
-
-	return filterDiff(string(output), loadIgnore(ctx)), nil
+	return filterDiff(diff, loadIgnore(ctx)), nil
 }
 
 var diffFileHeaderRe = regexp.MustCompile(`^diff --git a/.+ b/(.+)$`)
@@ -619,48 +606,18 @@ type PRMeta struct {
 }
 
 // PRFile is a file a pull request changes.
-type PRFile struct {
-	Path      string `json:"path"`
-	Additions int    `json:"additions"`
-	Deletions int    `json:"deletions"`
-}
+type PRFile = github.File
 
-// GetPRMeta fetches the title and commit messages for a GitHub pull request via the gh CLI.
+// GetPRMeta fetches the title and commit messages for a GitHub pull request.
 func GetPRMeta(ctx context.Context, prNumber string) (*PRMeta, error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "commits,title,number,body,headRefOid,baseRefOid,files,changedFiles")
-	out, err := cmd.Output()
+	raw, err := github.New().PullRequest(ctx, prNumber)
 	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
-			return nil, ErrGHNotInstalled
-		}
-		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
-			if stderr := strings.TrimSpace(string(exitErr.Stderr)); stderr != "" {
-				return nil, fmt.Errorf("%s", stderr)
-			}
-		}
-		return nil, fmt.Errorf("failed to get PR metadata: %w", err)
-	}
-
-	var raw struct {
-		Number       int      `json:"number"`
-		Title        string   `json:"title"`
-		Body         string   `json:"body"`
-		HeadSHA      string   `json:"headRefOid"`
-		BaseSHA      string   `json:"baseRefOid"`
-		Files        []PRFile `json:"files"`
-		ChangedFiles int      `json:"changedFiles"`
-		Commits      []struct {
-			MessageHeadline string `json:"messageHeadline"`
-			MessageBody     string `json:"messageBody"`
-		} `json:"commits"`
-	}
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("failed to parse PR metadata: %w", err)
+		return nil, err
 	}
 
 	commits := make([]Commit, len(raw.Commits))
 	for i, c := range raw.Commits {
-		commits[i] = Commit{Message: c.MessageHeadline, Body: c.MessageBody}
+		commits[i] = Commit{Message: c.Headline, Body: c.Body}
 	}
 
 	return &PRMeta{
@@ -1067,9 +1024,7 @@ func (r ReviewDiff) RepoFile(ctx context.Context, path string) ([]byte, error) {
 // ghFileContent reads path at commit sha from the current repository on
 // GitHub.
 func ghFileContent(ctx context.Context, sha, path string) ([]byte, error) {
-	endpoint := "repos/{owner}/{repo}/contents/" + (&url.URL{Path: path}).EscapedPath() + "?ref=" + url.QueryEscape(sha)
-	cmd := exec.CommandContext(ctx, "gh", "api", "-H", "Accept: application/vnd.github.raw", endpoint)
-	out, err := cmd.Output()
+	out, err := github.New().FileContent(ctx, sha, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %s at %s from GitHub: %w", path, sha, err)
 	}

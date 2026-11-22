@@ -2,14 +2,13 @@ package prreview
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/findings"
+	"github.com/ionut-t/bark/v2/internal/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -106,101 +105,74 @@ func TestRecorded(t *testing.T) {
 	assert.Equal(t, []findings.Finding{{File: "a.go", Line: 2, Title: recordStart, Body: "b"}}, Recorded(body))
 }
 
-// fakeReviews answers gh pr view and lists the reviews in bodies, as
-// gh api --paginate --jq prints them: one JSON object per line, review i
+// fakeReviews answers PullRef and lists the reviews in bodies, review i
 // with id i+1. They're posted by a bot unless untrusted names them. It
-// answers the review comments call with comments (already as jq prints
-// them), the reactions call for a comment with reactions[id], and the
-// permission call for a user with permissions[login] (an HTTP 404 when
-// missing).
+// answers ReviewComments with comments, ThumbsDown for a comment with
+// reactions[id], and CanWrite for a user with permissions[login] (no write
+// access when missing). calls records each call but PullRef.
 type fakeReviews struct {
+	noGitHub
 	bodies      []string
 	commits     map[int]string
 	untrusted   map[int]bool
 	err         error
-	comments    []map[string]any
+	comments    []github.ReviewComment
 	commentsErr error
-	reactions   map[int][]map[string]string
+	reactions   map[int64][]github.Reactor
 	permissions map[string]string
 	// states are the reviews' states, by index; COMMENTED when unset.
-	states map[int]string
-	// threads are the pull request's review threads, as the threads
-	// query prints them.
-	threads    []map[string]any
+	states     map[int]string
+	threads    []github.ReviewThread
 	threadsErr error
-	args       [][]string
+	calls      []string
 }
 
-func (f *fakeReviews) run(_ context.Context, _ []byte, args ...string) ([]byte, error) {
-	f.args = append(f.args, args)
-	jsonLines := func(items ...any) []byte {
-		var out []byte
-		for _, it := range items {
-			line, _ := json.Marshal(it)
-			out = append(append(out, line...), '\n')
-		}
-		return out
+func (f *fakeReviews) PullRef(context.Context, string) (github.PullRef, error) {
+	return testRef, nil
+}
+
+func (f *fakeReviews) Reviews(_ context.Context, pull github.Pull) ([]github.Review, error) {
+	f.calls = append(f.calls, fmt.Sprintf("Reviews %d", pull.Number))
+	if f.err != nil {
+		return nil, f.err
 	}
-	switch {
-	case args[0] == "pr":
-		return []byte(`{"url":"https://github.com/o/r/pull/7","headRefOid":"abc123"}`), nil
-	case args[0] != "api":
-	case len(args) > 1 && args[1] == "graphql":
-		if f.threadsErr != nil {
-			return nil, f.threadsErr
+	var rs []github.Review
+	for i, b := range f.bodies {
+		r := github.Review{ID: int64(i + 1), Body: b, UserType: "Bot", Association: "NONE", State: "COMMENTED",
+			CommitID: f.commits[i]}
+		if st := f.states[i]; st != "" {
+			r.State = st
 		}
-		var ts []any
-		for _, t := range f.threads {
-			ts = append(ts, t)
+		if f.untrusted[i] {
+			r.UserType, r.Association = "User", "CONTRIBUTOR"
 		}
-		return jsonLines(ts...), nil
-	case slices.Contains(args, "repos/o/r/pulls/7/reviews"):
-		if f.err != nil {
-			return nil, f.err
-		}
-		var rs []any
-		for i, b := range f.bodies {
-			r := map[string]any{"id": i + 1, "body": b, "user_type": "Bot", "author_association": "NONE", "state": "COMMENTED"}
-			if st := f.states[i]; st != "" {
-				r["state"] = st
-			}
-			if c := f.commits[i]; c != "" {
-				r["commit_id"] = c
-			}
-			if f.untrusted[i] {
-				r["user_type"], r["author_association"] = "User", "CONTRIBUTOR"
-			}
-			rs = append(rs, r)
-		}
-		return jsonLines(rs...), nil
-	case slices.Contains(args, "repos/o/r/pulls/7/comments"):
-		if f.commentsErr != nil {
-			return nil, f.commentsErr
-		}
-		var cs []any
-		for _, c := range f.comments {
-			cs = append(cs, c)
-		}
-		return jsonLines(cs...), nil
+		rs = append(rs, r)
 	}
-	for _, a := range args {
-		var id int
-		if _, err := fmt.Sscanf(a, "repos/o/r/pulls/comments/%d/reactions?content=-1", &id); err == nil {
-			var rs []any
-			for _, r := range f.reactions[id] {
-				rs = append(rs, r)
-			}
-			return jsonLines(rs...), nil
-		}
-		if login, ok := strings.CutPrefix(a, "repos/o/r/collaborators/"); ok {
-			login = strings.TrimSuffix(login, "/permission")
-			if p, ok := f.permissions[login]; ok {
-				return []byte(p + "\n"), nil
-			}
-			return nil, errors.New("exit status 1: gh: Not Found (HTTP 404)")
-		}
+	return rs, nil
+}
+
+func (f *fakeReviews) ReviewComments(_ context.Context, pull github.Pull) ([]github.ReviewComment, error) {
+	f.calls = append(f.calls, fmt.Sprintf("ReviewComments %d", pull.Number))
+	return f.comments, f.commentsErr
+}
+
+func (f *fakeReviews) ThumbsDown(_ context.Context, repo github.Repo, id int64) ([]github.Reactor, error) {
+	f.calls = append(f.calls, fmt.Sprintf("ThumbsDown %s/%s %d", repo.Owner, repo.Name, id))
+	return f.reactions[id], nil
+}
+
+func (f *fakeReviews) CanWrite(_ context.Context, repo github.Repo, login string) (bool, error) {
+	f.calls = append(f.calls, fmt.Sprintf("CanWrite %s/%s %s", repo.Owner, repo.Name, login))
+	switch f.permissions[login] {
+	case "admin", "maintain", "write":
+		return true, nil
 	}
-	return nil, errors.New("unexpected gh call " + strings.Join(args, " "))
+	return false, nil
+}
+
+func (f *fakeReviews) ReviewThreads(_ context.Context, pull github.Pull) ([]github.ReviewThread, error) {
+	f.calls = append(f.calls, fmt.Sprintf("ReviewThreads %d", pull.Number))
+	return f.threads, f.threadsErr
 }
 
 func TestEarlier(t *testing.T) {
@@ -214,25 +186,21 @@ func TestEarlier(t *testing.T) {
 	}, diff).Body
 	gh := &fakeReviews{bodies: []string{first, Marker + "\nAn old review without records.\n", second}}
 
-	got, err := earlier(context.Background(), gh.run, "7")
+	got, err := earlier(context.Background(), gh, "7")
 	require.NoError(t, err)
 	assert.Equal(t, []findings.Finding{
 		{File: "a.go", Line: 2, Title: "One", Body: "b"},
 		{File: "a.go", Line: 3, Title: "Two", Body: "c", Doubt: findings.DoubtedEarlier},
 	}, got)
 
-	require.Len(t, gh.args, 3)
-	assert.Equal(t, []string{"api", "--paginate", "repos/o/r/pulls/7/reviews", "--jq",
-		`.[] | select(.body | startswith("<!-- bark-review -->")) | {id, commit_id, state, body, user_type: .user.type, author_association} | @json`}, gh.args[1])
-	assert.Equal(t, []string{"api", "--paginate", "repos/o/r/pulls/7/comments", "--jq", reviewCommentsQuery}, gh.args[2],
-		"the inline comments, for dismissals")
+	assert.Equal(t, []string{"Reviews 7", "ReviewComments 7"}, gh.calls, "the inline comments, for dismissals")
 }
 
 func TestEarlierError(t *testing.T) {
 	t.Parallel()
 
 	gh := &fakeReviews{err: errors.New("HTTP 404")}
-	_, err := earlier(context.Background(), gh.run, "7")
+	_, err := earlier(context.Background(), gh, "7")
 	assert.ErrorContains(t, err, "HTTP 404")
 }
 
@@ -318,7 +286,7 @@ func TestHistory(t *testing.T) {
 		untrusted: map[int]bool{4: true},
 	}
 
-	got, err := history(context.Background(), gh.run, "7")
+	got, err := history(context.Background(), gh, "7")
 	require.NoError(t, err)
 	assert.Equal(t, "bbbbbbb", got.Head, "the newest recorded head")
 	assert.Equal(t, "ccccccc", got.Base, "with its base")
@@ -344,7 +312,7 @@ func TestHistory(t *testing.T) {
 		assert.Equal(t, tc.trusted, trustedReviewer(tc.userType, tc.association), "%s %s", tc.userType, tc.association)
 	}
 
-	none, err := history(context.Background(), (&fakeReviews{}).run, "7")
+	none, err := history(context.Background(), &fakeReviews{}, "7")
 	require.NoError(t, err)
 	assert.Equal(t, History{}, none)
 }
@@ -368,7 +336,7 @@ func TestPostPartialReviewStillGoesOnHead(t *testing.T) {
 	t.Parallel()
 
 	gh := &fakeGH{}
-	_, err := post(context.Background(), gh.run, "7", []findings.Event{finding(2, 0, "x")}, diff,
+	_, err := post(context.Background(), gh, "7", []findings.Event{finding(2, 0, "x")}, diff,
 		Scope{Head: "def4567", Since: "0001111", Partial: true}, false)
 	require.NoError(t, err)
 	require.Len(t, gh.posted, 1)
