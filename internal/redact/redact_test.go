@@ -18,6 +18,13 @@ var (
 	anthropicKey = "sk-" + "ant-api03-" + strings.Repeat("Zz9_-", 20)
 	googleKey    = "AI" + "za" + "SyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q"
 	googleSecret = "GOC" + "SPX-" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4"
+	stripeLive   = "sk_" + "live_" + "51AbCdEfGh" + strings.Repeat("Ij0Kl1Mn2", 10)
+	stripeTest   = "sk_" + "test_" + "51DummyKeyForBarkTesting0000000000000000000000000000"
+	stripeRK     = "rk_" + "live_" + strings.Repeat("Zy9Xw8", 8)
+	stripeHook   = "whs" + "ec_" + "DummyWebhookSecretForBarkTesting00000"
+	slackHook    = "https://hooks.slack.com/services/" + "T00000000/B00000000/" + strings.Repeat("X", 24)
+	slackBot     = "xo" + "xb-" + "123456789012-1234567890123-" + strings.Repeat("aB3", 8)
+	dbPassword   = "Sup3rS3cret" + "Passw0rd!"
 	pemBegin     = "-----BEGIN " + "RSA PRIVATE KEY-----"
 	pemEnd       = "-----END " + "RSA PRIVATE KEY-----"
 	pemBody1     = "MIIEowIBAAKCAQEA7bq3W0xYz1Ab2Cd3Ef4Gh5Ij6Kl7Mn8Op9Qr0St"
@@ -38,6 +45,18 @@ func TestMaskKinds(t *testing.T) {
 		{"anthropic key", "ANTHROPIC_API_KEY=" + anthropicKey, "anthropic-api-key", anthropicKey},
 		{"google api key", `apiKey: "` + googleKey + `"`, "google-api-key", googleKey},
 		{"google oauth secret", `"client_secret": "` + googleSecret + `"`, "google-oauth-client-secret", googleSecret},
+		{"stripe live key", "STRIPE_SECRET_KEY=" + stripeLive, "stripe-secret-key", stripeLive},
+		{"stripe test key", "secretKey: '" + stripeTest + "',", "stripe-secret-key", stripeTest},
+		{"stripe restricted key", `"` + stripeRK + `"`, "stripe-secret-key", stripeRK},
+		{"stripe webhook secret", "webhookSecret: '" + stripeHook + "',", "stripe-webhook-secret", stripeHook},
+		{"slack webhook", "'" + slackHook + "',", "slack-webhook-url", slackHook},
+		{"slack bot token", "SLACK_BOT_TOKEN=" + slackBot, "slack-token", slackBot},
+		{"postgres password", "url: 'postgres://shop_admin:" + dbPassword + "@db.internal.example.com:5432/shop',", "database-password", dbPassword},
+		{"postgresql password", "DATABASE_URL=postgresql://app:" + dbPassword + "@localhost/app", "database-password", dbPassword},
+		{"mysql password", `dsn = "mysql://root:` + dbPassword + `@tcp/app"`, "database-password", dbPassword},
+		{"mongodb srv password", `"mongodb+srv://admin:` + dbPassword + `@cluster0.example.net/db"`, "database-password", dbPassword},
+		{"redis password", "REDIS_URL=rediss://default:" + dbPassword + "@cache:6380", "database-password", dbPassword},
+		{"amqp password", "amqp://guest:" + dbPassword + "@rabbit:5672/", "database-password", dbPassword},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -72,6 +91,18 @@ func TestMaskLeavesLookalikes(t *testing.T) {
 		"-----BEGIN CERTIFICATE-----",
 		"const pemHeader = \"-----BEGIN\"",
 		"[REDACTED:github-token]",
+		"pk_live_51AbCdEfGhIj0Kl1Mn2Ij0Kl1Mn2Ij0", // publishable, not secret
+		"sk_test_short",
+		"task_live_session_handler_for_the_dashboard_x", // "sk_live_" inside a word
+		"https://hooks.slack.com/services/",
+		"postgres://localhost:5432/app",               // no credentials
+		"postgres://app@localhost/app",                // a user, no password
+		"postgres://app:${DB_PASSWORD}@localhost/app", // filled in at runtime
+		"postgres://app:$DB_PASSWORD@localhost/app",
+		"postgres://user:<password>@host/db",
+		"postgres://user:password@host/db", // the docs' placeholder
+		"mysql://user:****@host/db",
+		"https://user:pass@example.com/", // not a database URL
 	} {
 		if got, matches := Mask(in); got != in || len(matches) != 0 {
 			t.Errorf("Mask(%q) = %q, %+v; want it unchanged", in, got, matches)
@@ -195,5 +226,24 @@ func TestMasked(t *testing.T) {
 	}
 	if Masked(`key := os.Getenv("AWS_ACCESS_KEY_ID")`) {
 		t.Error("Masked() = true without a placeholder")
+	}
+}
+
+// The review sees a key in the diff and the check sees it in the file, with
+// line numbers: it's the same key, so it's warned about once.
+func TestMaskPrivateKeySameIDInDiffAndFile(t *testing.T) {
+	inDiff := "+++ b/config.ts\n@@ -0,0 +1,3 @@\n    30 +export const privateKey = `" + pemBegin + "\n    31 +" + pemBody1 + "\n    32 +" + pemEnd + "`;\n"
+	inFile := "### config.ts\n\n30\texport const privateKey = `" + pemBegin + "\n31\t" + pemBody1 + "\n32\t" + pemEnd + "`;\n"
+	_, a := Mask(inDiff)
+	_, b := Mask(inFile)
+	if len(a) != 1 || len(b) != 1 {
+		t.Fatalf("matches = %+v, %+v; want one each", a, b)
+	}
+	if a[0].ID != b[0].ID {
+		t.Errorf("IDs differ: %q in the diff, %q in the file", a[0].ID, b[0].ID)
+	}
+	_, other := Mask("+" + pemBegin + "\n+" + pemBody2 + "\n+" + pemEnd + "\n")
+	if other[0].ID == a[0].ID {
+		t.Error("a different key has the same ID")
 	}
 }

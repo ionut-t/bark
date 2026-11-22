@@ -43,22 +43,49 @@ func Masked(s string) bool { return strings.Contains(s, placeholderPrefix) }
 type pattern struct {
 	kind string
 	re   *regexp.Regexp
+	// skip, if not nil, leaves a match alone: a placeholder, not a secret.
+	skip func(secret string) bool
 }
 
 // patterns are tried in order on each line. Anthropic's keys start with
 // "sk-" too, so they come before OpenAI's.
 var patterns = []pattern{
-	{"aws-access-key-id", regexp.MustCompile(`\b((?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16})\b`)},
+	{"aws-access-key-id", regexp.MustCompile(`\b((?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16})\b`), nil},
 	// Forty base64 characters are too common to mask on their own (a SHA-1
 	// in hex is forty characters), so only next to the name of the key.
-	{"aws-secret-access-key", regexp.MustCompile(`(?i)(?:aws.{0,20}?secret|secret_?access_?key).{0,20}?[:=>]\s*['"]?([A-Za-z0-9/+]{40})(?:[^A-Za-z0-9/+=]|$)`)},
-	{"github-token", regexp.MustCompile(`\b((?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,255})\b`)},
-	{"github-token", regexp.MustCompile(`\b(github_pat_[A-Za-z0-9_]{50,255})\b`)},
-	{"anthropic-api-key", regexp.MustCompile(`\b(sk-ant-[a-z0-9]+-[A-Za-z0-9_-]{32,})`)},
-	{"openai-api-key", regexp.MustCompile(`\b(sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{32,})`)},
-	{"openai-api-key", regexp.MustCompile(`\b(sk-[A-Za-z0-9_-]*T3BlbkFJ[A-Za-z0-9_-]+)`)},
-	{"google-api-key", regexp.MustCompile(`\b(AIza[0-9A-Za-z_-]{35})(?:[^0-9A-Za-z_-]|$)`)},
-	{"google-oauth-client-secret", regexp.MustCompile(`\b(GOCSPX-[A-Za-z0-9_-]{28})(?:[^A-Za-z0-9_-]|$)`)},
+	{"aws-secret-access-key", regexp.MustCompile(`(?i)(?:aws.{0,20}?secret|secret_?access_?key).{0,20}?[:=>]\s*['"]?([A-Za-z0-9/+]{40})(?:[^A-Za-z0-9/+=]|$)`), nil},
+	{"github-token", regexp.MustCompile(`\b((?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,255})\b`), nil},
+	{"github-token", regexp.MustCompile(`\b(github_pat_[A-Za-z0-9_]{50,255})\b`), nil},
+	{"anthropic-api-key", regexp.MustCompile(`\b(sk-ant-[a-z0-9]+-[A-Za-z0-9_-]{32,})`), nil},
+	{"openai-api-key", regexp.MustCompile(`\b(sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{32,})`), nil},
+	{"openai-api-key", regexp.MustCompile(`\b(sk-[A-Za-z0-9_-]*T3BlbkFJ[A-Za-z0-9_-]+)`), nil},
+	{"google-api-key", regexp.MustCompile(`\b(AIza[0-9A-Za-z_-]{35})(?:[^0-9A-Za-z_-]|$)`), nil},
+	{"google-oauth-client-secret", regexp.MustCompile(`\b(GOCSPX-[A-Za-z0-9_-]{28})(?:[^A-Za-z0-9_-]|$)`), nil},
+	// Secret and restricted keys; publishable keys (pk_) are public.
+	{"stripe-secret-key", regexp.MustCompile(`\b((?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,})`), nil},
+	{"stripe-webhook-secret", regexp.MustCompile(`\b(whsec_[A-Za-z0-9]{24,})`), nil},
+	{"slack-webhook-url", regexp.MustCompile(`(https://hooks\.slack\.com/(?:services|workflows|triggers)/[A-Za-z0-9_/-]{20,})`), nil},
+	{"slack-token", regexp.MustCompile(`\b(xox[abposr]-[A-Za-z0-9-]{20,})`), nil},
+	// The password in a database or broker URL. One that's filled in at
+	// runtime (${DB_PASSWORD}, $PASS), or the docs' "password", isn't a
+	// secret.
+	{
+		"database-password", regexp.MustCompile(`\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|sqlserver|mssql|cockroachdb)://[^:/@\s'"]*:([^@\s'"/]+)@`),
+		isPlaceholderPassword,
+	},
+}
+
+// isPlaceholderPassword reports whether a password in a URL stands for one
+// rather than being one.
+func isPlaceholderPassword(p string) bool {
+	if strings.ContainsAny(p[:1], "$<{%*") || strings.Trim(p, "*x") == "" {
+		return true
+	}
+	switch strings.ToLower(p) {
+	case "password", "pass", "passwd", "pwd", "secret", "changeme":
+		return true
+	}
+	return false
 }
 
 const privateKey = "private-key"
@@ -112,11 +139,11 @@ func Mask(s string) (string, []Match) {
 
 		if pem != nil {
 			if loc := pemEndRE.FindStringIndex(l); loc != nil {
-				pemText.WriteString(l[:loc[1]])
+				writeKey(&pemText, l[:loc[0]])
 				l = maskBody(l[:loc[0]]) + placeholder(privateKey) + l[loc[1]:]
 				endPEM()
 			} else {
-				pemText.WriteString(l)
+				writeKey(&pemText, l)
 				l = maskBody(l)
 				if pemLeft--; pemLeft == 0 {
 					endPEM()
@@ -133,7 +160,8 @@ func Mask(s string) (string, []Match) {
 				l = l[:loc[0]] + placeholder(privateKey) + l[stop:]
 			} else {
 				pem, pemLeft = &m, maxPEMLines
-				pemText.WriteString(l[loc[0]:])
+				pemText.WriteString(l[loc[0]:loc[1]])
+				writeKey(&pemText, l[loc[1]:])
 				// Anything after the header (an escaped key cut by a
 				// line break, say) is part of the key.
 				l = l[:loc[0]] + placeholder(privateKey)
@@ -162,6 +190,9 @@ func maskPattern(l string, p pattern, m Match, matches *[]Match) string {
 	last := 0
 	for _, loc := range locs {
 		start, end := loc[2], loc[3]
+		if p.skip != nil && p.skip(l[start:end]) {
+			continue
+		}
 		b.WriteString(l[last:start])
 		b.WriteString(placeholder(p.kind))
 		m.ID = id(l[start:end])
@@ -170,6 +201,15 @@ func maskPattern(l string, p pattern, m Match, matches *[]Match) string {
 	}
 	b.WriteString(l[last:])
 	return b.String()
+}
+
+// writeKey adds the base64 in l, a line of a private key's body, to b. Only
+// the key goes into its ID, not the diff markers or line numbers around it,
+// so the key has the same ID in a diff and in a file.
+func writeKey(b *strings.Builder, l string) {
+	for _, run := range pemBodyRE.FindAllString(l, -1) {
+		b.WriteString(run)
+	}
 }
 
 // maskBody masks the base64 in a line of a private key's body.
