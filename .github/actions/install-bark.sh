@@ -72,9 +72,14 @@ fi
 # under pipefail that would skip the check. A failed read stops the install.
 WORKFLOW_AT_TAG=$(gh api -H "Accept: application/vnd.github.raw" "repos/$REPO/contents/$RELEASE_WORKFLOW?ref=$TAG")
 if [[ "$WORKFLOW_AT_TAG" == *attest-build-provenance* ]]; then
-  gh attestation verify "$ASSET" --repo "$REPO" \
+  # gh prints its verdict only on a terminal, so ask for JSON and log the
+  # result ourselves. A failed verification still exits non-zero with
+  # gh's error on stderr, which stops the install.
+  SOURCE_COMMIT=$(gh attestation verify "$ASSET" --repo "$REPO" \
     --signer-workflow "$REPO/$RELEASE_WORKFLOW" \
-    --source-ref refs/heads/main
+    --source-ref refs/heads/main \
+    --format json --jq '.[0].verificationResult.signature.certificate.sourceRepositoryDigest')
+  echo "$ASSET: build provenance verified (built by $RELEASE_WORKFLOW on main at ${SOURCE_COMMIT:-an unknown commit})"
 else
   echo "::notice::Bark $TAG predates build provenance; checked its checksum only."
 fi
