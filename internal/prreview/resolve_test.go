@@ -149,6 +149,39 @@ func TestHistoryThreadsNeedCommitAndLine(t *testing.T) {
 	assert.Empty(t, got.Threads)
 }
 
+// GitHub takes a comment on several lines only within one hunk of the
+// diff, so a finding on lines in two hunks is posted on its first line
+// alone. Its thread still covers every line the finding recorded: a fix
+// below the first line is a change to its code. A comment that isn't on
+// the recorded lines (a suggestion found elsewhere) keeps its own.
+func TestHistoryThreadsCoverTheRecordedLines(t *testing.T) {
+	t.Parallel()
+
+	body := Build([]findings.Event{
+		{Finding: &findings.Finding{File: "a.go", Line: 2, EndLine: 8, Title: "Split", Body: "x."}},
+		{Finding: &findings.Finding{File: "a.go", Line: 20, EndLine: 22, Title: "Moved", Body: "y."}},
+	}, diff).Body
+	gh := &fakeReviews{
+		bodies: []string{body},
+		comments: []map[string]any{
+			postedComment(101, 2, 2, "**[HIGH · bug] Split**\n\nx."),
+			postedComment(102, 30, 31, "**[LOW] Moved**\n\ny."),
+		},
+		threads: []map[string]any{thread("T101", 101, false), thread("T102", 102, false)},
+	}
+
+	got, err := history(context.Background(), gh.run, "7")
+	require.NoError(t, err)
+	require.NoError(t, got.ThreadsErr)
+	pull := "repos/o/r/pulls/7"
+	assert.Equal(t, []Thread{
+		{ID: "T101", Comment: 101, pull: pull, Point: findings.Finding{
+			File: "a.go", Line: 2, EndLine: 8, Title: "Split", Body: "x.", Commit: postedOn}},
+		{ID: "T102", Comment: 102, pull: pull, Point: findings.Finding{
+			File: "a.go", Line: 30, EndLine: 31, Title: "Moved", Body: "y.", Commit: postedOn}},
+	}, got.Threads)
+}
+
 // fakeResolve answers replies and the resolveReviewThread and
 // unresolveReviewThread mutations, failing for the comments and threads
 // given.

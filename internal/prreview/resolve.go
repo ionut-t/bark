@@ -81,8 +81,9 @@ const (
 // readThreads reads the review threads of the pull request at pull (an
 // API path) and, of Bark's inline comments in inline, marks the findings
 // whose thread is resolved and keeps the open threads nobody answered as
-// h.Threads.
-func (h *History) readThreads(ctx context.Context, run gh, pull string, inline inlineComments) error {
+// h.Threads. recorded are the findings each of Bark's reviews recorded, by
+// review id: a thread covers every line its finding did (see recordedLines).
+func (h *History) readThreads(ctx context.Context, run gh, pull string, inline inlineComments, recorded map[int64][]findings.Finding) error {
 	parts := strings.Split(pull, "/")
 	if len(parts) != 5 {
 		return fmt.Errorf("unexpected pull request path %q", pull)
@@ -128,14 +129,33 @@ func (h *History) readThreads(ctx context.Context, run gh, pull string, inline i
 		if inline.answered[c.ID] || c.Line <= 0 || !commitHash.MatchString(c.Commit) {
 			continue
 		}
+		line, end := recordedLines(c, title, recorded[c.ReviewID])
 		h.Threads = append(h.Threads, Thread{
 			ID: t.ID, Comment: c.ID, pull: pull,
 			Point: findings.Finding{
-				File: c.Path, Line: c.Line, EndLine: max(c.EndLine, c.Line), Title: title, Body: body, Commit: c.Commit,
+				File: c.Path, Line: line, EndLine: end, Title: title, Body: body, Commit: c.Commit,
 			},
 		})
 	}
 	return nil
+}
+
+// recordedLines returns the lines the thread of comment c, titled title,
+// covers: those its finding in recorded (its review's) covered, when they
+// hold the comment's, or else the comment's own. GitHub takes a comment on
+// several lines only within one hunk, so a finding whose lines span two
+// hunks is posted on its first line alone; a fix further down its lines
+// is still a change to its code.
+func recordedLines(c reviewComment, title string, recorded []findings.Finding) (int, int) {
+	line, end := c.Line, max(c.EndLine, c.Line)
+	for _, f := range recorded {
+		fEnd := max(f.EndLine, f.Line)
+		if f.File == c.Path && strings.EqualFold(oneLine(f.Title), oneLine(title)) &&
+			f.Line <= line && end <= fEnd {
+			return f.Line, fEnd
+		}
+	}
+	return line, end
 }
 
 // MarkResolved marks the points of h that the threads Bark resolved, as
