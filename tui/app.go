@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/paths"
 	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/ionut-t/bark/v2/internal/prompt"
+	"github.com/ionut-t/bark/v2/internal/redact"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
 	"github.com/ionut-t/coffee/styles"
@@ -131,6 +133,9 @@ type Model struct {
 }
 
 type Options struct {
+	// Warnings, if not nil, gets the warnings about secrets masked before a
+	// call; the TUI has no room for them while it runs (see redact.Wrap).
+	Warnings          io.Writer
 	Paths             paths.Paths
 	ReviewerName      string
 	Instructions      []string
@@ -156,6 +161,7 @@ func New(options Options) *Model {
 			error: err,
 		}
 	}
+	llm = redact.Wrap(llm, options.Warnings)
 
 	// The TUI has nowhere to warn about a prices file it can't use; it just
 	// shows no cost.
@@ -949,6 +955,10 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	m.review.showRelativeLineNumbers(m.config.GetRelativeNumber())
 	m.review.setUsedModel(m.getLlmModelName())
 	m.review.setStructured(structured)
+	if structured {
+		// As in the CLI: the model is told Bark reports these.
+		m.review.setSecrets(redact.Findings(msg.diff))
+	}
 	m.review.setDiffNotes(msg.reviewDiff.Cut, msg.reviewDiff.Warnings)
 	m.review.minSeverity = findings.Severity(m.config.GetMinSeverity())
 	m.review.setLogInfo(m.paths.State, m.llmProvider)

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/check"
+	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/debuglog"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/git"
@@ -350,4 +351,42 @@ func TestReviewWithDiffWarnings(t *testing.T) {
 	m, _ = m.Update(streamChunkMsg{content: "Clean."})
 	m, _ = m.Update(streamCompleteMsg{})
 	assert.NotContains(t, m.response, "Warning")
+}
+
+// secretDiff adds an AWS access key, split so the source holds no key.
+const secretDiff = "diff --git a/aws.go b/aws.go\n" +
+	"--- a/aws.go\n" +
+	"+++ b/aws.go\n" +
+	"@@ -1,1 +1,2 @@\n" +
+	" package aws\n" +
+	"+const key = \"" + "AKIA" + "IOSFODNN7EXAMPLE" + "\"\n"
+
+// With structured findings on, a secret the diff adds is a critical finding
+// Bark makes itself, as in the CLI: the model is told not to report its
+// placeholder, so otherwise the TUI wouldn't report the secret at all. It
+// shows before the model's findings and stays first once the check is done.
+func TestReviewStructuredReportsAddedSecrets(t *testing.T) {
+	t.Parallel()
+
+	app := &Model{config: config.New("", config.Data{StructuredFindings: true}), width: 80, height: 40}
+	app.selectedReviewer = &reviewers.Reviewer{Name: "Spock"}
+	_, _ = app.handleReviewDiffLoaded(reviewDiffLoadedMsg{diff: secretDiff, reviewDiff: git.ReviewDiff{Diff: secretDiff}})
+	m := app.review
+	m.setCheck(check.Review{Diff: checkDiff, Client: checkLLM{output: `{"id":1,"verdict":"keep","evidence":"counts := make(map[string]int)"}`}})
+
+	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","line":2,"severity":"high","title":"Nil map","body":"b"}` + "\n"})
+	content := m.editor.GetCurrentContent()
+	secret := strings.Index(content, "### [CRITICAL · security] Hard-coded secret (aws-access-key-id)")
+	require.GreaterOrEqual(t, secret, 0, "the secret is reported")
+	assert.Less(t, secret, strings.Index(content, "### [HIGH] Nil map"), "Bark's own finding comes first")
+	assert.Contains(t, content, "`aws.go:2`")
+	assert.NotContains(t, content, "IOSFODNN7EXAMPLE", "the finding doesn't repeat the secret")
+
+	m, cmd := m.Update(streamCompleteMsg{})
+	require.NotNil(t, cmd)
+	m, _ = m.Update(cmd())
+
+	assert.True(t, strings.HasPrefix(m.response, "### [CRITICAL · security] Hard-coded secret (aws-access-key-id)"), "still first after the check")
+	assert.Contains(t, m.response, "### [HIGH] Nil map")
+	assert.Equal(t, "Bark's check kept the finding", m.checkSummary, "the check only counts the model's findings")
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/ionut-t/bark/v2/internal/prompt"
 	"github.com/ionut-t/bark/v2/internal/prreview"
+	"github.com/ionut-t/bark/v2/internal/redact"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/internal/utils"
 )
@@ -217,8 +218,12 @@ func RunReview(opts ReviewOptions) error {
 	}
 
 	diff := reviewDiff.Diff
+	// Secrets the diff adds are findings Bark makes itself; the model sees
+	// them masked (see redact.Wrap).
+	var secrets []findings.Event
 	if structured {
 		diff = prompt.NumberDiffLines(diff)
+		secrets = secretFindings(reviewDiff.Diff, hist.Findings)
 	}
 	promptText := prompt.FormatReviewContent(reviewDiff.ContextHeader, reviewDiff.Stat, reviewDiff.Commits, diff, enclosingContext)
 
@@ -226,6 +231,7 @@ func RunReview(opts ReviewOptions) error {
 	if err != nil {
 		return fmt.Errorf("error creating LLM client: %w", err)
 	}
+	client = redact.Wrap(client, os.Stderr)
 
 	llmCtx, llmCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer llmCancel()
@@ -258,6 +264,10 @@ func RunReview(opts ReviewOptions) error {
 	if note := partialReviewNote(reviewDiff.Cut); note != "" {
 		fmt.Fprintf(os.Stderr, "bark: warning: %s\n", reviewDiff.Cut.Summary())
 		_, _ = fmt.Fprintln(out, note)
+	}
+	if opts.Stream && len(secrets) > 0 {
+		// First, as the most severe findings; the rest stream after them.
+		_, _ = fmt.Fprint(out, findings.Markdown(secrets))
 	}
 	var output string
 	var truncated bool
@@ -301,7 +311,7 @@ func RunReview(opts ReviewOptions) error {
 			return events, checked
 		}
 	}
-	events := finishReview(out, output, truncated, opts.Stream, structured, minSeverity, checkFn)
+	events := finishReview(out, output, truncated, opts.Stream, structured, minSeverity, checkFn, secrets)
 
 	var post func() error
 	if opts.Comment {
@@ -661,10 +671,14 @@ func streamResponse(ctx context.Context, client llm.LLM, system, promptText stri
 // runs Bark's check on a structured review's findings: a whole review shows
 // the doubted findings in a section of their own, a streamed one gets a
 // report of them appended. Findings less severe than minSeverity are left
-// out before the check, so they cost nothing to check. A truncated review
-// ends with findings.TruncatedNote; a structured one also gets it as its last
-// event, so a posted review says so too.
-func finishReview(out io.Writer, output string, truncated, stream, structured bool, minSeverity findings.Severity, checkFn func([]findings.Event) ([]findings.Event, int)) []findings.Event {
+// out before the check, so they cost nothing to check. secrets are the
+// findings Bark made itself for secrets the diff adds (see secretFindings):
+// they go first among a structured review's events, after the check, which
+// has nothing to doubt in them, and a streamed review has shown them before
+// the model's output already. A truncated review ends with
+// findings.TruncatedNote; a structured one also gets it as its last event,
+// so a posted review says so too.
+func finishReview(out io.Writer, output string, truncated, stream, structured bool, minSeverity findings.Severity, checkFn func([]findings.Event) ([]findings.Event, int), secrets []findings.Event) []findings.Event {
 	if !structured {
 		if !stream {
 			_, _ = fmt.Fprintln(out, output)
@@ -683,11 +697,14 @@ func finishReview(out io.Writer, output string, truncated, stream, structured bo
 	if checkFn != nil {
 		events, checked = checkFn(events)
 	}
+	// Before the secrets are added: it reports on what the check did.
+	report := findings.CheckReport(events, checked)
+	events = append(slices.Clone(secrets), events...)
 	if truncated {
 		events = append(events, findings.Event{Text: findings.TruncatedNote})
 	}
 	if stream {
-		_, _ = fmt.Fprint(out, findings.CheckReport(events, checked))
+		_, _ = fmt.Fprint(out, report)
 		if truncated {
 			_, _ = fmt.Fprint(out, findings.TruncatedNote)
 		}
@@ -986,6 +1003,7 @@ func newMeteredClient(cfg config.Config) (llm.LLM, *prices.Meter, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating LLM client: %w", err)
 	}
+	client = redact.Wrap(client, os.Stderr)
 	p, err := config.Paths()
 	if err != nil {
 		return client, nil, nil

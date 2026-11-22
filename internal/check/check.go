@@ -25,6 +25,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/houserules"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/prices"
+	"github.com/ionut-t/bark/v2/internal/redact"
 )
 
 //go:embed check.md
@@ -596,13 +597,16 @@ func isScale(s findings.Severity) bool {
 
 // corpus is the code a verdict's evidence is looked up in: every line of the
 // diff and of the files as the check was shown them, without line numbers,
-// diff markers or surrounding whitespace.
+// diff markers or surrounding whitespace. Secrets are masked, as they were
+// in the prompt (see redact.Wrap), so evidence that quotes a placeholder is
+// found.
 type corpus struct {
 	lines []string
 }
 
 func newCorpus(diff string, files []excerpt, related []enclosing.Piece) corpus {
 	var c corpus
+	diff, _ = redact.Mask(diff)
 	for l := range strings.SplitSeq(diff, "\n") {
 		l = stripLineNumber(l)
 		c.add(l)
@@ -614,17 +618,22 @@ func newCorpus(diff string, files []excerpt, related []enclosing.Piece) corpus {
 	}
 	for _, e := range files {
 		for _, r := range e.ranges {
-			for _, l := range e.lines[r[0]-1 : r[1]] {
-				c.add(l)
-			}
+			c.addMasked(e.lines[r[0]-1 : r[1]])
 		}
 	}
 	for _, pc := range related {
-		for _, l := range pc.Lines {
-			c.add(l)
-		}
+		c.addMasked(pc.Lines)
 	}
 	return c
+}
+
+// addMasked adds lines with their secrets masked, together, so a private
+// key over several lines is masked whole.
+func (c *corpus) addMasked(lines []string) {
+	masked, _ := redact.Mask(strings.Join(lines, "\n"))
+	for l := range strings.SplitSeq(masked, "\n") {
+		c.add(l)
+	}
 }
 
 func (c *corpus) add(l string) {

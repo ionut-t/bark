@@ -35,6 +35,8 @@ Write one object per issue, ordered from most to least severe:
 
 Report only real problems you can point to in the diff. Don't report praise, or style issues a formatter or linter would catch. If you are unsure whether something is a problem, leave it out.
 
+Bark masks the secrets it recognises and reports the ones a change adds itself: you see them as placeholders such as `[REDACTED:aws-access-key-id]`. Don't report a placeholder as a finding. Report any other hard-coded secret you see, such as a password, token or API key written into the code, as a `critical` `security` finding.
+
 ## Verdict
 
 End with exactly one verdict object as the last line:

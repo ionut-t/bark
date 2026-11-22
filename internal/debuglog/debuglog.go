@@ -12,6 +12,7 @@ import (
 
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/prices"
+	"github.com/ionut-t/bark/v2/internal/redact"
 )
 
 // EnvVar turns logging on when set to a true value ("1", "true", ...).
@@ -75,10 +76,12 @@ func start(dir, kind string, meta Meta, now time.Time) (*Log, error) {
 
 	l := &Log{file: file, pricing: meta.Pricing, start: now}
 	l.header(append([]Field{{"kind", kind}, {"time", now.Format(time.RFC3339)}}, meta.Fields...))
+	// Masked as they were sent (see redact.Wrap).
+	system, prompt, _ := redact.Prompts(meta.System, meta.Prompt)
 	l.section("system")
-	l.printf("%s\n", meta.System)
+	l.printf("%s\n", system)
 	l.section("prompt")
-	l.printf("%s\n", meta.Prompt)
+	l.printf("%s\n", prompt)
 	l.section("response (raw)")
 
 	return l, nil

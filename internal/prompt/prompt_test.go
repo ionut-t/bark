@@ -20,6 +20,19 @@ func TestFormatStructuredReviewSystem(t *testing.T) {
 	assert.NotContains(t, FormatStructuredReviewSystem("p", "", ""), "Follow the instructions")
 }
 
+// Bark reports the secrets it masks itself, so the model is told not to
+// report a placeholder. A secret Bark doesn't recognise reaches the model
+// as it is, and nothing else reports it, so the model must.
+func TestStructuredReviewSystemSecrets(t *testing.T) {
+	t.Parallel()
+
+	system := FormatStructuredReviewSystem("p", "", "")
+
+	assert.Contains(t, system, "[REDACTED:aws-access-key-id]")
+	assert.NotContains(t, system, "don't report a hard-coded secret as a finding", "only placeholders are Bark's to report")
+	assert.Contains(t, system, "Report any other hard-coded secret")
+}
+
 func TestFormatCommitContent(t *testing.T) {
 	t.Parallel()
 

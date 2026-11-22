@@ -10,6 +10,7 @@ import (
 
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/prices"
+	"github.com/ionut-t/bark/v2/internal/redact"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -117,4 +118,22 @@ func TestLogWithoutPricingShowsNoCost(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(content), "cost:")
 	assert.NotContains(t, string(content), "cache")
+}
+
+// The prompts are logged as they were sent: with secrets masked (see
+// redact.Wrap), so the log doesn't keep another copy of them.
+func TestLogMasksSecretsInPrompts(t *testing.T) {
+	t.Parallel()
+
+	key := "AKIA" + "IOSFODNN7EXAMPLE"
+	l, err := start(t.TempDir(), "review", Meta{System: "rules " + key, Prompt: "+key = " + key}, time.Now())
+	require.NoError(t, err)
+	l.Finish(nil)
+
+	content, err := os.ReadFile(l.Path())
+	require.NoError(t, err)
+	assert.NotContains(t, string(content), key)
+	assert.Contains(t, string(content), "rules [REDACTED:aws-access-key-id]\n")
+	assert.Contains(t, string(content), "+key = [REDACTED:aws-access-key-id]\n")
+	assert.Contains(t, string(content), redact.Note, "the note sent with the prompt")
 }

@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/plain"
 	"github.com/ionut-t/bark/v2/tui"
@@ -69,19 +68,11 @@ func runCommitCmd(cmd *cobra.Command, cfg config.Config) error {
 		return err
 	}
 
-	m := tui.New(tui.Options{
+	return runTUI(tui.Options{
 		Task:       tui.TaskCommit,
 		Paths:      dirs,
 		Config:     cfg,
 		StagedOnly: !all,
 		Hint:       hint,
 	})
-
-	p := tea.NewProgram(m)
-
-	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("error running UI: %w", err)
-	}
-
-	return nil
 }
