@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -76,4 +77,42 @@ func TestReviewSystemHouseRules(t *testing.T) {
 			assert.NotContains(t, format("You are Spock.", "Focus on errors.", ""), "House rules")
 		})
 	}
+}
+
+func TestFormatReviewSystem(t *testing.T) {
+	got := FormatReviewSystem("You are Yoda.", "", "")
+	assert.True(t, strings.HasPrefix(got, "You are Yoda.\n"+formattingRequirements))
+	assert.NotContains(t, got, "Follow the instructions below")
+	assert.NotContains(t, got, "# House rules")
+
+	got = FormatReviewSystem("You are Yoda.", "Check errors.", "<file path=\"AGENTS.md\">x</file>")
+	instr := strings.Index(got, "Follow the instructions below when analysing code:\n\nCheck errors.")
+	rules := strings.Index(got, "# House rules")
+	assert.Positive(t, instr)
+	assert.Greater(t, rules, instr, "house rules come after the instructions")
+	assert.True(t, strings.HasSuffix(got, "<file path=\"AGENTS.md\">x</file>"))
+}
+
+func TestFormatReviewContent(t *testing.T) {
+	got := FormatReviewContent("## Branch: feat/x\n\n", "a.go | 2 +-", []git.Commit{{Message: "feat: x"}}, "DIFF", "CONTEXT\n")
+
+	assert.True(t, strings.HasPrefix(got, "## Branch: feat/x\n\n## Commits\n"))
+	assert.Contains(t, got, "## Files Changed\na.go | 2 +-\n\n")
+	assert.True(t, strings.HasSuffix(got, "CONTEXT\n**Code to review:**\nDIFF"))
+
+	assert.Equal(t, "**Code to review:**\nDIFF", FormatReviewContent("", "", nil, "DIFF", ""))
+}
+
+func TestFormatCommitSystem(t *testing.T) {
+	assert.Equal(t, "Write commits.", FormatCommitSystem("Write commits.", ""))
+
+	got := FormatCommitSystem("Write commits.", "fixes login")
+	assert.True(t, strings.HasPrefix(got, "Write commits.\n"))
+	assert.True(t, strings.HasSuffix(got, "Commit message hint: fixes login"))
+}
+
+func TestFormatPRSystem(t *testing.T) {
+	assert.Equal(t,
+		"PR rules.\n**Analyze the following changes and generate an appropriate PR description:**",
+		FormatPRSystem("PR rules.\n"))
 }

@@ -126,3 +126,14 @@ func TestHelpSpacesTheVersionFlag(t *testing.T) {
 	require.GreaterOrEqual(t, i, 0, out)
 	assert.Empty(t, lines[i-1])
 }
+
+func TestHelpWidth(t *testing.T) {
+	t.Setenv("__FANG_TEST_WIDTH", "77")
+	assert.Equal(t, 77, helpWidth())
+
+	t.Setenv("__FANG_TEST_WIDTH", "wide")
+	assert.Equal(t, maxHelpWidth, helpWidth(), "an invalid override is ignored; no terminal means the max")
+
+	t.Setenv("__FANG_TEST_WIDTH", "")
+	assert.Equal(t, maxHelpWidth, helpWidth())
+}

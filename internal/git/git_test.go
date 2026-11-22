@@ -1,6 +1,7 @@
 package git
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -591,4 +592,91 @@ func TestReviewDiff_GrepWords(t *testing.T) {
 	got, err = commit.GrepWords(t.Context(), []string{"feature", "alpha"}, "*.txt")
 	require.NoError(t, err)
 	assert.Equal(t, map[string][]string{"feature": {"feature.txt"}}, got)
+}
+
+func TestBranchDiffError(t *testing.T) {
+	cause := errors.New("bad revision")
+	err := error(&BranchDiffError{Branch: "feat/x", Err: cause})
+
+	assert.EqualError(t, err, `could not get diff for branch "feat/x": bad revision`)
+	assert.ErrorIs(t, err, cause)
+
+	var bde *BranchDiffError
+	assert.ErrorAs(t, err, &bde)
+	assert.Equal(t, "feat/x", bde.Branch)
+}
+
+func TestWithPRDescription(t *testing.T) {
+	p := ReviewDiffParams{}
+	withBody := p.WithPRDescription()
+	assert.True(t, withBody.withBody)
+	assert.False(t, p.withBody, "the original params are unchanged")
+}
+
+// drain reads every line CommitChanges prints, then its error, if any.
+func drain(out <-chan string, errs <-chan error) ([]string, error) {
+	var lines []string
+	for line := range out {
+		lines = append(lines, line)
+	}
+	return lines, <-errs
+}
+
+func lastMessage(t *testing.T, dir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "log", "-1", "--format=%B")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	return strings.TrimSpace(string(out))
+}
+
+func TestCommitChanges(t *testing.T) {
+	t.Run("commits what is staged", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "staged.txt"), []byte("s\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "unstaged.txt"), []byte("u\n"), 0o644))
+		runGit(t, dir, "add", "staged.txt")
+
+		lines, err := drain(CommitChanges(t.Context(), "feat: staged only", false))
+		require.NoError(t, err)
+		assert.NotEmpty(t, lines, "git's output is streamed")
+		assert.Contains(t, strings.Join(lines, "\n"), "feat: staged only")
+		assert.Equal(t, "feat: staged only", lastMessage(t, dir))
+
+		status := exec.Command("git", "status", "--porcelain")
+		status.Dir = dir
+		out, err := status.Output()
+		require.NoError(t, err)
+		assert.Equal(t, "?? unstaged.txt\n", string(out), "unstaged files are left alone")
+	})
+
+	t.Run("all stages everything first", func(t *testing.T) {
+		dir := newDivergedRepo(t)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("n\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("changed\n"), 0o644))
+
+		_, err := drain(CommitChanges(t.Context(), "feat: everything", true))
+		require.NoError(t, err)
+		assert.Equal(t, "feat: everything", lastMessage(t, dir))
+
+		status := exec.Command("git", "status", "--porcelain")
+		status.Dir = dir
+		out, err := status.Output()
+		require.NoError(t, err)
+		assert.Empty(t, string(out))
+	})
+
+	t.Run("nothing to commit is an error with git's output", func(t *testing.T) {
+		newDivergedRepo(t)
+		_, err := drain(CommitChanges(t.Context(), "feat: nothing", false))
+		assert.ErrorContains(t, err, "failed to commit changes")
+		assert.ErrorContains(t, err, "nothing to commit")
+	})
+
+	t.Run("staging fails outside a repository", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		_, err := drain(CommitChanges(t.Context(), "x", true))
+		assert.ErrorContains(t, err, "failed to stage changes")
+	})
 }

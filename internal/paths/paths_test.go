@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -165,4 +166,37 @@ func TestResolve_HomeError(t *testing.T) {
 
 	_, err := env.Resolve()
 	assert.ErrorIs(t, err, errHome)
+}
+
+func TestSystemUsesTheProcessEnvironment(t *testing.T) {
+	t.Setenv("BARK_PATHS_TEST", "value")
+
+	env := System()
+	assert.Equal(t, runtime.GOOS, env.GOOS)
+	assert.Equal(t, "value", env.Getenv("BARK_PATHS_TEST"))
+
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	got, err := env.Home()
+	require.NoError(t, err)
+	assert.Equal(t, home, got)
+}
+
+func TestResolveUsesTheProcessEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("XDG defaults differ on Windows")
+	}
+	root := t.TempDir()
+	t.Setenv("HOME", filepath.Join(root, "home"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+
+	got, err := Resolve()
+	require.NoError(t, err)
+	assert.Equal(t, Paths{
+		Config: filepath.Join(root, "config", appName),
+		Cache:  filepath.Join(root, "cache", appName),
+		State:  filepath.Join(root, "state", appName),
+	}, got)
 }

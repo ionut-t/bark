@@ -66,3 +66,10 @@ func TestDefaultActionTemplatesUseThisVersion(t *testing.T) {
 	assert.Contains(t, GetDefaultPRDescriptionActionTemplate(), "bark-pr-description@v2\n")
 	assert.Contains(t, GetDefaultCombinedActionTemplate(), "bark-review@v2\n")
 }
+
+func TestDefaultInstructionsAreEmbedded(t *testing.T) {
+	assert.NotEmpty(t, GetDefaultCommitInstructions())
+	assert.Equal(t, defaultCommitInstructions, GetDefaultCommitInstructions())
+	assert.NotEmpty(t, GetDefaultPRInstructions())
+	assert.Equal(t, defaultPRInstructions, GetDefaultPRInstructions())
+}

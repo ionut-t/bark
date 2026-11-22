@@ -107,3 +107,8 @@ func TestTopLevelWarning(t *testing.T) {
 	assert.Equal(t, "not in a git repository; saving to .bark/prices.json in the current directory",
 		topLevelWarning(root, "", errors.New("not a repo")))
 }
+
+func TestRepoWarning(t *testing.T) {
+	t.Chdir(t.TempDir())
+	assert.Contains(t, repoWarning(t.Context()), "not in a git repository")
+}

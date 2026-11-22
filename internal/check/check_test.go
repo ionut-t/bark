@@ -470,3 +470,62 @@ func TestSystem_RaisedBeforeOnlyForRealDefects(t *testing.T) {
 
 	assert.Contains(t, System(), "Ask this only of a finding that passes questions 1 to 5")
 }
+
+func TestCount(t *testing.T) {
+	t.Parallel()
+
+	assert.Zero(t, Count(nil))
+	assert.Zero(t, Count([]findings.Event{{Intro: "i"}, {Verdict: "v"}}))
+	assert.Equal(t, 2, Count(checkedReview()))
+}
+
+func TestReviewRevise(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rewrites with a persona and something doubted", func(t *testing.T) {
+		t.Parallel()
+		calls := 0
+		r := Review{
+			Client:  fakeLLM{calls: &calls, output: `{"type":"verdict","text":"Fix the nil map."}`},
+			Persona: "You are Linus.",
+		}
+		got, revised, err := r.Revise(context.Background(), checkedReview())
+		require.NoError(t, err)
+		assert.True(t, revised)
+		assert.Equal(t, 1, calls)
+		assert.Equal(t, "Fix the nil map.", got[3].Verdict)
+	})
+
+	t.Run("no persona makes no call", func(t *testing.T) {
+		t.Parallel()
+		calls := 0
+		r := Review{Client: fakeLLM{calls: &calls}}
+		got, revised, err := r.Revise(context.Background(), checkedReview())
+		require.NoError(t, err)
+		assert.False(t, revised)
+		assert.Zero(t, calls)
+		assert.Equal(t, checkedReview(), got)
+	})
+
+	t.Run("nothing doubted makes no call", func(t *testing.T) {
+		t.Parallel()
+		events := checkedReview()
+		events[2].Finding.Doubt = ""
+		calls := 0
+		r := Review{Client: fakeLLM{calls: &calls}, Persona: "You are Linus."}
+		_, revised, err := r.Revise(context.Background(), events)
+		require.NoError(t, err)
+		assert.False(t, revised)
+		assert.Zero(t, calls)
+	})
+
+	t.Run("a failed call is reported, not revised", func(t *testing.T) {
+		t.Parallel()
+		calls := 0
+		r := Review{Client: fakeLLM{calls: &calls, err: errors.New("boom")}, Persona: "You are Linus."}
+		got, revised, err := r.Revise(context.Background(), checkedReview())
+		assert.Error(t, err)
+		assert.False(t, revised)
+		assert.Equal(t, checkedReview()[3].Verdict, got[3].Verdict)
+	})
+}

@@ -506,3 +506,34 @@ func TestReviewDiff_PRChangedPathsNeedsTheCommits(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "fetch-depth: 0")
 }
+
+func TestGetPRInfo(t *testing.T) {
+	_, view, diff := newPRRepo(t)
+	view.Commits = []any{
+		map[string]string{"messageHeadline": "feat: add feature", "messageBody": "Why it's needed."},
+		map[string]string{"messageHeadline": "test: cover feature"},
+	}
+	fakeGH(t, view, diff)
+
+	got, err := GetPRInfo(t.Context(), "7")
+	require.NoError(t, err)
+	assert.Equal(t, "PR #7: Add feature\n"+
+		"Total Commits: 2\n"+
+		"Commits:\n"+
+		" - feat: add feature\n"+
+		"   Why it's needed.\n"+
+		" - test: cover feature\n"+
+		"\nDiffs:\n"+diff, got)
+}
+
+func TestGetPRInfoFailures(t *testing.T) {
+	_, view, diff := newPRRepo(t)
+
+	fakeGH(t, nil, diff)
+	_, err := GetPRInfo(t.Context(), "7")
+	assert.ErrorContains(t, err, "Could not resolve to a PullRequest")
+
+	fakeGH(t, view, "")
+	_, err = GetPRInfo(t.Context(), "7")
+	assert.ErrorContains(t, err, "exceeded the maximum number of lines")
+}

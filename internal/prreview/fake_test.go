@@ -3,8 +3,13 @@ package prreview
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/github"
+	"github.com/stretchr/testify/require"
 )
 
 // testPull is the pull request the fakes answer for.
@@ -65,4 +70,30 @@ func (noGitHub) ResolveThread(context.Context, string) error {
 
 func (noGitHub) UnresolveThread(context.Context, string) error {
 	return unexpected("UnresolveThread")
+}
+
+// failingGH puts a gh on PATH that fails every call and logs its arguments
+// to the returned file, so the exported functions can be checked to go
+// through the real client.
+func failingGH(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a shell script as gh")
+	}
+	bin := t.TempDir()
+	log := filepath.Join(bin, "calls")
+	script := "#!/bin/sh\necho \"$@\" >> '" + log + "'\necho 'gh: boom' >&2\nexit 1\n"
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755))
+	t.Setenv("PATH", bin)
+	return log
+}
+
+func calls(t *testing.T, log string) string {
+	t.Helper()
+	b, err := os.ReadFile(log)
+	if os.IsNotExist(err) {
+		return ""
+	}
+	require.NoError(t, err)
+	return string(b)
 }

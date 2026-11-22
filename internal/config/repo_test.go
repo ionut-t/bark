@@ -468,3 +468,28 @@ func TestParseRepo_HouseRules(t *testing.T) {
 		assert.Contains(t, err.Error(), "/repo/.bark/config.toml")
 	}
 }
+
+func TestSeveritiesAndEffortsAreCopies(t *testing.T) {
+	s := Severities()
+	assert.Equal(t, []string{"critical", "high", "medium", "low"}, s)
+	s[0] = "changed"
+	assert.Equal(t, "critical", Severities()[0])
+
+	e := Efforts()
+	assert.Equal(t, []string{"low", "medium", "high"}, e)
+	e[0] = "changed"
+	assert.Equal(t, "low", Efforts()[0])
+}
+
+func TestNormaliseApproveBelow(t *testing.T) {
+	got, err := NormaliseApproveBelow("  HIGH ")
+	require.NoError(t, err)
+	assert.Equal(t, "high", got)
+
+	got, err = NormaliseApproveBelow("")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+
+	_, err = NormaliseApproveBelow("severe")
+	assert.EqualError(t, err, `invalid approve_below "severe" (supported: critical, high, medium, low)`)
+}
