@@ -22,6 +22,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/enclosing"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/git"
+	"github.com/ionut-t/bark/v2/internal/houserules"
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/prices"
 )
@@ -744,14 +745,15 @@ type Review struct {
 // the package function Run).
 func (r Review) Run(ctx context.Context, events []findings.Event) (Result, error) {
 	fs := findingsIn(events)
-	files := loadFiles(referencedFiles(shownFor(fs, r.Threads)), func(path string) ([]byte, error) {
+	inDiff := findingsInDiff(fs, r.ReviewDiff.Diff)
+	files := loadFiles(referencedFiles(shownFor(inDiff, r.Threads)), func(path string) ([]byte, error) {
 		return r.ReviewDiff.NewSideFile(ctx, path)
 	})
 	in := Input{
 		Header:     r.ReviewDiff.ContextHeader,
 		Diff:       r.Diff,
 		Files:      files,
-		Related:    related(ctx, r.ReviewDiff, r.ReviewDiff.Diff, fs, files),
+		Related:    related(ctx, r.ReviewDiff, r.ReviewDiff.Diff, inDiff, files),
 		Prior:      r.Prior,
 		HouseRules: r.HouseRules,
 		Threads:    r.Threads,
@@ -760,6 +762,26 @@ func (r Review) Run(ctx context.Context, events []findings.Event) (Result, error
 		in.SameLines = r.SameLines(fs)
 	}
 	return Run(ctx, r.Client, in, events, r.startLog("check"))
+}
+
+// findingsInDiff returns the findings in fs whose file the diff changes.
+// The file is written by the model, so it can be anything a prompt
+// injection in the reviewed code asks for, such as "../../.aws/credentials"
+// or a path that reaches another GitHub API endpoint. Only these findings'
+// files are read; the others are checked against the diff alone, like
+// findings in files that can't be read.
+func findingsInDiff(fs []findings.Finding, diff string) []findings.Finding {
+	changed := map[string]bool{}
+	for _, p := range houserules.ChangedPaths(diff) {
+		changed[p] = true
+	}
+	var out []findings.Finding
+	for _, f := range fs {
+		if changed[f.File] {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // relatedLines caps the related code the check is shown. Aimed at the
