@@ -278,3 +278,46 @@ func TestLoad_CutFilesAreReportedCut(t *testing.T) {
 		}
 	}
 }
+
+// A file a pointer led to is recorded, so a change to it can be told
+// apart from a change to an unrelated file.
+func TestLoad_RecordsAPointerTarget(t *testing.T) {
+	t.Parallel()
+
+	r := repo{"pkg/AGENTS.md": "Use tabs.\n", "pkg/CLAUDE.md": "@AGENTS.md\n", "AGENTS.md": "Root.\n"}
+	got := Load(context.Background(), r.read, Options{Files: []string{"pkg/CLAUDE.md", "./AGENTS.md"}, Changed: []string{"pkg/x.go"}})
+
+	require.Len(t, got.Sources, 2)
+	assert.Equal(t, "pkg/AGENTS.md", got.Sources[0].Target)
+	assert.Empty(t, got.Sources[1].Target, "not a pointer")
+}
+
+func TestIsRulesFile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		path  string
+		files []string
+		want  bool
+	}{
+		{name: "default at the root", path: "AGENTS.md", want: true},
+		{name: "default in a folder", path: "pkg/sub/CLAUDE.md", want: true},
+		{name: "not a default", path: "CONTRIBUTING.md"},
+		{name: "a name only in a longer one", path: "pkg/MY-AGENTS.md"},
+		{name: "listed name in a folder", path: "web/STYLE.md", files: []string{"STYLE.md"}, want: true},
+		{name: "listed files replace the defaults", path: "AGENTS.md", files: []string{"STYLE.md"}},
+		{name: "listed path", path: "docs/STYLE.md", files: []string{"docs/STYLE.md"}, want: true},
+		{name: "listed path from the root only", path: "web/docs/STYLE.md", files: []string{"docs/STYLE.md"}},
+		{name: "listed root path", path: "AGENTS.md", files: []string{"./AGENTS.md"}, want: true},
+		{name: "listed root path isn't looked for in folders", path: "pkg/AGENTS.md", files: []string{"./AGENTS.md"}},
+		{name: "invalid entries are skipped", path: "x.md", files: []string{"../x.md", ""}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, IsRulesFile(tt.path, tt.files))
+		})
+	}
+}

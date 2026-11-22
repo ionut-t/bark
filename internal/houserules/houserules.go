@@ -41,6 +41,9 @@ type Options struct {
 // Source is one file the rules were read from.
 type Source struct {
 	Path string
+	// Target is the file Path points to, read in its place (see follow);
+	// "" if Path isn't a pointer.
+	Target string
 	// Tokens is about how many tokens of the file are in Text; 0 if it was
 	// left out.
 	Tokens int
@@ -172,7 +175,7 @@ func Load(ctx context.Context, read ReadFunc, opts Options) Rules {
 				continue
 			}
 			found = true
-			content = follow(ctx, read, p, content)
+			content, target := follow(ctx, read, p, content)
 			key := strings.TrimSpace(content)
 			if key == "" || seen[key] {
 				continue
@@ -180,7 +183,7 @@ func Load(ctx context.Context, read ReadFunc, opts Options) Rules {
 			seen[key] = true
 
 			body := strings.TrimRight(content, "\n") + "\n"
-			src := Source{Path: p, FullTokens: tokenCount(body)}
+			src := Source{Path: p, Target: target, FullTokens: tokenCount(body)}
 			if !full {
 				open := fmt.Sprintf("<file path=%q>\n", p)
 				const closing = "</file>\n\n"
@@ -280,28 +283,52 @@ func readAll(ctx context.Context, read ReadFunc, paths []string) map[string]stri
 	return out
 }
 
-// follow returns the file a pointer file points to: one that is only a
-// path, as git show prints a symlink, or only an "@path" import, as a
-// CLAUDE.md that defers to AGENTS.md often is. Anything else, or a pointer
-// that can't be read, is returned as it is.
-func follow(ctx context.Context, read ReadFunc, p, content string) string {
+// follow returns the file a pointer file points to, and its path: one that
+// is only a path, as git show prints a symlink, or only an "@path" import,
+// as a CLAUDE.md that defers to AGENTS.md often is. Anything else, or a
+// pointer that can't be read, is returned as it is, with no path.
+func follow(ctx context.Context, read ReadFunc, p, content string) (string, string) {
 	target := strings.TrimSpace(content)
 	if target == "" || strings.ContainsAny(target, " \t\n") {
-		return content
+		return content, ""
 	}
 	target = strings.TrimPrefix(target, "@")
 	if !strings.HasSuffix(strings.ToLower(target), ".md") {
-		return content
+		return content, ""
 	}
 	resolved := path.Join(path.Dir(p), target)
 	if ValidateFile(resolved) != nil || resolved == p {
-		return content
+		return content, ""
 	}
 	data, err := read(ctx, resolved)
 	if err != nil {
-		return content
+		return content, ""
 	}
-	return string(data)
+	return string(data), resolved
+}
+
+// IsRulesFile reports whether the repository-relative path p is where Load
+// looks for one of files (DefaultFiles if empty): a name with no slash in
+// any folder, a path with one at the root only.
+func IsRulesFile(p string, files []string) bool {
+	if len(files) == 0 {
+		files = DefaultFiles
+	}
+	p = path.Clean(strings.ReplaceAll(p, "\\", "/"))
+	for _, f := range files {
+		if ValidateFile(f) != nil {
+			continue
+		}
+		f = strings.ReplaceAll(f, "\\", "/")
+		if strings.Contains(f, "/") {
+			if path.Clean(f) == p {
+				return true
+			}
+		} else if path.Base(p) == f {
+			return true
+		}
+	}
+	return false
 }
 
 // cutAt returns the longest start of body within n bytes that ends at a

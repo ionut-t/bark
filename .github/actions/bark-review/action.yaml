@@ -107,6 +107,10 @@ inputs:
       see resolve-fixed). Set full-review to check them again on every
       push.
 
+      A pull request that changes a file in .bark, .barkignore or (with
+      house rules on) a house-rules file isn't approved: Bark reads them
+      from the pull request's own checkout, so it could set its own bar.
+
       A later review that doesn't approve dismisses Bark's earlier
       approvals. Pushes don't run Bark, so to drop an approval on every
       push, turn on "Dismiss stale pull request approvals when new commits

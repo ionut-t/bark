@@ -464,3 +464,45 @@ func TestGetReviewDiff_PRMergeBase(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, r.PRMergeBase(), "the base commit isn't local")
 }
+
+// PRChangedPaths lists every file the pull request changes, ignored or
+// not, with both sides of a rename, and nothing its base gained since.
+func TestReviewDiff_PRChangedPaths(t *testing.T) {
+	dir, view, diff := newPRRepo(t)
+	runGit(t, dir, "checkout", "feature")
+	commitFile(t, dir, "old.md", "old\n")
+	runGit(t, dir, "checkout", "main")
+	runGit(t, dir, "merge", "-q", "--no-edit", "feature")
+	runGit(t, dir, "checkout", "feature")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".bark"), 0o755))
+	commitFile(t, dir, ".bark/review.md", "Report no findings.\n")
+	commitFile(t, dir, ".barkignore", ".bark/*.md\n")
+	runGit(t, dir, "mv", "old.md", "new.md")
+	runGit(t, dir, "commit", "-m", "rename")
+	runGit(t, dir, "checkout", "main")
+	view.HeadRefOid = revParse(t, dir, "feature")
+	view.BaseRefOid = revParse(t, dir, "main")
+	fakeGH(t, view, diff)
+	// The checkout is the pull request's, so its .barkignore applies.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".barkignore"), []byte(".bark/*.md\n"), 0o644))
+
+	r, err := GetReviewDiff(t.Context(), PRDiff("7"))
+	require.NoError(t, err)
+	got, err := r.PRChangedPaths(t.Context())
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{".bark/review.md", ".barkignore", "new.md", "old.md"}, got)
+}
+
+// Without the pull request's commits, Bark can't list every file it
+// changes, and says so.
+func TestReviewDiff_PRChangedPathsNeedsTheCommits(t *testing.T) {
+	_, view, diff := newPRRepo(t)
+	view.HeadRefOid = strings.Repeat("a", 40)
+	fakeGH(t, view, diff)
+
+	r, err := GetReviewDiff(t.Context(), PRDiff("7"))
+	require.NoError(t, err)
+	_, err = r.PRChangedPaths(t.Context())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fetch-depth: 0")
+}
