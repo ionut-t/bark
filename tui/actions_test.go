@@ -4,17 +4,26 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/templates"
 	"github.com/ionut-t/bark/v2/internal/utils"
+	"github.com/ionut-t/coffee/styles"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 var keyTab = tea.KeyPressMsg{Code: tea.KeyTab}
+
+// newTestSummaryModel returns a summary model ready for setWorkflows.
+func newTestSummaryModel() actionsWorkflowSummaryModel {
+	m := newActionsWorkflowSummaryModel(config.New("", config.Data{}))
+	m.setStyles(styles.New(true), true)
+	return m
+}
 
 func newTestActionsModel(editor string) ActionsModel {
 	m := NewActionsModel(config.New("", config.Data{Editor: editor}))
@@ -149,6 +158,71 @@ func TestActionsModelSeparateWorkflows(t *testing.T) {
 	assert.Contains(t, m.summary.View(), ".github/workflows/bark-pr-description.yaml")
 }
 
+func TestActionsSummarySetWorkflowsDropsDeselected(t *testing.T) {
+	review := reviewWorkflow.workflowFileName()
+	prDescription := prDescriptionWorkflow.workflowFileName()
+	both := []actionsWorkflowOption{reviewWorkflow, prDescriptionWorkflow}
+
+	tests := []struct {
+		name          string
+		first, second []actionsWorkflowOption
+		firstCombined bool
+		combined      bool
+		want          []string
+	}{
+		{"review then PR description", []actionsWorkflowOption{reviewWorkflow}, []actionsWorkflowOption{prDescriptionWorkflow}, false, false, []string{prDescription}},
+		{"both then review", both, []actionsWorkflowOption{reviewWorkflow}, false, false, []string{review}},
+		{"separate then combined", both, both, false, true, []string{"bark.yaml"}},
+		{"combined then separate", both, both, true, false, []string{review, prDescription}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTestSummaryModel()
+			m.setWorkflows(tt.first, tt.firstCombined)
+			m.setWorkflows(tt.second, tt.combined)
+
+			var keys []string
+			for k := range m.workflows {
+				keys = append(keys, k)
+			}
+			assert.ElementsMatch(t, tt.want, keys)
+		})
+	}
+}
+
+func TestActionsSummaryKeepsEditsToStillSelectedWorkflows(t *testing.T) {
+	m := newTestSummaryModel()
+	both := []actionsWorkflowOption{reviewWorkflow, prDescriptionWorkflow}
+	m.setWorkflows(both, false)
+	m.workflows[reviewWorkflow.workflowFileName()] = "name: edited\n"
+
+	m.setWorkflows([]actionsWorkflowOption{reviewWorkflow}, false)
+	assert.Equal(t, map[string]string{reviewWorkflow.workflowFileName(): "name: edited\n"}, m.workflows)
+}
+
+func TestActionsModelGoBackAndDeselect(t *testing.T) {
+	t.Chdir(t.TempDir())
+	m := newTestActionsModel("vi")
+
+	// Pick "Code review", go back, swap it for "PR description".
+	m, _ = sendActions(m, keySpace, keyEnter, keyEsc, keySpace, keyDown, keySpace, keyEnter)
+	require.Equal(t, actionsWorkflowSummaryView, m.view)
+	require.Equal(t, []actionsWorkflowOption{prDescriptionWorkflow}, m.selectedWorkflowOptions)
+
+	m, _ = sendActions(m, keyEnter, keyDown, keyEnter)
+	require.Equal(t, actionsSaveView, m.view)
+	assert.NotContains(t, m.createView(), "bark-review.yaml")
+
+	_, cmd := sendActions(m, keyEnter)
+	require.Equal(t, actionsSavedMsg{}, runCmd(t, cmd))
+
+	_, err := os.Stat(filepath.Join(".github", "workflows", "bark-review.yaml"))
+	assert.ErrorIs(t, err, os.ErrNotExist, "a deselected workflow isn't written")
+	_, err = os.Stat(filepath.Join(".github", "workflows", "bark-pr-description.yaml"))
+	assert.NoError(t, err)
+}
+
 func TestActionsModelSaves(t *testing.T) {
 	t.Chdir(t.TempDir())
 	m := newTestActionsModel("vi")
@@ -223,7 +297,33 @@ func TestActionsSummaryExternalEditor(t *testing.T) {
 		require.True(t, m.combinedWorkflow)
 
 		m, _ = sendActions(m, actionsExternalEditorMsg{content: []byte("name: edited\n")})
-		assert.Equal(t, "name: edited", m.summary.workflows["bark.yaml"], "the editor drops the trailing newline")
+		assert.Equal(t, "name: edited\n", m.summary.workflows["bark.yaml"], "the final newline is kept")
+	})
+
+	t.Run("typed edits keep the final newline", func(t *testing.T) {
+		m := newTestActionsModel("vi")
+		m, _ = sendActions(m, keySpace, keyEnter)
+		require.True(t, m.summary.editorFocused)
+
+		m, _ = sendActions(m, tea.KeyPressMsg{Code: 'i', Text: "i"}, tea.KeyPressMsg{Code: 'x', Text: "x"}, keyEsc)
+		got := m.summary.workflows["bark-review.yaml"]
+		assert.NotEqual(t, templates.GetDefaultReviewActionTemplate(), got, "the edit is stored")
+		assert.True(t, strings.HasSuffix(got, "\n"), "the final newline is kept")
+	})
+
+	t.Run("a failed editor setup leaves no temporary file", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("TMPDIR", dir)
+
+		m := newTestActionsModel("  ")
+		m, _ = sendActions(m, keySpace, keyEnter)
+		msg := runCmd(t, m.summary.openInEditor())
+		require.IsType(t, actionsExternalEditorMsg{}, msg)
+		require.Error(t, msg.(actionsExternalEditorMsg).err)
+
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Empty(t, entries)
 	})
 
 	t.Run("a failed read is reported", func(t *testing.T) {
