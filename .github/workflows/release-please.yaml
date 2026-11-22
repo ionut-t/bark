@@ -5,17 +5,21 @@ on:
     branches:
       - main
 
-permissions:
-  contents: write
-  pull-requests: write
-  # Signed build provenance for the release binaries (see "Attest build
-  # provenance"); the bark actions verify it before running a binary.
-  id-token: write
-  attestations: write
+# Each job asks for what it needs; the build jobs, which run the most
+# code, can only read the repository.
+permissions: {}
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      sha: ${{ steps.release.outputs.sha }}
+      build_date: ${{ steps.date.outputs.build_date }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -24,77 +28,128 @@ jobs:
           package-name: bark
           version-file: internal/version/version.go
 
-      # The following steps will only run if a release was created
-      - name: Checkout code
+      # Read once so every binary carries the same date, even when the
+      # builds straddle midnight UTC.
+      - name: Build date
+        id: date
         if: ${{ steps.release.outputs.release_created }}
+        run: echo "build_date=$(date -u +%d/%m/%Y)" >> "$GITHUB_OUTPUT"
+
+  # One runner per target: a build compiles the whole module, including
+  # gotreesitter's grammars, and already keeps the runner's cores busy, so
+  # building the targets one after another on one runner took ~10 minutes
+  # and running them side by side there was slower still.
+  build:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - { goos: darwin, goarch: arm64, bin: bark-darwin-arm64 }
+          - { goos: darwin, goarch: amd64, bin: bark-darwin-amd64 }
+          - { goos: linux, goarch: amd64, bin: bark-linux-amd64 }
+          - { goos: linux, goarch: arm64, bin: bark-linux-arm64 }
+          - { goos: windows, goarch: amd64, bin: bark-windows-amd64.exe }
+          - { goos: windows, goarch: arm64, bin: bark-windows-arm64.exe }
+    steps:
+      - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Go
-        if: ${{ steps.release.outputs.release_created }}
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      - name: Build binaries
-        if: ${{ steps.release.outputs.release_created }}
+      - name: Build ${{ matrix.bin }}
+        env:
+          VERSION: ${{ needs.release-please.outputs.tag_name }}
+          BUILD_DATE: ${{ needs.release-please.outputs.build_date }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          BIN: ${{ matrix.bin }}
+          # Without cgo the binaries are static and don't depend on the
+          # runner's libc.
+          CGO_ENABLED: "0"
         run: |
-          mkdir -p dist
-
           COMMIT=$(git rev-parse --short HEAD)
-          BUILD_DATE=$(date -u +%d/%m/%Y)
-          VERSION=${{ steps.release.outputs.tag_name }}
           LDFLAGS="-X 'github.com/ionut-t/bark/v2/internal/version.version=$VERSION' -X 'github.com/ionut-t/bark/v2/internal/version.commit=$COMMIT' -X 'github.com/ionut-t/bark/v2/internal/version.date=$BUILD_DATE'"
+          # -trimpath keeps the build machine's paths out of the binary.
+          go build -trimpath -ldflags="$LDFLAGS" -o "dist/$BIN"
 
-          # -trimpath keeps the build machine's paths out of the binaries;
-          # without cgo they're static and don't depend on the runner's libc.
-          export CGO_ENABLED=0
-          build() {
-            GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="$LDFLAGS" -o "dist/$3"
-          }
-          build darwin arm64 bark-darwin-arm64
-          build darwin amd64 bark-darwin-amd64
-          build linux amd64 bark-linux-amd64
-          build linux arm64 bark-linux-arm64
-          build windows amd64 bark-windows-amd64.exe
-          build windows arm64 bark-windows-arm64.exe
+      - name: Upload ${{ matrix.bin }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.bin }}
+          path: dist/${{ matrix.bin }}
+          if-no-files-found: error
+          retention-days: 1
 
+  publish:
+    needs: [release-please, build]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # Signed build provenance for the release binaries (see "Attest build
+      # provenance"); the bark actions verify it before running a binary.
+      id-token: write
+      attestations: write
+    steps:
+      # For pushing the major version tag.
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: bark-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          # Artifacts don't keep file modes.
           chmod +x dist/*
-
+          if [ "$(ls dist | wc -l)" -ne 6 ]; then
+            echo "::error::expected 6 binaries in dist, got: $(ls dist)"
+            exit 1
+          fi
           cd dist
           sha256sum * > checksums.txt
-          cd ..
 
       - name: Attest build provenance
-        if: ${{ steps.release.outputs.release_created }}
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: "dist/bark-*"
 
       - name: Upload Release Artifacts
-        if: ${{ steps.release.outputs.release_created }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          gh release upload ${{ steps.release.outputs.tag_name }} dist/*
+          gh release upload "$VERSION" dist/*
 
       - name: Move the major version tag
         # Workflows that use ionut-t/bark/.github/actions/...@v2 get each
         # release once it's built; an exact tag (@v2.35.0) stays put.
-        if: ${{ steps.release.outputs.release_created }}
         env:
-          VERSION: ${{ steps.release.outputs.tag_name }}
-          SHA: ${{ steps.release.outputs.sha }}
+          VERSION: ${{ needs.release-please.outputs.tag_name }}
+          SHA: ${{ needs.release-please.outputs.sha }}
         run: |
           MAJOR="${VERSION%%.*}"
           git tag -f "$MAJOR" "$SHA"
           git push -f origin "refs/tags/$MAJOR"
 
       - name: Update Release with Installation Instructions
-        if: ${{ steps.release.outputs.release_created }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=${{ steps.release.outputs.tag_name }}
+          VERSION=${{ needs.release-please.outputs.tag_name }}
 
           # Get the existing release body (changelog generated by Release Please)
           EXISTING_BODY=$(gh release view $VERSION --json body -q .body)
