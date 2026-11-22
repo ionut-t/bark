@@ -69,7 +69,7 @@ func newInstructionsModel(instructions []instructions.Instruction, s styles.Styl
 	}
 }
 
-func (m instructionsModel) setSize(width, height int) {
+func (m *instructionsModel) setSize(width, height int) {
 	m.list.SetSize(width, height-4)
 }
 

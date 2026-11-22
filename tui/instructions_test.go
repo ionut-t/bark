@@ -111,3 +111,12 @@ func TestInstructionsMarkWhileFiltered(t *testing.T) {
 func TestInstructionsModelInit(t *testing.T) {
 	assert.Nil(t, newTestInstructionsModel().Init())
 }
+
+func TestInstructionsModelSetSize(t *testing.T) {
+	m := newTestInstructionsModel()
+
+	m.setSize(40, 20)
+
+	assert.Equal(t, 40, m.list.Width())
+	assert.Equal(t, 16, m.list.Height())
+}

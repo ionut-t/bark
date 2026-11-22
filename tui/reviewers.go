@@ -41,7 +41,7 @@ func newReviewersModel(reviewers []reviewers.Reviewer, s styles.Styles, isDarkMo
 	}
 }
 
-func (m reviewersModel) setSize(width, height int) {
+func (m *reviewersModel) setSize(width, height int) {
 	m.list.SetSize(width, height-4)
 }
 
