@@ -186,6 +186,7 @@ The review is posted as an approval when:
 - it saw the whole change: the diff wasn't cut to fit its limit, and the model's output didn't end early;
 - the model gave a verdict, and Bark could read every finding;
 - when it reviewed only the changes since the last review, every point raised in earlier reviews was [dismissed](#dismissing-a-finding), doubted by Bark's check, or resolved: by someone, or by Bark once its check found it [fixed](#resolving-fixed-threads). Pass `--full` (or set `full-review`) to check the rest again each time.
+- the pull request doesn't change what Bark reads from its checkout to decide how to review it: anything in a `.bark` folder (config, instructions, reviewer), `.barkignore`, or, with [house rules](#house-rules) on, a house-rules file or the file one points to. Otherwise it could set its own bar, say with a higher `min_severity`. Bark lists the pull request's files from its local commits, so this needs `fetch-depth: 0` in CI.
 
 A later review that doesn't approve dismisses Bark's earlier approvals, saying why: on GitHub, a later comment from the same reviewer doesn't replace an approval. Pushing new commits doesn't trigger Bark, so an approval stays on code Bark hasn't seen; to drop it on every push, turn on "Dismiss stale pull request approvals when new commits are pushed" in the branch's ruleset or protection.
 

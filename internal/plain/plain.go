@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -313,6 +314,12 @@ func RunReview(opts ReviewOptions) error {
 			if opts.Approve {
 				var why string
 				approve, why = approval(events, scope, hist, approveThreshold)
+				if approve {
+					listCtx, listCancel := context.WithTimeout(context.Background(), gitTimeout)
+					changed, err := reviewDiff.PRChangedPaths(listCtx)
+					listCancel()
+					approve, why = settingsApproval(changed, err, opts.Config.GetHouseRules(), opts.Config.GetHouseRulesFiles(), rules)
+				}
 				if !approve {
 					fmt.Fprintf(os.Stderr, "bark: not approving: %s\n", why)
 					// A later comment doesn't replace an approval on
@@ -460,6 +467,39 @@ func approval(events []findings.Event, scope prreview.Scope, hist prreview.Histo
 		}
 	}
 	return true, ""
+}
+
+// settingsApproval reports whether a pull request that changes the paths
+// changed (or listErr, if they couldn't be listed) may be approved, or why
+// not. Bark reads its repository config, review instructions, reviewer,
+// .barkignore and house rules from the checkout under review, so a pull
+// request that changes any of them could set its own bar: say, a higher
+// min_severity, or instructions to report nothing. House rules count when
+// houseRules is on: the files (as house_rules_files lists them) and the
+// files rules points to.
+func settingsApproval(changed []string, listErr error, houseRules bool, files []string, rules houserules.Rules) (bool, string) {
+	if listErr != nil {
+		return false, fmt.Sprintf("Bark couldn't list the files the pull request changes, to check it doesn't change Bark's own settings: %v", listErr)
+	}
+	var hits []string
+	for _, p := range changed {
+		// Every part, not just the folders: a symlink named .bark is
+		// listed as itself, not as the files under it.
+		parts := strings.Split(p, "/")
+		switch {
+		case slices.Contains(parts, ".bark"), path.Base(p) == git.IgnoreFileName,
+			houseRules && (houserules.IsRulesFile(p, files) || slices.Contains(rules.Targets, p)):
+			hits = append(hits, p)
+		}
+	}
+	if len(hits) == 0 {
+		return true, ""
+	}
+	which := hits[0]
+	if len(hits) > 1 {
+		which = strings.Join(hits[:len(hits)-1], ", ") + " and " + hits[len(hits)-1]
+	}
+	return false, fmt.Sprintf("the pull request changes %s, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it", which)
 }
 
 // warnFailOnBelowMin says on w when fail_on is less severe than

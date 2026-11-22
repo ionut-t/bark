@@ -874,6 +874,29 @@ func (r ReviewDiff) PRMergeBase() string {
 	return r.prMergeBase
 }
 
+// PRChangedPaths returns every path the pull request changes from where it
+// branched off its base to its head, both sides of a rename, including the
+// ones .barkignore leaves out of the diff. It needs the pull request's
+// commits in the local repository: GitHub's list of a pull request's files
+// can be cut short and names only the new side of a rename.
+func (r ReviewDiff) PRChangedPaths(ctx context.Context) ([]string, error) {
+	if r.prHead == "" || r.prMergeBase == "" {
+		return nil, errors.New("the pull request's commits aren't in the local repository (check out with fetch-depth: 0)")
+	}
+	out, err := exec.CommandContext(ctx, "git", "diff", "--name-only", "-z", "--no-renames", "--no-ext-diff",
+		r.prMergeBase, r.prHead, "--").Output()
+	if err != nil {
+		return nil, fmt.Errorf("could not list the pull request's files: %w", err)
+	}
+	var paths []string
+	for p := range strings.SplitSeq(string(out), "\x00") {
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths, nil
+}
+
 // CommentDiff returns the diff whose lines GitHub accepts review comments
 // on: the whole pull request's, which is more than Diff when Diff holds
 // only what changed since an earlier review.

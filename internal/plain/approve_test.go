@@ -1,10 +1,12 @@
 package plain
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/ionut-t/bark/v2/internal/findings"
+	"github.com/ionut-t/bark/v2/internal/houserules"
 	"github.com/ionut-t/bark/v2/internal/prreview"
 	"github.com/stretchr/testify/assert"
 )
@@ -105,6 +107,55 @@ func TestApprovalThreshold(t *testing.T) {
 			var w strings.Builder
 			assert.Equal(t, tt.want, approvalThreshold(&w, tt.approveBelow, tt.failOn))
 			assert.Equal(t, tt.wantWarning, w.String())
+		})
+	}
+}
+
+// A pull request that changes what Bark reads from its checkout to decide
+// how to review it isn't approved: it could have set its own bar.
+func TestSettingsApproval(t *testing.T) {
+	t.Parallel()
+
+	pointer := houserules.Rules{Targets: []string{"docs/rules.md"}}
+	tests := []struct {
+		name       string
+		changed    []string
+		listErr    error
+		houseRules bool
+		files      []string
+		rules      houserules.Rules
+		why        string
+	}{
+		{name: "code only", changed: []string{"main.go", "docs/bark.md", "pkg/.barkrc"}, houseRules: true},
+		{name: "repo config", changed: []string{"main.go", ".bark/config.toml"},
+			why: "the pull request changes .bark/config.toml, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
+		{name: "instructions, reviewer and ignore file", changed: []string{".bark/review.md", ".bark/reviewer.md", ".barkignore"},
+			why: "the pull request changes .bark/review.md, .bark/reviewer.md and .barkignore, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
+		{name: "a .bark folder deeper down", changed: []string{"svc/.bark/review.md"},
+			why: "the pull request changes svc/.bark/review.md, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
+		// A symlink in place of the folder: git lists the link, not
+		// what's under it.
+		{name: "a .bark symlink", changed: []string{".bark", "docs/x/review.md"},
+			why: "the pull request changes .bark, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
+		{name: "a .bark symlink deeper down", changed: []string{"svc/.bark"},
+			why: "the pull request changes svc/.bark, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
+		{name: "house rules", changed: []string{"pkg/AGENTS.md"}, houseRules: true,
+			why: "the pull request changes pkg/AGENTS.md, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
+		{name: "house rules off", changed: []string{"AGENTS.md"}},
+		{name: "a listed house-rules file", changed: []string{"docs/STYLE.md"}, houseRules: true, files: []string{"docs/STYLE.md"},
+			why: "the pull request changes docs/STYLE.md, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
+		{name: "a file house rules point to", changed: []string{"docs/rules.md"}, houseRules: true, rules: pointer,
+			why: "the pull request changes docs/rules.md, which Bark reads from the pull request's own checkout to decide how to review it; a person needs to approve it"},
+		{name: "files unknown", listErr: errors.New("no commits"),
+			why: "Bark couldn't list the files the pull request changes, to check it doesn't change Bark's own settings: no commits"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ok, why := settingsApproval(tt.changed, tt.listErr, tt.houseRules, tt.files, tt.rules)
+			assert.Equal(t, tt.why == "", ok)
+			assert.Equal(t, tt.why, why)
 		})
 	}
 }
