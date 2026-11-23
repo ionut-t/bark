@@ -91,6 +91,16 @@ bark review --pr 42 --comment --full
 
 A full review of a pull request whose head hasn't changed since the last review is shown but not posted when it raises nothing new (every finding repeats a point raised before or dismissed, or there are none). `--fail-on` still applies to it.
 
+#### Dry run
+
+To see what a review would send to the model without calling it, add `--dry-run`. Bark builds the diff and its context exactly as the review would, with the same flags and config (`--pr`, `--branch`, `--with-context`, `.barkignore`, house rules, `max_diff_tokens`), and masks secrets the same way. It prints the system prompt and the prompt on stdout, then exits without calling the model or posting anything:
+
+```bash
+bark review --with-context --as linus --dry-run | peek
+```
+
+On stderr, it estimates how many input tokens the prompts are and, with a [prices file](#costs), what that input would cost. It needs no API key. Output, thinking and the check's call can't be known before the review runs, so they aren't counted. With `--pr` and `--comment`, the diff is the one the review would see (only the changes since Bark's last review, unless `--full`).
+
 #### Checking findings
 
 Before a structured review (`--structured` or `--comment`) is shown in full or posted, Bark checks its findings with a second model call. The check reads the files the findings point to (whole, or only the lines around each finding for files over 1,500 lines) and must quote the code each finding rests on. Three kinds of finding are set aside:

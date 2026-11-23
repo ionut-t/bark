@@ -50,6 +50,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().String("approve-below", "", "With --approve, approve only when every finding is below this severity: "+strings.Join(config.Severities(), ", ")+" (default medium, so low findings are left as comments on the approval; a lower --fail-on wins)")
 	cmd.Flags().Bool("no-resolve", false, "With --comment, leave open the threads of Bark's earlier inline comments that its check finds fixed (by default Bark replies on each with the reason and resolves it)")
 	cmd.Flags().Bool("full", false, "Review the whole pull request, not only the changes since Bark's last posted review of it (requires --pr; matters with --comment)")
+	cmd.Flags().Bool("dry-run", false, "Print the system prompt and prompt the review would send (diff, related code, house rules, secrets masked) with an estimate of their tokens and cost, then exit without calling the model or posting (implies plain output)")
 	addPlainFlag(cmd)
 
 	cmd.MarkFlagsMutuallyExclusive("changes", "commit", "branch", "staged", "hash", "pr")
@@ -81,6 +82,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	approve, _ := cmd.Flags().GetBool("approve")
 	approveBelow, _ := cmd.Flags().GetString("approve-below")
 	noResolve, _ := cmd.Flags().GetBool("no-resolve")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
 	if withDescription && pr == "" {
 		return fmt.Errorf("--with-description requires --pr")
@@ -175,8 +177,9 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	warnRepoLLM(os.Stderr, cfg)
 
 	// Posting and failing on findings run in plain mode: the TUI has no
-	// step for posting, and its exit status means nothing.
-	if stdinDiff != nil || comment || failOn != "" || isPlainMode(cmd) {
+	// step for posting, and its exit status means nothing. A dry run prints
+	// prompts, which the TUI has no view for.
+	if stdinDiff != nil || comment || failOn != "" || dryRun || isPlainMode(cmd) {
 		return plain.RunReview(plain.ReviewOptions{
 			Diff:              stdinDiff,
 			ReviewerName:      reviewerName,
@@ -196,6 +199,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 			Approve:           approve,
 			ApproveBelow:      findings.Severity(approveBelow),
 			NoResolve:         noResolve,
+			DryRun:            dryRun,
 		})
 	}
 
