@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ionut-t/bark/v2/internal/check"
 	"github.com/ionut-t/bark/v2/internal/config"
@@ -497,7 +500,7 @@ func TestCheckFindingsFailedMarksUnchecked(t *testing.T) {
 		{Finding: &findings.Finding{File: "a.go", Line: 2, Severity: findings.Low, Title: "B"}},
 		{Verdict: "Fix it."},
 	}
-	got, checked, _ := checkFindings(check.Review{Client: emptyLLM{}}, events, nil)
+	got, checked, _ := checkFindings(check.Review{Client: emptyLLM{}}, events, nil, time.Minute)
 	assert.Equal(t, 0, checked)
 	assert.Equal(t, []findings.Event{
 		{Finding: &findings.Finding{File: "a.go", Line: 1, Severity: findings.High, Title: "A", Unchecked: "it failed."}},
@@ -810,4 +813,43 @@ func TestNewMeteredClient(t *testing.T) {
 		require.NotNil(t, meter)
 		assert.Equal(t, meter, client, "calls go through the meter")
 	})
+}
+
+// llm_timeout limits a commit message or PR description call: a model that
+// never answers fails the run once the timeout passes, not after the
+// 3-minute default.
+func TestRunCommitAndPR_LLMTimeout(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(cfg config.Config, diff *string) error
+	}{
+		{name: "commit", run: func(cfg config.Config, diff *string) error {
+			return RunCommit(CommitOptions{Diff: diff, Config: cfg})
+		}},
+		{name: "pr", run: func(cfg config.Config, diff *string) error {
+			return RunPR(PROptions{Diff: diff, Config: cfg})
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isolateProvider(t)
+			// An Ollama server that never answers.
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// The server only notices the client hanging up once the
+				// body is read.
+				_, _ = io.Copy(io.Discard, r.Body)
+				<-r.Context().Done()
+			}))
+			t.Cleanup(srv.Close)
+			t.Setenv("OLLAMA_HOST", srv.URL)
+
+			cfg := config.New("", config.Data{LLMProvider: "ollama", LLMModel: "llama3", LLMTimeout: "200ms"})
+			diff := "diff --git a/a.go b/a.go\n+x\n"
+			start := time.Now()
+			err := tt.run(cfg, &diff)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, context.DeadlineExceeded)
+			assert.Less(t, time.Since(start), 30*time.Second)
+		})
+	}
 }

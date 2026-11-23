@@ -277,7 +277,7 @@ bark review --config ~/work/bark.toml
 
 ### Per-repository config
 
-A repository can share review settings in `.bark/config.toml` at its top level. Its values win over your config file and lose to command-line flags. It can set `llm_provider`, `llm_model`, `max_diff_tokens`, `context_enrichment`, `structured_findings`, `check_findings`, `min_severity`, `fail_on`, `effort`, `house_rules` and `house_rules_files`. Other keys are an error. That includes `editor` and `relative_number`, which stay personal (the editor is run as a command, so a cloned repository can't choose it).
+A repository can share review settings in `.bark/config.toml` at its top level. Its values win over your config file and lose to command-line flags. It can set `llm_provider`, `llm_model`, `max_diff_tokens`, `context_enrichment`, `structured_findings`, `check_findings`, `min_severity`, `fail_on`, `effort`, `llm_timeout`, `house_rules` and `house_rules_files`. Other keys are an error. That includes `editor` and `relative_number`, which stay personal (the editor is run as a command, so a cloned repository can't choose it).
 
 ```toml
 structured_findings = true
@@ -374,6 +374,17 @@ It applies to every model call in a run, the check included. Bark maps it to eac
 - **Ollama:** ignored.
 
 A model that can't think may reject the request; Bark doesn't check model names first.
+
+### Timeouts
+
+Bark gives up on a model call that takes too long. By default a review may take 5 minutes, and its check another 5; a commit message or PR description may take 3 minutes in plain mode and 5 in the TUI. A slow model, high effort or a large diff can need more:
+
+```bash
+bark review --timeout 10m       # for one run (also bark commit and bark pr)
+bark config --timeout 10m       # for good, for every command
+```
+
+The value is a duration such as `90s`, `10m` or `1h30m`, and applies to each call on its own: `--timeout 10m` gives the review 10 minutes and the check another 10. It can also be set as `llm_timeout` in a repository's `.bark/config.toml`. In GitHub Actions, set the `timeout` input of the `bark-review` and `bark-pr-description` actions (the workflows `bark actions` writes read it from the `BARK_TIMEOUT` variable).
 
 ## Reset
 

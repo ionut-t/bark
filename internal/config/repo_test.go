@@ -493,3 +493,52 @@ func TestNormaliseApproveBelow(t *testing.T) {
 	_, err = NormaliseApproveBelow("severe")
 	assert.EqualError(t, err, `invalid approve_below "severe" (supported: critical, high, medium, low)`)
 }
+
+func TestNormaliseLLMTimeout(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		in      string
+		want    string
+		wantErr string
+	}{
+		{in: "", want: ""},
+		{in: "  ", want: ""},
+		{in: "10m", want: "10m"},
+		{in: " 1h30m ", want: "1h30m"},
+		{in: "90s", want: "90s"},
+		{in: "300", wantErr: "want a duration such as 10m or 90s"},
+		{in: "ten minutes", wantErr: "want a duration such as 10m or 90s"},
+		{in: "0s", wantErr: "must be more than 0"},
+		{in: "-5m", wantErr: "must be more than 0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := NormaliseLLMTimeout(tt.in)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				assert.Contains(t, err.Error(), LLMTimeoutKey)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestParseRepo_LLMTimeout(t *testing.T) {
+	t.Parallel()
+
+	got, err := ParseRepo("/repo/.bark/config.toml", []byte("llm_timeout = ' 10m '\n"))
+	require.NoError(t, err)
+	assert.Equal(t, RepoData{LLMTimeout: new("10m")}, got)
+
+	_, err = ParseRepo("/repo/.bark/config.toml", []byte("llm_timeout = '10'\n"))
+	require.Error(t, err)
+	for _, s := range []string{"config.toml", "llm_timeout", `"10"`} {
+		assert.Contains(t, err.Error(), s)
+	}
+}

@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/check"
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/debuglog"
@@ -112,6 +114,41 @@ func (c checkLLM) Generate(context.Context, string, string) (llm.Response, error
 	return llm.Response{Content: c.output}, nil
 }
 
+// slowLLM answers only when the call is cancelled.
+type slowLLM struct{}
+
+func (slowLLM) Stream(context.Context, string, string) (<-chan llm.Response, <-chan error) {
+	panic("the check doesn't stream")
+}
+
+func (slowLLM) Generate(ctx context.Context, _, _ string) (llm.Response, error) {
+	<-ctx.Done()
+	return llm.Response{}, ctx.Err()
+}
+
+// The check gives up after the timeout setCheck was given (llm_timeout).
+func TestReviewStructuredCheckTimeout(t *testing.T) {
+	t.Parallel()
+
+	m := newStructuredReview(t)
+	m.setCheck(50*time.Millisecond, check.Review{Diff: checkDiff, Client: slowLLM{}})
+
+	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","line":2,"severity":"high","title":"Nil map","body":"b"}` + "\n"})
+	_, cmd := m.Update(streamCompleteMsg{})
+	require.NotNil(t, cmd)
+
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+	select {
+	case msg := <-done:
+		checked, ok := msg.(checkDoneMsg)
+		require.True(t, ok, "got %T", msg)
+		assert.ErrorIs(t, checked.err, context.DeadlineExceeded)
+	case <-time.After(30 * time.Second):
+		t.Fatal("the check ignored its timeout")
+	}
+}
+
 // Once a structured review is done, its findings are checked and the
 // doubted ones are marked where they are, so nothing the reader has seen
 // moves and the verdict stays last.
@@ -119,7 +156,7 @@ func TestReviewStructuredRunsCheck(t *testing.T) {
 	t.Parallel()
 
 	m := newStructuredReview(t)
-	m.setCheck(check.Review{Diff: checkDiff, Client: checkLLM{output: `{"id":1,"verdict":"drop","reason":"m is never nil."}` + "\n" +
+	m.setCheck(time.Minute, check.Review{Diff: checkDiff, Client: checkLLM{output: `{"id":1,"verdict":"drop","reason":"m is never nil."}` + "\n" +
 		`{"id":2,"verdict":"keep","evidence":"counts := make(map[string]int)"}`}})
 
 	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","line":2,"severity":"high","title":"Nil map","body":"b"}` + "\n"})
@@ -146,7 +183,7 @@ func TestReviewStructuredCheckKeepsAll(t *testing.T) {
 	t.Parallel()
 
 	m := newStructuredReview(t)
-	m.setCheck(check.Review{Diff: checkDiff, Client: checkLLM{output: `{"id":1,"verdict":"keep","evidence":"counts := make(map[string]int)"}`}})
+	m.setCheck(time.Minute, check.Review{Diff: checkDiff, Client: checkLLM{output: `{"id":1,"verdict":"keep","evidence":"counts := make(map[string]int)"}`}})
 
 	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","line":2,"severity":"high","title":"Nil map","body":"b"}` + "\n"})
 	m, _ = m.Update(streamChunkMsg{content: `{"type":"verdict","text":"Fix it."}`})
@@ -163,7 +200,7 @@ func TestReviewStructuredCheckAnswersSome(t *testing.T) {
 	t.Parallel()
 
 	m := newStructuredReview(t)
-	m.setCheck(check.Review{Diff: checkDiff, Client: checkLLM{output: `{"id":1,"verdict":"keep","evidence":"counts := make(map[string]int)"}`}})
+	m.setCheck(time.Minute, check.Review{Diff: checkDiff, Client: checkLLM{output: `{"id":1,"verdict":"keep","evidence":"counts := make(map[string]int)"}`}})
 
 	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","line":2,"severity":"high","title":"Nil map","body":"b"}` + "\n"})
 	m, _ = m.Update(streamChunkMsg{content: `{"file":"b.go","line":5,"severity":"low","title":"Typo","body":"t"}` + "\n"})
@@ -180,7 +217,7 @@ func TestReviewStructuredCheckEmptyAnswer(t *testing.T) {
 	t.Parallel()
 
 	m := newStructuredReview(t)
-	m.setCheck(check.Review{Diff: checkDiff, Client: checkLLM{output: ""}})
+	m.setCheck(time.Minute, check.Review{Diff: checkDiff, Client: checkLLM{output: ""}})
 
 	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","line":2,"severity":"high","title":"Nil map","body":"b"}` + "\n"})
 	m, cmd := m.Update(streamCompleteMsg{})
@@ -263,7 +300,7 @@ func TestReviewStructuredIgnoresStaleCheck(t *testing.T) {
 	t.Parallel()
 
 	m := newStructuredReview(t)
-	m.setCheck(check.Review{Client: checkLLM{}})
+	m.setCheck(time.Minute, check.Review{Client: checkLLM{}})
 	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","title":"T","body":"b"}` + "\n"})
 	m, _ = m.Update(streamCompleteMsg{})
 	require.True(t, m.checking)
@@ -372,7 +409,7 @@ func TestReviewStructuredReportsAddedSecrets(t *testing.T) {
 	app.selectedReviewer = &reviewers.Reviewer{Name: "Spock"}
 	_, _ = app.handleReviewDiffLoaded(reviewDiffLoadedMsg{diff: secretDiff, reviewDiff: git.ReviewDiff{Diff: secretDiff}})
 	m := app.review
-	m.setCheck(check.Review{Diff: checkDiff, Client: checkLLM{output: `{"id":1,"verdict":"keep","evidence":"counts := make(map[string]int)"}`}})
+	m.setCheck(time.Minute, check.Review{Diff: checkDiff, Client: checkLLM{output: `{"id":1,"verdict":"keep","evidence":"counts := make(map[string]int)"}`}})
 
 	m, _ = m.Update(streamChunkMsg{content: `{"file":"a.go","line":2,"severity":"high","title":"Nil map","body":"b"}` + "\n"})
 	content := m.editor.GetCurrentContent()

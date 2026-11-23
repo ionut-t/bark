@@ -25,6 +25,7 @@ func prCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().StringP("model", "m", "", "Model to use (overrides config)")
 	cmd.Flags().StringP("provider", "P", "", "Model provider to use (overrides config; by default inferred from the model name): "+strings.Join(config.SupportedProviders(), ", "))
 	addEffortFlag(cmd)
+	addTimeoutFlag(cmd)
 	cmd.Flags().StringArrayP("instructions", "i", nil, "Custom instructions: a file path or raw text, overriding the default PR instructions (repeat to combine several)")
 	cmd.Flags().Uint32("max-diff-tokens", 0, "Maximum number of diff tokens to include in the prompt, estimated at 2.5 characters a token (0 disables the limit)")
 	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
@@ -54,6 +55,9 @@ func runPRCmd(cmd *cobra.Command, cfg config.Config) error {
 		return fmt.Errorf("error overriding provider: %w", err)
 	}
 	if err := overrideEffort(cmd, cfg); err != nil {
+		return err
+	}
+	if err := overrideTimeout(cmd, cfg); err != nil {
 		return err
 	}
 

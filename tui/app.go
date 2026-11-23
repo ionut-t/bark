@@ -33,8 +33,10 @@ import (
 
 const (
 	defaultCommitLimit = 25
-	ctxTimeout         = 5 * time.Minute
-	gitTimeout         = 30 * time.Second
+	// defaultLLMTimeout is how long a model call may take when
+	// llm_timeout isn't set.
+	defaultLLMTimeout = 5 * time.Minute
+	gitTimeout        = 30 * time.Second
 )
 
 type view int
@@ -224,6 +226,14 @@ func New(options Options) *Model {
 	m.reviewOptions.setStyles(styles, isDarkMode)
 
 	return m
+}
+
+// llmTimeout is how long one model call may take (llm_timeout).
+func (m *Model) llmTimeout() time.Duration {
+	if m.config == nil {
+		return defaultLLMTimeout
+	}
+	return m.config.GetLLMTimeout(defaultLLMTimeout)
 }
 
 func (m *Model) recordUsage(usage llm.Usage, duration time.Duration) {
@@ -614,7 +624,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.currentView {
 			case viewReview:
 				if m.review.error != nil {
-					ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+					ctx, cancel := context.WithTimeout(context.Background(), m.llmTimeout())
 
 					if m.reviewCancelFunc != nil {
 						m.reviewCancelFunc()
@@ -636,7 +646,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case viewPRDescription:
 				if m.pr.error != nil {
-					ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+					ctx, cancel := context.WithTimeout(context.Background(), m.llmTimeout())
 
 					if m.operationCancelFunc != nil {
 						m.operationCancelFunc()
@@ -942,7 +952,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	}
 	reviewPrompt := prompt.FormatReviewContent(msg.contextHeader, msg.stat, msg.commits, diff, msg.enclosingContext)
 
-	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), m.llmTimeout())
 
 	if m.reviewCancelFunc != nil {
 		m.reviewCancelFunc()
@@ -965,7 +975,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	m.review.houseRules = houserules.LogField(m.config.GetHouseRules(), msg.houseRules)
 	m.review.setPricing(m.pricing)
 	if structured && m.config.GetCheckFindings() {
-		m.review.setCheck(check.Review{
+		m.review.setCheck(m.llmTimeout(), check.Review{
 			Client:     m.llm,
 			ReviewDiff: msg.reviewDiff,
 			Diff:       diff,
@@ -1029,7 +1039,7 @@ func (m *Model) handleCommitDataLoaded(msg commitDataLoadedMsg) (tea.Model, tea.
 
 	commitSystem := prompt.FormatCommitSystem(msg.instructions, m.hint)
 
-	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), m.llmTimeout())
 
 	if m.operationCancelFunc != nil {
 		m.operationCancelFunc()
@@ -1083,7 +1093,7 @@ func (m *Model) handlePRDataLoaded(msg prDataLoadedMsg) (tea.Model, tea.Cmd) {
 		prompt.FormatPRSystem(msg.instructions),
 		msg.content,
 	)
-	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), m.llmTimeout())
 
 	if m.operationCancelFunc != nil {
 		m.operationCancelFunc()

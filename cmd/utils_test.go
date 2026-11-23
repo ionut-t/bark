@@ -3,13 +3,16 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -83,4 +86,50 @@ func TestSyncBuffer(t *testing.T) {
 	}
 	wg.Wait()
 	assert.Len(t, b.Bytes(), 100)
+}
+
+// Every command that calls a model takes --timeout for one run, and rejects
+// a value that isn't a duration before doing any work.
+func TestTimeoutFlag(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cmd  func(configFunc) *cobra.Command
+	}{
+		{name: "review", cmd: reviewCmd},
+		{name: "commit", cmd: commitCmd},
+		{name: "pr", cmd: prCmd},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.NotNil(t, tt.cmd(staticConfig(config.New("", config.Data{}))).Flags().Lookup("timeout"))
+
+			cmd := tt.cmd(staticConfig(config.New("", config.Data{})))
+			cmd.SetArgs([]string{"--timeout", "300"})
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			err := cmd.Execute()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "llm_timeout")
+			assert.Contains(t, err.Error(), `"300"`)
+		})
+	}
+}
+
+func TestOverrideTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.New("", config.Data{LLMTimeout: "10m"})
+	cmd := &cobra.Command{}
+	addTimeoutFlag(cmd)
+	require.NoError(t, overrideTimeout(cmd, cfg), "no flag, no change")
+	assert.Equal(t, 10*time.Minute, cfg.GetLLMTimeout(time.Minute))
+
+	require.NoError(t, cmd.Flags().Set("timeout", "90s"))
+	require.NoError(t, overrideTimeout(cmd, cfg))
+	assert.Equal(t, 90*time.Second, cfg.GetLLMTimeout(time.Minute))
 }

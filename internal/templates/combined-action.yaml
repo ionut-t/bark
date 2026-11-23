@@ -22,6 +22,7 @@ jobs:
           api-key: ${{ secrets.BARK_API_KEY }}
           model: ${{ vars.BARK_MODEL }}
           max-diff-tokens: ${{ vars.BARK_MAX_DIFF_TOKENS }}
+          timeout: ${{ vars.BARK_TIMEOUT }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
   review:
@@ -40,6 +41,7 @@ jobs:
           model: ${{ vars.BARK_MODEL }}
           reviewer: ${{ vars.BARK_REVIEWER }}
           max-diff-tokens: ${{ vars.BARK_MAX_DIFF_TOKENS }}
+          timeout: ${{ vars.BARK_TIMEOUT }}
           with-context: ${{ vars.BARK_WITH_CONTEXT }}
           # Posts a pull request review with inline comments. A pull request
           # Bark reviewed before is then reviewed only from the commit the

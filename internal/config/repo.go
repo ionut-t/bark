@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -36,6 +37,7 @@ type RepoData struct {
 	FailOn             *string `toml:"fail_on"`
 	HouseRules         *bool   `toml:"house_rules"`
 	Effort             *string `toml:"effort"`
+	LLMTimeout         *string `toml:"llm_timeout"`
 	// HouseRulesFiles is a pointer so an empty list, which means the
 	// defaults, still beats a user's own list.
 	HouseRulesFiles *[]string `toml:"house_rules_files"`
@@ -45,7 +47,7 @@ type RepoData struct {
 var repoKeys = []string{
 	LLMProviderKey, LLMModelKey, MaxDiffTokensKey, ContextEnrichmentKey,
 	StructuredFindingsKey, CheckFindingsKey, MinSeverityKey, FailOnKey,
-	HouseRulesKey, HouseRulesFilesKey, EffortKey,
+	HouseRulesKey, HouseRulesFilesKey, EffortKey, LLMTimeoutKey,
 }
 
 // ParseRepo reads a repository's config from content, the contents of the
@@ -94,6 +96,13 @@ func ParseRepo(path string, content []byte) (RepoData, error) {
 			return RepoData{}, fmt.Errorf("%s: %w", path, err)
 		}
 		repo.Effort = &effort
+	}
+	if repo.LLMTimeout != nil {
+		timeout, err := NormaliseLLMTimeout(*repo.LLMTimeout)
+		if err != nil {
+			return RepoData{}, fmt.Errorf("%s: %w", path, err)
+		}
+		repo.LLMTimeout = &timeout
 	}
 	if repo.HouseRulesFiles != nil {
 		if err := ValidateHouseRulesFiles(*repo.HouseRulesFiles); err != nil {
@@ -153,6 +162,24 @@ func NormaliseEffort(s string) (string, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s != "" && !slices.Contains(efforts, s) {
 		return "", fmt.Errorf("invalid %s %q (supported: %s)", EffortKey, s, strings.Join(efforts, ", "))
+	}
+	return s, nil
+}
+
+// NormaliseLLMTimeout trims s and checks it's "" or a positive Go duration
+// ("10m", "90s", "1h30m"). A bare number is an error, since its unit would
+// be a guess.
+func NormaliseLLMTimeout(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return "", fmt.Errorf("invalid %s %q: want a duration such as 10m or 90s", LLMTimeoutKey, s)
+	}
+	if d <= 0 {
+		return "", fmt.Errorf("invalid %s %q: must be more than 0", LLMTimeoutKey, s)
 	}
 	return s, nil
 }

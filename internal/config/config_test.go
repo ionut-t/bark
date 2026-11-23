@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ionut-t/bark/v2/internal/templates"
 	"github.com/pelletier/go-toml/v2"
@@ -577,4 +578,34 @@ func TestGetPRInstructions(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(prInstructionsFileName, []byte("Repo PR rules."), 0o644))
 	assert.Equal(t, "Repo PR rules.", cfg.GetPRInstructions(), "working dir file wins")
+}
+
+func TestLLMTimeout(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), configFileName)
+	cfg := New(path, Data{Editor: "vi"})
+	assert.Equal(t, 3*time.Minute, cfg.GetLLMTimeout(3*time.Minute), "the caller's default unless set")
+
+	require.NoError(t, cfg.SetLLMTimeout(" 10m "))
+	assert.Equal(t, 10*time.Minute, cfg.GetLLMTimeout(3*time.Minute))
+	assert.Equal(t, "10m", readSaved(t, path).LLMTimeout)
+
+	assert.Error(t, cfg.SetLLMTimeout("forever"))
+	assert.Error(t, cfg.OverrideLLMTimeout("0s"))
+	assert.Equal(t, 10*time.Minute, cfg.GetLLMTimeout(3*time.Minute))
+
+	cfg.ApplyRepo("/repo/.bark/config.toml", RepoData{LLMTimeout: new("15m")})
+	assert.Equal(t, 15*time.Minute, cfg.GetLLMTimeout(3*time.Minute), "the repository's value beats the user's")
+
+	require.NoError(t, cfg.OverrideLLMTimeout("90s"))
+	assert.Equal(t, 90*time.Second, cfg.GetLLMTimeout(3*time.Minute), "the flag beats the repository's value")
+	assert.Equal(t, "10m", readSaved(t, path).LLMTimeout, "overrides are never saved")
+
+	require.NoError(t, cfg.OverrideLLMTimeout(""))
+	assert.Equal(t, 3*time.Minute, cfg.GetLLMTimeout(3*time.Minute), "an empty flag means the default")
+
+	require.NoError(t, cfg.SetLLMTimeout(""))
+	assert.Equal(t, 15*time.Minute, cfg.GetLLMTimeout(3*time.Minute), "setting replaces the override")
+	assert.Empty(t, readSaved(t, path).LLMTimeout)
 }

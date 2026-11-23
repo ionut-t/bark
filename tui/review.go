@@ -194,8 +194,10 @@ type reviewModel struct {
 	// review is done.
 	raw *strings.Builder
 	// check, if not nil, checks a finished structured review's findings.
-	check    *check.Review
-	checking bool
+	check *check.Review
+	// checkTimeout is how long the check may take.
+	checkTimeout time.Duration
+	checking     bool
 	// checkSummary sums up what Bark's check kept, for the status line;
 	// empty until a check is done.
 	checkSummary string
@@ -256,8 +258,9 @@ func (m *reviewModel) setSecrets(events []findings.Event) {
 	m.secrets = events
 }
 
-func (m *reviewModel) setCheck(r check.Review) {
+func (m *reviewModel) setCheck(timeout time.Duration, r check.Review) {
 	m.check = &r
+	m.checkTimeout = timeout
 }
 
 // setLogInfo sets what the BARK_DEBUG log needs beyond the review itself.
@@ -391,7 +394,7 @@ func (m reviewModel) Update(msg tea.Msg) (reviewModel, tea.Cmd) {
 				m.loader.StopMessages()
 				m.checking = true
 				m.setCheckingStatusLine()
-				return m, runCheckCmd(*m.check, m.run, events)
+				return m, runCheckCmd(*m.check, m.checkTimeout, m.run, events)
 			}
 		}
 		m.loader.Stop()
@@ -675,10 +678,11 @@ func (m *reviewModel) awaitsCheck(msg checkDoneMsg) bool {
 	return msg.run == m.run && m.checking
 }
 
-// runCheckCmd runs Bark's check on the findings of review number run.
-func runCheckCmd(r check.Review, run int, events []findings.Event) tea.Cmd {
+// runCheckCmd runs Bark's check on the findings of review number run,
+// giving up after timeout.
+func runCheckCmd(r check.Review, timeout time.Duration, run int, events []findings.Event) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		res, err := r.Run(ctx, events)
 		if err != nil {

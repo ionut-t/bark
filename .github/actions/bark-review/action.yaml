@@ -43,6 +43,13 @@ inputs:
     deprecationMessage: max-diff-lines is deprecated; use max-diff-tokens.
     required: false
     default: ""
+  timeout:
+    description: |
+      How long one model call may take before Bark gives up, as a duration
+      such as 10m or 90s. Raise it for slow models or large pull requests
+      (default: 5m, for the review and again for the check of its findings).
+    required: false
+    default: ""
   with-description:
     description: Include the PR description in the review context.
     required: false
@@ -173,6 +180,7 @@ runs:
         BARK_FULL_REVIEW: ${{ inputs.full-review }}
         BARK_RESOLVE_FIXED: ${{ inputs.resolve-fixed }}
         BARK_FAIL_ON: ${{ inputs.fail-on }}
+        BARK_TIMEOUT: ${{ inputs.timeout }}
         BARK_APPROVE: ${{ inputs.approve }}
         BARK_APPROVE_BELOW: ${{ inputs.approve-below }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -219,6 +227,7 @@ runs:
         [ "$BARK_FULL_REVIEW" = "true" ] && ARGS+=(--full)
         [ "$BARK_INLINE_COMMENTS" = "true" ] && [ "$BARK_RESOLVE_FIXED" = "false" ] && ARGS+=(--no-resolve)
         [ -n "$BARK_FAIL_ON" ] && ARGS+=(--fail-on "$BARK_FAIL_ON")
+        [ -n "$BARK_TIMEOUT" ] && ARGS+=(--timeout "$BARK_TIMEOUT")
         if [ "$BARK_APPROVE" = "true" ]; then
           if [ "$BARK_INLINE_COMMENTS" != "true" ]; then
             echo "Error: approve needs inline-comments: true." >&2
