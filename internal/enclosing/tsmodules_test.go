@@ -148,6 +148,43 @@ func TestTsPathsCandidates(t *testing.T) {
 	assert.Equal(t, []string{"root/rxjs"}, c.candidates("rxjs"))
 }
 
+// Paths are relative to baseUrl when any config in the extends chain sets
+// it, inherited or not, and otherwise to the config that declares them.
+// Checked against tsc 6.0.3's --traceResolution: with the parent's baseUrl
+// "./libs" and the child's paths, @m resolved to libs/models/index.ts.
+func TestRelated_TsconfigPathsBase(t *testing.T) {
+	tests := []struct {
+		name, parent string
+		want         []string
+	}{
+		{
+			name:   "an inherited baseUrl",
+			parent: `{ "compilerOptions": { "baseUrl": "./libs" } }`,
+			want:   []string{"libs/models/index.ts:1-4 definition of Project"},
+		},
+		{
+			name:   "no baseUrl",
+			parent: `{ "compilerOptions": {} }`,
+			want:   []string{"app/models/index.ts:1-4 definition of Project"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			main := "import { Project } from '@m';\n\nexport function f(p: Project) {\n  return p.teamMembers;\n}\n"
+			repo := fakeRepo{
+				"tsconfig.base.json":   tt.parent,
+				"app/tsconfig.json":    `{ "extends": "../tsconfig.base.json", "compilerOptions": { "paths": { "@m": ["models/index.ts"] } } }`,
+				"libs/models/index.ts": projectTS,
+				"app/models/index.ts":  projectTS,
+				"app/main.ts":          main,
+			}
+			line := lineOf(t, main, "return")
+			got := findRelated(t, repo, addDiff(repo, "app/main.ts", line, line), RelatedOptions{})
+			assert.Equal(t, tt.want, labels(got))
+		})
+	}
+}
+
 func TestStripJSONC(t *testing.T) {
 	src := `{
   // a comment
