@@ -680,3 +680,16 @@ func TestCommitChanges(t *testing.T) {
 		assert.ErrorContains(t, err, "failed to stage changes")
 	})
 }
+
+func TestReviewDiff_IgnoredFiles(t *testing.T) {
+	dir := newDivergedRepo(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, IgnoreFileName), []byte("gen/\n"), 0o644))
+	r, err := GetReviewDiff(t.Context(), WorkingTreeDiff(false))
+	require.NoError(t, err)
+
+	ignored := r.IgnoredFiles(t.Context())
+	assert.True(t, ignored("gen/client.py"))
+	assert.True(t, ignored("go.sum"), "the defaults apply too")
+	assert.False(t, ignored("src/client.py"))
+	assert.False(t, ignored(IgnoreFileName))
+}

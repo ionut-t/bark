@@ -951,6 +951,14 @@ func (r ReviewDiff) Grep(ctx context.Context, word string, globs ...string) ([]s
 	return paths, nil
 }
 
+// IgnoredFiles returns a check for the repository-relative paths
+// .barkignore (with the defaults) leaves out of the diff. Related-code
+// lookup uses it to prefer definitions outside them when a name is
+// ambiguous.
+func (r ReviewDiff) IgnoredFiles(ctx context.Context) func(path string) bool {
+	return loadIgnore(ctx).matches
+}
+
 // GrepWords is Grep for many words in one git process: it maps each word to
 // the files that contain it. Words found nowhere are left out.
 func (r ReviewDiff) GrepWords(ctx context.Context, words []string, globs ...string) (map[string][]string, error) {
