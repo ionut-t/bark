@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -324,6 +325,60 @@ func TestFormatRelated(t *testing.T) {
 
 	assert.True(t, strings.HasPrefix(got, "## Related code\n\n"), got)
 	assert.Contains(t, got, "\n### a.go:7-8 (definition of F)\n\n7\tfunc F() {\n8\t}\n")
+}
+
+// git.ReviewDiff must keep matching ignoreChecker, or Related silently
+// treats .barkignore'd files like any other.
+var _ ignoreChecker = git.ReviewDiff{}
+
+// ignoringRepo is a fakeRepo whose .barkignore leaves out the directories
+// in ignored.
+type ignoringRepo struct {
+	fakeRepo
+	ignored []string
+}
+
+func (r ignoringRepo) IgnoredFiles(context.Context) func(string) bool {
+	return func(p string) bool { return slices.Contains(r.ignored, path.Dir(p)) }
+}
+
+func TestRelated_SameNamedDefinitionsInIgnoredFiles(t *testing.T) {
+	load := func(pkg string) string {
+		return "package " + pkg + "\n\nfunc Load() string {\n\treturn \"" + pkg + "\"\n}\n"
+	}
+	tests := []struct {
+		name string
+		call string
+		pkgs []string
+		want []string
+	}{
+		{"ignored files don't make a name ambiguous", "x.Load()", []string{"store", "gen1", "gen2"}, []string{"store/f.go:3-5 definition of Load"}},
+		{"a qualifier still picks an ignored directory", "gen1.Load()", []string{"store", "gen1", "gen2"}, []string{"gen1/f.go:3-5 definition of Load"}},
+		{"two candidates are both shown, ignored or not", "x.Load()", []string{"store", "gen1"}, []string{"gen1/f.go:3-5 definition of Load", "store/f.go:3-5 definition of Load"}},
+		{"a definition only in an ignored file is shown", "x.Load()", []string{"gen1"}, []string{"gen1/f.go:3-5 definition of Load"}},
+		{"too many ignored candidates stay ambiguous", "x.Load()", []string{"gen1", "gen2", "gen3"}, nil},
+		{"too many others stay ambiguous", "x.Load()", []string{"store", "cache", "disk", "gen1"}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := ignoringRepo{fakeRepo{"app/app.go": "package app\n\nfunc Run() {\n\t" + tt.call + "\n}\n"}, []string{"gen1", "gen2", "gen3"}}
+			for _, p := range tt.pkgs {
+				repo.fakeRepo[p+"/f.go"] = load(p)
+			}
+			got := Related(t.Context(), addDiff(repo.fakeRepo, "app/app.go", 4, 4), repo, RelatedOptions{MaxLines: 1000})
+			assert.Equal(t, tt.want, labels(got))
+		})
+	}
+}
+
+func TestRelated_IgnoredFilesDontCountTowardsTooCommon(t *testing.T) {
+	repo := ignoringRepo{fakeRepo{"app/app.go": "package app\n\nfunc Run() {\n\thelper()\n}\n", "app/helper.go": helperGo}, []string{"gen"}}
+	for i := range maxGrepFiles {
+		repo.fakeRepo[fmt.Sprintf("gen/f%d.go", i)] = "package gen\n\n// helper\n"
+	}
+
+	got := Related(t.Context(), addDiff(repo.fakeRepo, "app/app.go", 4, 4), repo, RelatedOptions{MaxLines: 1000})
+	assert.Equal(t, []string{"app/helper.go:3-5 definition of helper"}, labels(got))
 }
 
 func TestRelated_SearchesAllNamesAtOnce(t *testing.T) {

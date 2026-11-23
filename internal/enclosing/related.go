@@ -86,6 +86,10 @@ func Related(ctx context.Context, diff string, repo Repo, opt RelatedOptions) []
 	r := &related{
 		ctx: ctx, repo: repo, diffFiles: changedFiles(diff), files: map[string]*parsedFile{}, greps: map[string][]string{}, modules: map[string]string{},
 		imported: map[string][]decl{}, modulePaths: map[string]string{}, tsconfigs: map[string]tsPaths{},
+		ignored: func(string) bool { return false },
+	}
+	if ic, ok := repo.(ignoreChecker); ok {
+		r.ignored = ic.IgnoredFiles(ctx)
 	}
 
 	targets := addedLines(diff)
@@ -435,11 +439,33 @@ type related struct {
 	imported    map[string][]decl
 	modulePaths map[string]string
 	tsconfigs   map[string]tsPaths
+	// ignored reports whether .barkignore leaves a file out; see
+	// ignoreChecker.
+	ignored func(path string) bool
 }
 
 // maxGrepFiles skips a name found in more files than this: too common to
-// resolve by name, and each file has to be read and parsed.
+// resolve by name, and each file has to be read and parsed. Files
+// .barkignore leaves out are counted apart: more of them than this are
+// dropped, and the others still searched.
 const maxGrepFiles = 50
+
+// capGrep applies maxGrepFiles to the files a search found.
+func (r *related) capGrep(paths []string) []string {
+	ignored := 0
+	for _, p := range paths {
+		if r.ignored(p) {
+			ignored++
+		}
+	}
+	switch {
+	case len(paths)-ignored > maxGrepFiles:
+		return nil
+	case ignored > maxGrepFiles:
+		return slices.DeleteFunc(paths, r.ignored)
+	}
+	return paths
+}
 
 func (r *related) grep(word string, globs []string) []string {
 	key := word + "\x00" + strings.Join(globs, "\x00")
@@ -447,9 +473,10 @@ func (r *related) grep(word string, globs []string) []string {
 		return paths
 	}
 	paths, err := r.repo.Grep(r.ctx, word, globs...)
-	if err != nil || len(paths) > maxGrepFiles {
+	if err != nil {
 		paths = nil
 	}
+	paths = r.capGrep(paths)
 	r.greps[key] = paths
 	return paths
 }
@@ -457,6 +484,12 @@ func (r *related) grep(word string, globs []string) []string {
 // wordGrepper is a Repo that can search for many words in one go.
 type wordGrepper interface {
 	GrepWords(ctx context.Context, words []string, globs ...string) (map[string][]string, error)
+}
+
+// ignoreChecker is a Repo that knows which files .barkignore leaves out of
+// the diff, such as generated or vendored code. git.ReviewDiff implements it.
+type ignoreChecker interface {
+	IgnoredFiles(ctx context.Context) func(path string) bool
 }
 
 // grepAll fills the grep cache for words in one search, if the repo can.
@@ -482,10 +515,7 @@ func (r *related) grepAll(words []string, globs []string) {
 		return // each name is searched on its own instead
 	}
 	for _, w := range todo {
-		paths := found[w]
-		if len(paths) > maxGrepFiles {
-			paths = nil
-		}
+		paths := r.capGrep(found[w])
 		slices.Sort(paths)
 		r.greps[w+suffix] = paths
 	}
@@ -560,7 +590,8 @@ func (r *related) read(p string) ([]byte, error) {
 // definitions finds the declarations c may refer to, types only for a
 // type. A qualifier that names a package directory (or a Go import alias
 // for one), or a reference from the same directory, picks among
-// same-named declarations; a name with too many candidates is skipped.
+// same-named declarations; a name with too many candidates is skipped,
+// unless leaving out files .barkignore leaves out makes it few enough.
 func (r *related) definitions(c call, from *parsedFile) []decl {
 	if from.spec.builtins[c.name] {
 		return nil
@@ -581,8 +612,27 @@ func (r *related) definitions(c call, from *parsedFile) []decl {
 			}
 		}
 	}
+	if ds, ok := r.pick(c, from, cands); ok {
+		return ds
+	}
+	// Still ambiguous: leave out files .barkignore leaves out, such as
+	// generated code, and try again. They count only when nothing else
+	// declares the name, or a qualifier or the directory picks them.
+	kept := slices.DeleteFunc(slices.Clone(cands), func(d decl) bool { return r.ignored(d.path) })
+	if len(kept) > 0 && len(kept) < len(cands) {
+		if ds, ok := r.pick(c, from, kept); ok {
+			return ds
+		}
+	}
+	return nil
+}
+
+// pick chooses among same-named candidates for c: those a qualifier or
+// from's directory picks, or all of them, if few enough. It reports false
+// when too many are left.
+func (r *related) pick(c call, from *parsedFile, cands []decl) ([]decl, bool) {
 	if len(cands) <= 1 {
-		return cands
+		return cands, true
 	}
 	var picked []decl
 	for _, d := range cands {
@@ -603,11 +653,11 @@ func (r *related) definitions(c call, from *parsedFile) []decl {
 	}
 	switch {
 	case len(picked) > 0 && len(picked) <= maxDefinitions:
-		return picked
+		return picked, true
 	case len(cands) <= maxDefinitions:
-		return cands
+		return cands, true
 	}
-	return nil
+	return nil, false
 }
 
 // callers returns the declarations that call d, production code first;
