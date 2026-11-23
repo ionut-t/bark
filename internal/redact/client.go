@@ -30,17 +30,21 @@ func Wrap(client llm.LLM, warn io.Writer) *Client {
 
 // Generate masks the prompts and makes the call.
 func (c *Client) Generate(ctx context.Context, system, prompt string) (llm.Response, error) {
-	system, prompt = c.mask(system, prompt)
+	system, prompt = c.Mask(system, prompt)
 	return c.next.Generate(ctx, system, prompt)
 }
 
 // Stream masks the prompts and starts the call.
 func (c *Client) Stream(ctx context.Context, system, prompt string) (<-chan llm.Response, <-chan error) {
-	system, prompt = c.mask(system, prompt)
+	system, prompt = c.Mask(system, prompt)
 	return c.next.Stream(ctx, system, prompt)
 }
 
-func (c *Client) mask(system, prompt string) (string, string) {
+// Mask returns a call's prompts as the client sends them (see Prompts),
+// warning about the secrets it hasn't warned about before. A dry run uses
+// it to show what would be sent; it doesn't need a client to pass calls on
+// to (Wrap(nil, warn)).
+func (c *Client) Mask(system, prompt string) (string, string) {
 	system, prompt, matches := Prompts(system, prompt)
 	c.report(matches)
 	return system, prompt

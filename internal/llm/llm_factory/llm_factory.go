@@ -119,13 +119,7 @@ func New(ctx context.Context, cfg config.Config) (llm.LLM, string, error) {
 
 	creds := loadCredentials()
 
-	model, err := cfg.GetLLMModel()
-	if err != nil {
-		return nil, "", err
-	}
-
-	configured, pinned := cfg.LLMProviderChoice()
-	provider, err := resolveProvider(configured, pinned, model, creds)
+	model, provider, err := modelAndProvider(cfg, creds)
 	if err != nil {
 		return nil, "", err
 	}
@@ -158,4 +152,27 @@ func New(ctx context.Context, cfg config.Config) (llm.LLM, string, error) {
 		return nil, "", err
 	}
 	return l, provider, nil
+}
+
+// Provider returns the provider New would call cfg's model through, without
+// creating a client or checking that its credentials are set, so a dry run
+// can price a call it doesn't make.
+func Provider(cfg config.Config) (string, error) {
+	_, provider, err := modelAndProvider(cfg, loadCredentials())
+	return provider, err
+}
+
+// modelAndProvider returns cfg's model and the provider that serves it (see
+// resolveProvider).
+func modelAndProvider(cfg config.Config, creds *providerCredentials) (model, provider string, err error) {
+	model, err = cfg.GetLLMModel()
+	if err != nil {
+		return "", "", err
+	}
+	configured, pinned := cfg.LLMProviderChoice()
+	provider, err = resolveProvider(configured, pinned, model, creds)
+	if err != nil {
+		return "", "", err
+	}
+	return model, provider, nil
 }

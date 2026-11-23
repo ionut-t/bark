@@ -27,6 +27,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/prreview"
 	"github.com/ionut-t/bark/v2/internal/redact"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
+	"github.com/ionut-t/bark/v2/internal/tokens"
 	"github.com/ionut-t/bark/v2/internal/utils"
 )
 
@@ -67,6 +68,9 @@ type ReviewOptions struct {
 	// that its check finds fixed. Without it, a posted review resolves
 	// them, after replying on each with the check's reason.
 	NoResolve bool
+	// DryRun prints the prompts the review would send, with an estimate of
+	// their size and cost, and returns before calling the model or posting.
+	DryRun bool
 
 	// Diff source flags (used when Diff is empty)
 	Staged bool
@@ -169,7 +173,7 @@ func RunReview(opts ReviewOptions) error {
 	}
 
 	if reviewDiff.Diff == "" {
-		return fmt.Errorf("no diff content available")
+		return emptyDiffError(opts, reviewDiff)
 	}
 
 	reviewer, err := resolveReviewer(opts.ReviewerName, opts.Paths.Config)
@@ -233,6 +237,12 @@ func RunReview(opts ReviewOptions) error {
 		secrets = secretFindings(reviewDiff.Diff, hist.Findings)
 	}
 	promptText := prompt.FormatReviewContent(reviewDiff.ContextHeader, reviewDiff.Stat, reviewDiff.Commits, diff, enclosingContext)
+
+	if opts.DryRun {
+		pricing, why := dryRunPricing(opts.Config, opts.Paths.Cache)
+		dryRun(os.Stdout, os.Stderr, system, promptText, reviewDiff.Cut, checking, pricing, why)
+		return nil
+	}
 
 	client, provider, err := llm_factory.New(context.Background(), opts.Config)
 	if err != nil {
@@ -926,6 +936,32 @@ func postScope(r git.ReviewDiff, truncated bool) prreview.Scope {
 	}
 }
 
+// ignoredNote ends the errors about a diff that may be empty because every
+// file it changes is ignored.
+const ignoredNote = "files .barkignore or .gitignore leave out aren't reviewed"
+
+// emptyDiffError says why opts' source gave r an empty diff, and what to
+// review instead where that's clear.
+func emptyDiffError(opts ReviewOptions, r git.ReviewDiff) error {
+	switch {
+	case opts.Diff != nil:
+		return fmt.Errorf("nothing to review: the diff from stdin is empty")
+	case opts.PR != "":
+		return fmt.Errorf("nothing to review: pull request #%s changes no file Bark reviews (%s)", opts.PR, ignoredNote)
+	case opts.Branch != "" && len(r.Commits) == 0:
+		return fmt.Errorf("nothing to review: HEAD has no commits that %s doesn't have, and uncommitted changes aren't part of a branch diff; "+
+			"use --changes or --staged to review them", opts.Branch)
+	case opts.Branch != "":
+		return fmt.Errorf("nothing to review: the commits since %s change no file Bark reviews (%s)", opts.Branch, ignoredNote)
+	case opts.Hash != "":
+		return fmt.Errorf("nothing to review: commit %s changes no file Bark reviews (%s)", opts.Hash, ignoredNote)
+	case opts.Staged:
+		return fmt.Errorf("nothing to review: no staged changes to review (%s); stage some with git add, or use --changes to review every uncommitted change", ignoredNote)
+	default:
+		return fmt.Errorf("nothing to review: no uncommitted changes to review (%s); use --branch <base> to review this branch's commits, or --hash for one commit", ignoredNote)
+	}
+}
+
 // nothingToReview is the output of a review with nothing to review: no
 // changes since the last review of r's pull request, or only to files
 // Bark ignores.
@@ -1019,6 +1055,70 @@ func newMeteredClient(cfg config.Config) (llm.LLM, *prices.Meter, error) {
 	model, _ := cfg.GetLLMModel()
 	client, meter := meterCalls(client, p.Cache, provider, model)
 	return client, meter, nil
+}
+
+// Headings that set the dry run's prompts apart, unlike any line of the
+// prompts themselves (which use Markdown headings).
+const (
+	dryRunSystemHeading = "===== bark dry run: system prompt ====="
+	dryRunPromptHeading = "===== bark dry run: prompt ====="
+)
+
+// dryRun writes to out the system prompt and prompt a review would send,
+// masked as they would be sent, and to log (stderr) what they would cost:
+// their size in tokens and, with pricing, the price of that input. why says
+// why there's no pricing. Output, thinking and the check's call can't be
+// known before the review runs, so they aren't counted.
+func dryRun(out, log io.Writer, system, promptText string, cut *git.DiffCut, checking bool, pricing *prices.Pricing, why string) {
+	system, promptText = redact.Wrap(nil, log).Mask(system, promptText)
+	if cut != nil {
+		_, _ = fmt.Fprintf(log, "bark: warning: %s\n", cut.Summary())
+	}
+
+	_, _ = fmt.Fprintf(out, "%s\n%s\n\n%s\n%s\n", dryRunSystemHeading, strings.TrimRight(system, "\n"),
+		dryRunPromptHeading, strings.TrimRight(promptText, "\n"))
+
+	systemTokens, promptTokens := tokens.Estimate(len(system)), tokens.Estimate(len(promptText))
+	input := systemTokens + promptTokens
+	_, _ = fmt.Fprintf(log, "bark: dry run: no model call made; the review would send about %d input tokens (system prompt %d, prompt %d, at %.1f characters a token)\n",
+		input, systemTokens, promptTokens, tokens.CharsPerToken)
+
+	notCounted := "output and thinking aren't counted"
+	if checking {
+		notCounted = "output, thinking and the check's call aren't counted"
+	}
+	if pricing == nil {
+		_, _ = fmt.Fprintf(log, "bark: dry run: no cost estimate: %s\n", why)
+		return
+	}
+	usd := pricing.Cost(llm.Usage{InputTokens: int64(input)})
+	_, _ = fmt.Fprintf(log, "bark: dry run: that input would cost about %s (prices from %s); %s\n",
+		prices.FormatUSD(usd), pricing.Date, notCounted)
+}
+
+// dryRunPricing returns the prices of the model cfg would review with, or
+// nil and why there are none. It needs no credentials: a dry run makes no
+// call.
+func dryRunPricing(cfg config.Config, cacheDir string) (*prices.Pricing, string) {
+	model, err := cfg.GetLLMModel()
+	if err != nil {
+		return nil, err.Error()
+	}
+	provider, err := llm_factory.Provider(cfg)
+	if err != nil {
+		return nil, err.Error()
+	}
+	pricing, err := prices.For(cacheDir, provider, model)
+	if err != nil {
+		return nil, err.Error()
+	}
+	if pricing == nil {
+		if provider == "ollama" {
+			return nil, "Ollama runs locally and has no prices"
+		}
+		return nil, "no prices file; run bark prices to download one"
+	}
+	return pricing, ""
 }
 
 // meterCalls wraps client to count what its calls cost, if the repo's or

@@ -3,6 +3,7 @@ package plain
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +21,9 @@ import (
 	"github.com/ionut-t/bark/v2/internal/llm"
 	"github.com/ionut-t/bark/v2/internal/prices"
 	"github.com/ionut-t/bark/v2/internal/prreview"
+	"github.com/ionut-t/bark/v2/internal/redact"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
+	"github.com/ionut-t/bark/v2/internal/tokens"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -722,11 +725,17 @@ func TestPartialReviewNoteNil(t *testing.T) {
 // captureStderr returns what f writes to os.Stderr.
 func captureStderr(t *testing.T, f func()) string {
 	t.Helper()
+	return capture(t, &os.Stderr, f)
+}
+
+// capture returns what f writes to *file (os.Stdout or os.Stderr).
+func capture(t *testing.T, file **os.File, f func()) string {
+	t.Helper()
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
-	old := os.Stderr
-	os.Stderr = w
-	defer func() { os.Stderr = old }()
+	old := *file
+	*file = w
+	defer func() { *file = old }()
 
 	done := make(chan string)
 	go func() {
@@ -850,6 +859,139 @@ func TestRunCommitAndPR_LLMTimeout(t *testing.T) {
 			require.Error(t, err)
 			assert.ErrorIs(t, err, context.DeadlineExceeded)
 			assert.Less(t, time.Since(start), 30*time.Second)
+		})
+	}
+}
+
+func TestDryRun(t *testing.T) {
+	const key = "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789"
+	system := "You are a reviewer.\n"
+	promptText := "**Code to review:**\n+token := \"" + key + "\"\n"
+	pricing := &prices.Pricing{Price: prices.Price{Rates: prices.Rates{Input: 1_000_000}}, Date: "2026-11-01"}
+
+	var out, log strings.Builder
+	dryRun(&out, &log, system, promptText, nil, true, pricing, "")
+
+	assert.Equal(t, dryRunSystemHeading+"\nYou are a reviewer.\n\n"+dryRunPromptHeading+"\n**Code to review:**\n+token := \"[REDACTED:github-token]\"\n\n"+redact.Note+"\n", out.String(),
+		"the prompts are shown masked, as they would be sent")
+	assert.NotContains(t, out.String(), key)
+
+	stderr := log.String()
+	assert.Contains(t, stderr, "masked 1 secret(s)")
+	assert.Contains(t, stderr, "no model call made")
+	sentSystem, sentPrompt, _ := redact.Prompts(system, promptText)
+	input := tokens.Estimate(len(sentSystem)) + tokens.Estimate(len(sentPrompt))
+	require.Positive(t, input)
+	assert.Contains(t, stderr, fmt.Sprintf("about %d input tokens", input), "the masked prompts are counted")
+	assert.Contains(t, stderr, "that input would cost about "+prices.FormatUSD(float64(input))+" (prices from 2026-11-01)",
+		"priced at $1 a token, the cost is the token count")
+	assert.Contains(t, stderr, "the check's call aren't counted")
+	assert.NotContains(t, stderr, "warning: Bark reviewed only")
+}
+
+func TestDryRunWithoutPricing(t *testing.T) {
+	var out, log strings.Builder
+	cut := &git.DiffCut{Files: 3, Kept: 1, Setting: "max_diff_tokens"}
+	dryRun(&out, &log, "system", "prompt", cut, false, nil, "no prices file; run bark prices to download one")
+
+	stderr := log.String()
+	assert.Contains(t, stderr, "bark: warning: "+cut.Summary())
+	assert.Contains(t, stderr, "bark: dry run: no cost estimate: no prices file; run bark prices to download one")
+	assert.NotContains(t, stderr, "would cost")
+}
+
+func TestDryRunPricing(t *testing.T) {
+	cfg := func(data config.Data) config.Config {
+		c := config.New("", data)
+		require.NoError(t, c.OverrideProvider(""))
+		return c
+	}
+
+	t.Run("priced without credentials", func(t *testing.T) {
+		cache := isolateProvider(t)
+		require.NoError(t, prices.Save(filepath.Join(cache, prices.FileName), prices.File{
+			Date:      "2026-11-01",
+			Providers: map[string]map[string]prices.Price{"google": {"gemini-3.6-flash": {Rates: prices.Rates{Input: 1}}}},
+		}))
+		pricing, why := dryRunPricing(cfg(config.Data{LLMProvider: "gemini", LLMModel: "gemini-3.6-flash"}), cache)
+		require.NotNil(t, pricing, why)
+		assert.Equal(t, "2026-11-01", pricing.Date)
+	})
+
+	t.Run("no prices file", func(t *testing.T) {
+		cache := isolateProvider(t)
+		pricing, why := dryRunPricing(cfg(config.Data{LLMProvider: "gemini", LLMModel: "gemini-3.6-flash"}), cache)
+		assert.Nil(t, pricing)
+		assert.Contains(t, why, "bark prices")
+	})
+
+	t.Run("ollama", func(t *testing.T) {
+		cache := isolateProvider(t)
+		pricing, why := dryRunPricing(cfg(config.Data{LLMProvider: "ollama", LLMModel: "llama3"}), cache)
+		assert.Nil(t, pricing)
+		assert.Contains(t, why, "Ollama")
+	})
+
+	t.Run("no model", func(t *testing.T) {
+		cache := isolateProvider(t)
+		pricing, why := dryRunPricing(cfg(config.Data{}), cache)
+		assert.Nil(t, pricing)
+		assert.NotEmpty(t, why)
+	})
+}
+
+// A dry run returns before the model client is made, so it works without
+// credentials, and with --comment posts nothing.
+func TestRunReviewDryRunMakesNoCall(t *testing.T) {
+	isolateProvider(t)
+	require.NoError(t, os.MkdirAll(".bark", 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(".bark", "reviewer.md"), []byte("You are a reviewer."), 0o644))
+	diff := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-a\n+b\n"
+	cfg := config.New("", config.Data{LLMProvider: "gemini", LLMModel: "gemini-3.6-flash", StructuredFindings: true})
+
+	var err error
+	var stderr string
+	stdout := capture(t, &os.Stdout, func() {
+		stderr = captureStderr(t, func() {
+			err = RunReview(ReviewOptions{Diff: &diff, Config: cfg, SkipInstruction: true, DryRun: true})
+		})
+	})
+	require.NoError(t, err, "no credentials are set, so any model client would fail")
+	assert.Contains(t, stdout, dryRunSystemHeading)
+	assert.Contains(t, stdout, dryRunPromptHeading)
+	assert.Contains(t, stdout, "+b", "the diff is in the prompt")
+	assert.Contains(t, stderr, "no model call made")
+	assert.NotContains(t, stderr, "debug log")
+}
+
+// An empty diff says why for its source, so a branch diff with only
+// uncommitted work doesn't fail with a bare "no diff content available".
+func TestEmptyDiffError(t *testing.T) {
+	stdin := ""
+	tests := []struct {
+		name string
+		opts ReviewOptions
+		r    git.ReviewDiff
+		want []string
+	}{
+		{name: "stdin", opts: ReviewOptions{Diff: &stdin}, want: []string{"the diff from stdin is empty"}},
+		{name: "branch without commits", opts: ReviewOptions{Branch: "main"},
+			want: []string{"HEAD has no commits that main doesn't", "uncommitted changes aren't part of a branch diff", "--changes"}},
+		{name: "branch with commits", opts: ReviewOptions{Branch: "main"}, r: git.ReviewDiff{Commits: []git.Commit{{}}},
+			want: []string{"the commits since main change no file Bark reviews", ".barkignore"}},
+		{name: "commit", opts: ReviewOptions{Hash: "abc123"}, want: []string{"commit abc123 changes no file Bark reviews", ".barkignore"}},
+		{name: "pull request", opts: ReviewOptions{PR: "42"}, want: []string{"pull request #42 changes no file Bark reviews", ".barkignore"}},
+		{name: "staged", opts: ReviewOptions{Staged: true}, want: []string{"no staged changes to review", "--changes"}},
+		{name: "working tree", opts: ReviewOptions{All: true}, want: []string{"no uncommitted changes to review", "--branch"}},
+		{name: "default source", want: []string{"no uncommitted changes to review"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := emptyDiffError(tt.opts, tt.r)
+			require.Error(t, err)
+			for _, want := range tt.want {
+				assert.Contains(t, err.Error(), want)
+			}
 		})
 	}
 }

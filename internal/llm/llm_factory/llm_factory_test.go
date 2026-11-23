@@ -124,3 +124,41 @@ func TestResolveProvider(t *testing.T) {
 		})
 	}
 }
+
+// A dry run prices the call New would make, so Provider must name the same
+// provider without needing its credentials.
+func TestProviderNeedsNoCredentials(t *testing.T) {
+	for _, key := range []string{"GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OLLAMA_HOST", "VERTEXAI_PROJECT_ID", "VERTEXAI_LOCATION"} {
+		t.Setenv(key, "")
+	}
+
+	tests := []struct {
+		name    string
+		data    config.Data
+		model   string // --model
+		want    string
+		wantErr error
+	}{
+		{name: "configured", data: config.Data{LLMProvider: "gemini", LLMModel: "gemini-3.6-flash"}, want: "gemini"},
+		{name: "inferred from --model", data: config.Data{LLMProvider: "gemini", LLMModel: "gemini-3.6-flash"}, model: "claude-sonnet-5-5", want: "anthropic"},
+		{name: "nothing says", data: config.Data{LLMModel: "llama3"}, wantErr: ErrNoProviderConfigured},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.New("", tt.data)
+			require.NoError(t, cfg.OverrideProvider(""))
+			cfg.OverrideModel(tt.model)
+
+			got, err := Provider(cfg)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+
+			_, _, err = New(context.Background(), cfg)
+			assert.ErrorIs(t, err, ErrMissingCredentials, "New still needs the credentials")
+		})
+	}
+}
