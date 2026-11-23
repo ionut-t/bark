@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.37.0](https://github.com/ionut-t/bark/compare/v2.36.0...v2.37.0) (2026-11-23)
+
+
+### Features
+
+* **config:** add configurable timeout for model calls ([#175](https://github.com/ionut-t/bark/issues/175)) ([0e8c1f4](https://github.com/ionut-t/bark/commit/0e8c1f402d3e37e2ed93ce5f1517e6921fd45634))
+
+
+### Bug Fixes
+
+* **enclosing:** include type definitions and resolve TS imports ([#177](https://github.com/ionut-t/bark/issues/177)) ([c85e381](https://github.com/ionut-t/bark/commit/c85e381a95f7c6b922115a952e8a3e4cdabd2939))
+
 ## [2.36.0](https://github.com/ionut-t/bark/compare/v2.35.1...v2.36.0) (2026-11-22)
 
 
