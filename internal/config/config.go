@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ionut-t/bark/v2/internal/houserules"
 	"github.com/ionut-t/bark/v2/internal/paths"
@@ -29,6 +30,7 @@ const (
 	HouseRulesKey         = "house_rules"
 	HouseRulesFilesKey    = "house_rules_files"
 	EffortKey             = "effort"
+	LLMTimeoutKey         = "llm_timeout"
 
 	// rootDir is a repository's Bark directory.
 	rootDir                    = ".bark"
@@ -104,6 +106,13 @@ type Config interface {
 	SetEffort(effort string) error
 	GetEffort() string
 	OverrideEffort(effort string) error
+	// SetLLMTimeout saves how long one model call may take, as a Go
+	// duration such as "10m" or "90s"; "" keeps each command's default.
+	SetLLMTimeout(timeout string) error
+	// GetLLMTimeout returns how long one model call may take: the
+	// configured timeout, or def when none is set.
+	GetLLMTimeout(def time.Duration) time.Duration
+	OverrideLLMTimeout(timeout string) error
 	// GetHouseRulesFiles returns the house rules files to read, highest
 	// priority first; empty means the defaults.
 	GetHouseRulesFiles() []string
@@ -133,8 +142,9 @@ type Data struct {
 	MinSeverity        string   `toml:"min_severity" comment:"The lowest severity a structured review shows: critical, high, medium or low (default: empty, every finding)"`
 	FailOn             string   `toml:"fail_on" comment:"Make a plain review exit with status 3 when it keeps a finding of this severity or higher: critical, high, medium or low. Turns on structured findings in plain mode; the TUI ignores it (default: empty, never fails)"`
 	HouseRules         bool     `toml:"house_rules" comment:"Whether reviews check the change against the repository's house rules (default: true)"`
-	Effort             string   `toml:"effort" comment:"How hard the model thinks before answering: low, medium or high. Mapped to Gemini's thinking level (or budget on Gemini 2.5), OpenAI's reasoning effort and Anthropic's effort with adaptive thinking; Ollama ignores it. Lower is faster and cheaper (default: empty, the model's own default)"`
 	HouseRulesFiles    []string `toml:"house_rules_files" comment:"The house rules files, most important first. A name (AGENTS.md) is also looked for in the folders above changed files; a path (docs/STYLE.md) is read from that place only. Empty means AGENTS.md and CLAUDE.md"`
+	Effort             string   `toml:"effort" comment:"How hard the model thinks before answering: low, medium or high. Mapped to Gemini's thinking level (or budget on Gemini 2.5), OpenAI's reasoning effort and Anthropic's effort with adaptive thinking; Ollama ignores it. Lower is faster and cheaper (default: empty, the model's own default)"`
+	LLMTimeout         string   `toml:"llm_timeout" comment:"How long one model call (a review, the check of its findings, a commit message or a PR description) may take before Bark gives up, as a duration such as 10m or 90s. Raise it for slow models or large diffs (default: empty, 5m for reviews and checks and 3m for commit messages and PR descriptions in plain mode, 5m in the TUI)"`
 }
 
 // config is safe for concurrent use: the TUI saves relative_number from a tea.Cmd
@@ -168,6 +178,7 @@ type overrides struct {
 	failOn            *string
 	houseRules        *bool
 	effort            *string
+	llmTimeout        *string
 }
 
 // valueOr returns the override if set, otherwise the saved value.
@@ -601,6 +612,52 @@ func (c *config) OverrideEffort(effort string) error {
 	defer c.mu.Unlock()
 
 	c.overrides.effort = &effort
+	return nil
+}
+
+func (c *config) SetLLMTimeout(timeout string) error {
+	timeout, err := NormaliseLLMTimeout(timeout)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.llmTimeout = nil
+
+	if timeout == c.data.LLMTimeout {
+		return nil
+	}
+
+	c.data.LLMTimeout = timeout
+
+	return writeConfig(c.path, c.data)
+}
+
+func (c *config) GetLLMTimeout(def time.Duration) time.Duration {
+	c.mu.Lock()
+	timeout := valueOr(c.overrides.llmTimeout, valueOr(c.repo.LLMTimeout, c.data.LLMTimeout))
+	c.mu.Unlock()
+
+	// Every value was checked by NormaliseLLMTimeout on the way in.
+	d, err := time.ParseDuration(timeout)
+	if timeout == "" || err != nil {
+		return def
+	}
+	return d
+}
+
+func (c *config) OverrideLLMTimeout(timeout string) error {
+	timeout, err := NormaliseLLMTimeout(timeout)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.overrides.llmTimeout = &timeout
 	return nil
 }
 

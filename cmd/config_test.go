@@ -26,6 +26,7 @@ type savedConfig struct {
 	MinSeverity        string `toml:"min_severity"`
 	FailOn             string `toml:"fail_on"`
 	Effort             string `toml:"effort"`
+	LLMTimeout         string `toml:"llm_timeout"`
 }
 
 func readSavedConfig(t *testing.T, path string) savedConfig {
@@ -148,6 +149,7 @@ func TestConfigCmd_SetsZeroValues(t *testing.T) {
 		{name: "--min-severity high", args: []string{"--min-severity", "high"}, want: with(func(c *savedConfig) { c.MinSeverity = "high" })},
 		{name: "--fail-on critical", args: []string{"--fail-on", "critical"}, want: with(func(c *savedConfig) { c.FailOn = "critical" })},
 		{name: "--effort low", args: []string{"--effort", "Low"}, want: with(func(c *savedConfig) { c.Effort = "low" })},
+		{name: "--timeout 10m", args: []string{"--timeout", "10m"}, want: with(func(c *savedConfig) { c.LLMTimeout = "10m" })},
 	}
 
 	for _, tt := range tests {
@@ -261,6 +263,7 @@ func TestReadConfigData_ReadsEveryField(t *testing.T) {
 		HouseRules:         false,
 		HouseRulesFiles:    []string{"docs/STYLE.md"},
 		Effort:             "low",
+		LLMTimeout:         "10m",
 	}
 
 	// Loading starts from the defaults, so a field left at its default here
@@ -488,6 +491,35 @@ func TestReadConfigData_InvalidValues(t *testing.T) {
 			assert.Contains(t, err.Error(), path+":1:")
 		})
 	}
+}
+
+func TestReadConfigData_InvalidLLMTimeout(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("llm_timeout = '300'\n"), 0o644))
+
+	_, err := readConfigData(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), path)
+	assert.Contains(t, err.Error(), "llm_timeout")
+}
+
+// An invalid --timeout is rejected without saving anything.
+func TestConfigCmd_InvalidTimeout(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("llm_timeout = '10m'\n"), 0o644))
+	cfg, err := loadConfig(path)
+	require.NoError(t, err)
+
+	cmd := configCmd(staticConfig(cfg))
+	cmd.SetArgs([]string{"--timeout", "0s"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	require.ErrorContains(t, cmd.Execute(), "must be more than 0")
+	assert.Equal(t, "10m", readSavedConfig(t, path).LLMTimeout)
 }
 
 func TestReadConfigData_InvalidEffort(t *testing.T) {

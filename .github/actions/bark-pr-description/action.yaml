@@ -36,6 +36,13 @@ inputs:
     deprecationMessage: max-diff-lines is deprecated; use max-diff-tokens.
     required: false
     default: ""
+  timeout:
+    description: |
+      How long one model call may take before Bark gives up, as a duration
+      such as 10m or 90s. Raise it for slow models or large pull requests
+      (default: 3m).
+    required: false
+    default: ""
   github-token:
     description: GitHub token for updating the PR body
     required: false
@@ -68,6 +75,7 @@ runs:
         BARK_INSTRUCTIONS: ${{ inputs.instructions }}
         BARK_MAX_DIFF_TOKENS: ${{ inputs.max-diff-tokens }}
         BARK_MAX_DIFF_LINES: ${{ inputs.max-diff-lines }}
+        BARK_TIMEOUT: ${{ inputs.timeout }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         PROVIDER=$(echo "$BARK_PROVIDER" | tr '[:upper:]' '[:lower:]')
@@ -96,6 +104,8 @@ runs:
         [ -n "$BARK_INSTRUCTIONS" ] && ARGS+=(--instructions "$BARK_INSTRUCTIONS")
         [ -n "$BARK_MAX_DIFF_TOKENS" ] && ARGS+=(--max-diff-tokens "$BARK_MAX_DIFF_TOKENS")
         [ -n "$BARK_MAX_DIFF_LINES" ] && ARGS+=(--max-diff-lines "$BARK_MAX_DIFF_LINES")
+        # Only when set, so a pinned older Bark doesn't get a flag it lacks.
+        [ -n "$BARK_TIMEOUT" ] && ARGS+=(--timeout "$BARK_TIMEOUT")
 
         bark "${ARGS[@]}" > /tmp/bark-pr.txt
 

@@ -35,6 +35,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 		minSeverity       string
 		failOn            string
 		effort            string
+		timeout           string
 		migrate           bool
 	)
 
@@ -136,6 +137,13 @@ func configCmd(getCfg configFunc) *cobra.Command {
 				flagsSet = true
 			}
 
+			if cmd.Flags().Changed("timeout") {
+				if err := cfg.SetLLMTimeout(timeout); err != nil {
+					return err
+				}
+				flagsSet = true
+			}
+
 			if !flagsSet {
 				return utils.OpenEditor(cfg.GetEditor(), cfg.Path())
 			}
@@ -159,6 +167,7 @@ func configCmd(getCfg configFunc) *cobra.Command {
 	flags.StringVar(&minSeverity, "min-severity", "", "Set the lowest severity structured reviews show: "+strings.Join(config.Severities(), ", ")+` ("" shows every finding)`)
 	flags.StringVar(&failOn, "fail-on", "", "Set the severity at or above which a plain review exits with status 3: "+strings.Join(config.Severities(), ", ")+` ("" never fails)`)
 
+	flags.StringVar(&timeout, "timeout", "", `Set how long one model call may take before Bark gives up, such as 10m or 90s ("" uses each command's default)`)
 	flags.StringVar(&effort, "effort", "", "Set how hard the model thinks before answering: "+strings.Join(config.Efforts(), ", ")+` ("" uses the model's default)`)
 
 	// Old names, matching the config file keys. Kept so existing scripts keep
@@ -379,6 +388,9 @@ func readConfigData(path string) (config.Data, error) {
 		return config.Data{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if data.Effort, err = config.NormaliseEffort(data.Effort); err != nil {
+		return config.Data{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if data.LLMTimeout, err = config.NormaliseLLMTimeout(data.LLMTimeout); err != nil {
 		return config.Data{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if err := config.ValidateHouseRulesFiles(data.HouseRulesFiles); err != nil {

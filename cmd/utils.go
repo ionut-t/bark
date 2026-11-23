@@ -94,6 +94,21 @@ func overrideEffort(cmd *cobra.Command, cfg config.Config) error {
 	return cfg.OverrideEffort(effort)
 }
 
+// addTimeoutFlag adds --timeout, which overrides the llm_timeout config for
+// one run.
+func addTimeoutFlag(cmd *cobra.Command) {
+	cmd.Flags().String("timeout", "", "How long one model call may take before Bark gives up, such as 10m or 90s (overrides config; default: 5m for reviews and their check, 3m for commit messages and PR descriptions in plain mode)")
+}
+
+// overrideTimeout applies --timeout to cfg when it was passed.
+func overrideTimeout(cmd *cobra.Command, cfg config.Config) error {
+	if !cmd.Flags().Changed("timeout") {
+		return nil
+	}
+	timeout, _ := cmd.Flags().GetString("timeout")
+	return cfg.OverrideLLMTimeout(timeout)
+}
+
 // runTUI runs the TUI with opts. Warnings about secrets masked before a
 // call (see redact.Wrap) are held until the TUI exits, so they don't break
 // its screen, then written to stderr.

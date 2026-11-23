@@ -32,6 +32,13 @@ import (
 
 const gitTimeout = 30 * time.Second
 
+// How long a model call may take when llm_timeout isn't set: a review and
+// its check, and a commit message or PR description.
+const (
+	defaultReviewTimeout = 5 * time.Minute
+	defaultTextTimeout   = 3 * time.Minute
+)
+
 // ReviewOptions configures the plain text review runner.
 type ReviewOptions struct {
 	Diff              *string
@@ -233,7 +240,7 @@ func RunReview(opts ReviewOptions) error {
 	}
 	client = redact.Wrap(client, os.Stderr)
 
-	llmCtx, llmCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	llmCtx, llmCancel := context.WithTimeout(context.Background(), opts.Config.GetLLMTimeout(defaultReviewTimeout))
 	defer llmCancel()
 
 	model, _ := opts.Config.GetLLMModel()
@@ -307,7 +314,7 @@ func RunReview(opts ReviewOptions) error {
 		r.Threads = toCheck
 		checkFn = func(events []findings.Event) ([]findings.Event, int) {
 			var checked int
-			events, checked, fixed = checkFindings(r, events, meter)
+			events, checked, fixed = checkFindings(r, events, meter, opts.Config.GetLLMTimeout(defaultReviewTimeout))
 			return events, checked
 		}
 	}
@@ -559,7 +566,7 @@ func RunCommit(opts CommitOptions) error {
 	}
 	defer printCost(meter)
 
-	llmCtx, llmCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	llmCtx, llmCancel := context.WithTimeout(context.Background(), opts.Config.GetLLMTimeout(defaultTextTimeout))
 	defer llmCancel()
 
 	result, err := client.Generate(llmCtx, commitSystem, prompt.FormatCommitContent(branch, diff))
@@ -615,7 +622,7 @@ func RunPR(opts PROptions) error {
 	}
 	defer printCost(meter)
 
-	llmCtx, llmCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	llmCtx, llmCancel := context.WithTimeout(context.Background(), opts.Config.GetLLMTimeout(defaultTextTimeout))
 	defer llmCancel()
 
 	result, err := client.Generate(llmCtx, prSystem, content)
@@ -729,9 +736,10 @@ func fullResponse(ctx context.Context, client llm.LLM, system, promptText string
 // checkFindings runs Bark's check on the findings in events, and on the open
 // threads of r, and returns the events with the doubted findings marked,
 // how many findings were checked, and the threads it found fixed (see
-// check.Result.Fixed). Progress and errors go to stderr; if the check
-// fails, events are returned with every finding marked unchecked.
-func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter) ([]findings.Event, int, map[int]string) {
+// check.Result.Fixed). The check may take up to timeout. Progress and errors
+// go to stderr; if the check fails, events are returned with every finding
+// marked unchecked.
+func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter, timeout time.Duration) ([]findings.Event, int, map[int]string) {
 	n := check.Count(events)
 	if n == 0 && len(r.Threads) == 0 {
 		return events, 0, nil
@@ -749,7 +757,7 @@ func checkFindings(r check.Review, events []findings.Event, meter *prices.Meter)
 			fmt.Fprintf(os.Stderr, "bark: debug log: %s\n", path)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	res, err := r.Run(ctx, events)
 	meter.Mark("check")
