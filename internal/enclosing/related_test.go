@@ -125,12 +125,14 @@ func TestRelated_Definitions(t *testing.T) {
 
 	got := findRelated(t, repo, addDiff(repo, "app/app.go", run, run+4), RelatedOptions{})
 
-	// len is a builtin; *store.Store in the signature isn't a call.
+	// Types first: the changed lines use s, a *store.Store. len is a
+	// builtin.
 	assert.Equal(t, []string{
+		"store/store.go:3-5 definition of Store",
 		"store/store.go:8-13 definition of Load",
 		"app/helper.go:3-5 definition of helper",
 	}, labels(got))
-	assert.Equal(t, strings.Split(strings.TrimSpace(helperGo), "\n")[2:5], got[1].Lines)
+	assert.Equal(t, strings.Split(strings.TrimSpace(helperGo), "\n")[2:5], got[2].Lines)
 }
 
 func TestRelated_OnlyAddedLinesAreSearchedForCalls(t *testing.T) {
@@ -179,13 +181,14 @@ func TestRelated_Callers(t *testing.T) {
 	t.Run("production callers", func(t *testing.T) {
 		repo := fakeRepo{"app/app.go": appGo, "store/store.go": storeGo, "store/store_test.go": storeTest}
 		got := findRelated(t, repo, addDiff(repo, "store/store.go", storeLoad, storeLoad), RelatedOptions{})
-		assert.Equal(t, []string{"app/app.go:5-9 Run calls Load"}, labels(got))
+		// The change reads s.data, a field of Store.
+		assert.Equal(t, []string{"store/store.go:3-5 definition of Store", "app/app.go:5-9 Run calls Load"}, labels(got))
 	})
 
 	t.Run("a test when nothing else calls it", func(t *testing.T) {
 		repo := fakeRepo{"store/store.go": storeGo, "store/store_test.go": storeTest}
 		got := findRelated(t, repo, addDiff(repo, "store/store.go", storeLoad, storeLoad), RelatedOptions{})
-		assert.Equal(t, []string{"store/store_test.go:3-5 TestLoad calls Load"}, labels(got))
+		assert.Equal(t, []string{"store/store.go:3-5 definition of Store", "store/store_test.go:3-5 TestLoad calls Load"}, labels(got))
 	})
 
 	t.Run("too many call sites", func(t *testing.T) {
@@ -194,7 +197,7 @@ func TestRelated_Callers(t *testing.T) {
 			repo[fmt.Sprintf("app/f%d.go", i)] = fmt.Sprintf("package app\n\nfunc F%d(s *store.Store) {\n\ts.Load(\"k\")\n}\n", i)
 		}
 		got := findRelated(t, repo, addDiff(repo, "store/store.go", storeLoad, storeLoad), RelatedOptions{})
-		assert.Empty(t, got)
+		assert.Equal(t, []string{"store/store.go:3-5 definition of Store"}, labels(got))
 	})
 
 	t.Run("a long caller shows the lines around the call", func(t *testing.T) {
@@ -202,7 +205,7 @@ func TestRelated_Callers(t *testing.T) {
 		repo := fakeRepo{"store/store.go": storeGo, "app/long.go": long}
 		got := findRelated(t, repo, addDiff(repo, "store/store.go", storeLoad, storeLoad), RelatedOptions{})
 		call := lineOf(t, long, "s.Load")
-		assert.Equal(t, []string{fmt.Sprintf("app/long.go:%d-%d Long calls Load; lines around the call, Long is lines 3-65", call-callerWindow, call+callerWindow)}, labels(got))
+		assert.Equal(t, []string{"store/store.go:3-5 definition of Store", fmt.Sprintf("app/long.go:%d-%d Long calls Load; lines around the call, Long is lines 3-65", call-callerWindow, call+callerWindow)}, labels(got))
 	})
 }
 
@@ -221,10 +224,10 @@ func TestRelated_Budget(t *testing.T) {
 	repo := fakeRepo{"app/app.go": appGo, "app/helper.go": helperGo, "store/store.go": storeGo}
 	run := lineOf(t, appGo, "func Run")
 
-	// Load (6 lines) doesn't fit, helper (3) does.
-	got := findRelated(t, repo, addDiff(repo, "app/app.go", run, run+4), RelatedOptions{MaxLines: 5})
+	// Store (3 lines) fits, Load (6) doesn't, helper (3) does.
+	got := findRelated(t, repo, addDiff(repo, "app/app.go", run, run+4), RelatedOptions{MaxLines: 6})
 
-	assert.Equal(t, []string{"app/helper.go:3-5 definition of helper"}, labels(got))
+	assert.Equal(t, []string{"store/store.go:3-5 definition of Store", "app/helper.go:3-5 definition of helper"}, labels(got))
 }
 
 func TestRelated_Skip(t *testing.T) {
@@ -253,8 +256,9 @@ func TestRelated_Focus(t *testing.T) {
 
 	got := findRelated(t, repo, diff, RelatedOptions{Focus: map[string][]int{"app/app.go": {run}}})
 
-	// Every call in Run, not just the focused line; helper is in the diff.
-	assert.Equal(t, []string{"store/store.go:8-13 definition of Load"}, labels(got))
+	// Every call and type in Run, not just the focused line; helper is in
+	// the diff.
+	assert.Equal(t, []string{"store/store.go:3-5 definition of Store", "store/store.go:8-13 definition of Load"}, labels(got))
 }
 
 func TestRelated_FocusCallers(t *testing.T) {
@@ -263,7 +267,8 @@ func TestRelated_FocusCallers(t *testing.T) {
 
 	got := findRelated(t, repo, diff, RelatedOptions{Focus: map[string][]int{"store/store.go": {lineOf(t, storeGo, "return s.data")}}})
 
-	assert.Equal(t, []string{"app/app.go:5-9 Run calls Load"}, labels(got))
+	// The focused line reads s.data, a field of Store.
+	assert.Equal(t, []string{"store/store.go:3-5 definition of Store", "app/app.go:5-9 Run calls Load"}, labels(got))
 }
 
 func TestRelated_OtherLanguages(t *testing.T) {
@@ -328,7 +333,7 @@ func TestRelated_SearchesAllNamesAtOnce(t *testing.T) {
 
 	got := Related(t.Context(), addDiff(repo, "app/app.go", run, run+4), batchGrep{repo, &batches}, RelatedOptions{MaxLines: 1000})
 
-	assert.Equal(t, []string{"store/store.go:8-13 definition of Load", "app/helper.go:3-5 definition of helper"}, labels(got))
+	assert.Equal(t, []string{"store/store.go:3-5 definition of Store", "store/store.go:8-13 definition of Load", "app/helper.go:3-5 definition of helper"}, labels(got))
 	assert.Equal(t, 1, batches)
 }
 
@@ -387,7 +392,7 @@ func TestRelated_MethodSignaturesAreNotCallers(t *testing.T) {
 				"app/loader.go":  "package app\n\ntype Loader interface {\n\tLoad(key string) string\n}\n",
 			},
 			file: "store/store.go", change: "return s.data[key]",
-			want: []string{"app/app.go:5-9 Run calls Load"},
+			want: []string{"store/store.go:3-5 definition of Store", "app/app.go:5-9 Run calls Load"},
 		},
 		{
 			name: "typescript interface",
