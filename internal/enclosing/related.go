@@ -187,6 +187,7 @@ func Related(ctx context.Context, diff string, repo Repo, opt RelatedOptions) []
 			for _, c := range f.types[l] {
 				types = append(types, ref{c, f})
 			}
+			types = append(types, r.importedClasses(f, l)...)
 			for _, c := range f.uses[l] {
 				calls = append(calls, ref{c, f})
 				if t, ok := typeQualifier(c); ok {
@@ -433,9 +434,10 @@ type related struct {
 	greps map[string][]string
 	// modules caches go.mod module paths by directory (see goModule).
 	modules map[string]string
-	// imported caches resolveImport by file and reference, modulePaths
-	// resolveModule by directory and module, and tsconfigs the module
-	// resolution by directory.
+	// imported caches resolveImport by file and reference (TypeScript and
+	// Python), modulePaths resolveModule by directory and module (and
+	// resolvePyModule, under keys that start with "py\x00"), and tsconfigs
+	// the module resolution by directory.
 	imported    map[string][]decl
 	modulePaths map[string]string
 	tsconfigs   map[string]tsPaths
@@ -1022,6 +1024,8 @@ type parsedFile struct {
 	aliases map[string]string
 	// ts is what a TypeScript or JavaScript file imports and exports.
 	ts *tsModule
+	// py is what a Python file imports.
+	py *pyModule
 	// signatures are the lines that start a method signature without a
 	// body.
 	signatures map[int]bool
@@ -1057,6 +1061,9 @@ func parse(p string, src []byte) *parsedFile {
 	if sp.family == famJS {
 		f.ts = &tsModule{imports: map[string]tsImport{}, localExports: map[string]string{}}
 	}
+	if sp.family == famPython {
+		f.py = newPyModule()
+	}
 	// recv is the receiver of the Go method being visited.
 	var visit func(n *gotreesitter.Node, recv string)
 	visit = func(n *gotreesitter.Node, recv string) {
@@ -1088,9 +1095,15 @@ func parse(p string, src []byte) *parsedFile {
 		switch t {
 		case "identifier":
 			f.idents[row] = append(f.idents[row], n.Text(src))
-		case "import_statement", "export_statement":
+			if f.py != nil && isPyValue(n, lang) {
+				f.py.values[row] = append(f.py.values[row], n.Text(src))
+			}
+		case "import_statement", "export_statement", "import_from_statement":
 			if f.ts != nil && n.Parent() != nil && n.Parent().Type(lang) == "program" {
 				readTSModule(f.ts, n, lang, src)
+			}
+			if f.py != nil {
+				readPyImport(f.py, n, lang, src)
 			}
 		case "aliased_import", "use_as_clause": // Python, Rust
 			name, alias := n.ChildByFieldName("name", lang), n.ChildByFieldName("alias", lang)
@@ -1201,7 +1214,7 @@ func isTopLevel(n *gotreesitter.Node, lang *gotreesitter.Language) bool {
 		return false
 	}
 	p := n.Parent()
-	if p != nil && p.Type(lang) == "export_statement" {
+	if p != nil && (p.Type(lang) == "export_statement" || p.Type(lang) == "decorated_definition") {
 		p = p.Parent()
 	}
 	if p == nil {
