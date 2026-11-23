@@ -71,16 +71,22 @@ const (
 )
 
 // Related finds code the diff's changes depend on and code that depends on
-// them: the definitions of the functions and types the added lines use,
-// and the declarations that call the changed functions. Lookup is by name
-// with tree-sitter and grep, without type information, so it can pick a
-// same-named declaration from another type or package.
+// them: the definitions of the types the added lines use (in annotations,
+// through the parameters and fields they read, and one step further,
+// through return types and bases), of the functions they call, and the
+// declarations that call the changed functions. Lookup is by name with
+// tree-sitter and grep, without type information, so it can pick a
+// same-named declaration from another type or package; TypeScript imports
+// are followed to the file they name (see tsmodules.go).
 //
 // Pieces from files the diff changes are read from the new side, so their
 // line numbers match the diff's. Files that can't be read, and languages
 // without a spec, are skipped.
 func Related(ctx context.Context, diff string, repo Repo, opt RelatedOptions) []Piece {
-	r := &related{ctx: ctx, repo: repo, diffFiles: changedFiles(diff), files: map[string]*parsedFile{}, greps: map[string][]string{}, modules: map[string]string{}}
+	r := &related{
+		ctx: ctx, repo: repo, diffFiles: changedFiles(diff), files: map[string]*parsedFile{}, greps: map[string][]string{}, modules: map[string]string{},
+		imported: map[string][]decl{}, modulePaths: map[string]string{}, tsconfigs: map[string]tsPaths{},
+	}
 
 	targets := addedLines(diff)
 	modified := ModifiedLinesFromDiff(diff)
@@ -127,24 +133,24 @@ func Related(ctx context.Context, diff string, repo Repo, opt RelatedOptions) []
 	}
 
 	// Declarations around the targets: with Focus, every line of them is
-	// searched for calls; otherwise only the targeted (added) lines are.
+	// searched for calls and types; otherwise only the targeted (added)
+	// lines are.
 	var changed []decl
 	seenChanged := map[string]bool{}
-	type callsIn struct {
-		f     *parsedFile
-		calls []call
-	}
-	var uses []callsIn
+	var types, calls []ref
+	var pending []selfUse // fields read through a Go or Rust receiver
+	accessed := map[string]bool{}
 	for _, p := range paths {
 		f := r.file(p, true)
 		if f == nil {
 			continue
 		}
+		lines := sortedLines(targets[p])
 		callLines := targets[p]
 		if opt.Focus != nil {
 			callLines = map[int]bool{}
 		}
-		for l := range targets[p] {
+		for _, l := range lines {
 			d, ok := f.enclosing(l)
 			if !ok {
 				continue
@@ -159,47 +165,105 @@ func Related(ctx context.Context, diff string, repo Repo, opt RelatedOptions) []
 				changed = append(changed, d)
 			}
 		}
-		uses = append(uses, callsIn{f, f.calls(callLines)})
+		// The types of the parameters the lines use.
+		var paramTypes []ref
+		seenParam := map[string]bool{}
+		for _, l := range sortedLines(callLines) {
+			fn, ok := f.enclosingCallable(l)
+			for _, id := range f.idents[l] {
+				if key := fmt.Sprintf("%d:%s", fn.start, id); ok && !seenParam[key] && fn.params[id] != nil {
+					seenParam[key] = true
+					for _, c := range fn.params[id] {
+						paramTypes = append(paramTypes, ref{c, f})
+					}
+				}
+			}
+		}
+		for _, l := range sortedLines(callLines) {
+			for _, c := range f.types[l] {
+				types = append(types, ref{c, f})
+			}
+			for _, c := range f.uses[l] {
+				calls = append(calls, ref{c, f})
+				if t, ok := typeQualifier(c); ok {
+					types = append(types, ref{t, f})
+				}
+			}
+			for _, name := range f.props[l] {
+				accessed[name] = true
+			}
+			for _, field := range f.selfs[l] {
+				if cls, ok := f.enclosingType(l); ok {
+					for _, m := range cls.members[field] {
+						for _, c := range m.types {
+							types = append(types, ref{c, f})
+						}
+					}
+				} else if fn, ok := f.enclosingCallable(l); ok && fn.owner != "" {
+					types = append(types, ref{call{name: fn.owner, kind: refType}, f})
+					pending = append(pending, selfUse{f, fn.owner, field})
+				}
+			}
+		}
+		types = append(types, paramTypes...)
 	}
 
-	// Search for every name at once, then read the files found in parallel.
-	words := map[string][]string{} // globs -> names
-	globsOf := map[string][]string{}
-	for _, u := range uses {
-		key := strings.Join(u.f.spec.globs, "\x00")
-		globsOf[key] = u.f.spec.globs
-		for _, c := range u.calls {
-			if !u.f.spec.builtins[c.name] {
-				words[key] = append(words[key], c.name)
+	// What the targets use, searched for at once, then what the
+	// definitions found use in their signatures, one step further.
+	first := append(slices.Clone(types), calls...)
+	found := r.lookupAll(first, changed)
+	var typeDefs, callDefs, deeper []Piece
+	var next []ref
+	var nextIsType []bool
+	var defs []decl
+	for _, ds := range found {
+		for _, d := range ds {
+			defs = append(defs, d)
+			for _, c := range d.sig {
+				next = append(next, ref{c, r.files[d.path]})
+				nextIsType = append(nextIsType, false)
 			}
 		}
 	}
-	for _, d := range changed {
-		key := strings.Join(r.files[d.path].spec.globs, "\x00")
-		words[key] = append(words[key], d.name)
-	}
-	for key, ws := range words {
-		r.grepAll(ws, globsOf[key])
-	}
-	r.prefetch()
-
-	var defs, callers []Piece
-	for _, u := range uses {
-		for _, c := range u.calls {
-			for _, d := range r.definitions(c, u.f) {
-				if skip(d.path, d.start, d.end) {
-					continue
+	for _, u := range pending {
+		for _, cls := range u.owners(defs) {
+			for _, m := range cls.members[u.field] {
+				for _, c := range m.types {
+					// Qualified by the imports of the type's file.
+					next = append(next, ref{c, r.files[cls.path]})
+					nextIsType = append(nextIsType, true)
 				}
-				pc := Piece{Path: d.path, Start: d.start, End: d.end, Label: "definition of " + d.name}
-				if n := d.end - d.start + 1; n > maxDefinitionLines {
-					pc.End = d.start + maxDefinitionLines - 1
-					pc.Label += fmt.Sprintf(" (first %d of %d lines)", maxDefinitionLines, n)
-				}
-				add(&defs, pc)
 			}
 		}
 	}
+	addDefs := func(out *[]Piece, ds []decl) {
+		for _, d := range ds {
+			if skip(d.path, d.start, d.end) {
+				continue
+			}
+			for _, pc := range definitionPieces(d, accessed) {
+				if !skip(pc.Path, pc.Start, pc.End) {
+					add(out, pc)
+				}
+			}
+		}
+	}
+	for i, ds := range found {
+		if i < len(types) {
+			addDefs(&typeDefs, ds)
+		} else {
+			addDefs(&callDefs, ds)
+		}
+	}
+	for i, ds := range r.lookupAll(next, nil) {
+		if nextIsType[i] {
+			addDefs(&typeDefs, ds)
+		} else {
+			addDefs(&deeper, ds)
+		}
+	}
 
+	var callers []Piece
 	sort.Slice(changed, func(i, j int) bool {
 		if changed[i].path != changed[j].path {
 			return changed[i].path < changed[j].path
@@ -214,9 +278,11 @@ func Related(ctx context.Context, diff string, repo Repo, opt RelatedOptions) []
 		}
 	}
 
+	// Types the change uses first, then the functions it calls, the types
+	// those use, and the code that calls the change.
 	var out []Piece
 	budget := opt.MaxLines
-	for _, pc := range append(defs, callers...) {
+	for _, pc := range slices.Concat(typeDefs, callDefs, deeper, callers) {
 		n := pc.End - pc.Start + 1
 		if n > budget {
 			continue
@@ -229,6 +295,113 @@ func Related(ctx context.Context, diff string, repo Repo, opt RelatedOptions) []
 	return out
 }
 
+// ref is a name a file uses.
+type ref struct {
+	c    call
+	from *parsedFile
+}
+
+// selfUse is a field a method reads through its Go receiver or Rust self.
+type selfUse struct {
+	f            *parsedFile
+	owner, field string
+}
+
+// owners returns the declarations of the type u's method belongs to: in
+// its own file, or among the definitions found.
+func (u selfUse) owners(found []decl) []decl {
+	var out []decl
+	seen := map[string]bool{}
+	for _, d := range append(slices.Clone(u.f.decls), found...) {
+		if key := fmt.Sprintf("%s:%d", d.path, d.start); d.isType && d.name == u.owner && !seen[key] {
+			seen[key] = true
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// definitionPieces returns the pieces showing d: all of it, or, when it is
+// longer than maxDefinitionLines, the members of it the change uses (the
+// field it reads in a long interface, and the field's validators), or else
+// its first maxDefinitionLines lines.
+func definitionPieces(d decl, accessed map[string]bool) []Piece {
+	pc := Piece{Path: d.path, Start: d.start, End: d.end, Label: "definition of " + d.name}
+	n := d.end - d.start + 1
+	if n <= maxDefinitionLines {
+		return []Piece{pc}
+	}
+	var out []Piece
+	for name, ms := range d.members {
+		if !accessed[name] {
+			continue
+		}
+		for _, m := range ms {
+			out = append(out, Piece{Path: d.path, Start: m.start, End: min(m.end, m.start+maxDefinitionLines-1), Label: fmt.Sprintf("%s in %s, lines %d-%d", name, d.name, d.start, d.end)})
+		}
+	}
+	if len(out) > 0 {
+		sort.Slice(out, func(i, j int) bool { return out[i].Start < out[j].Start })
+		return out
+	}
+	pc.End = d.start + maxDefinitionLines - 1
+	pc.Label += fmt.Sprintf(" (first %d of %d lines)", maxDefinitionLines, n)
+	return []Piece{pc}
+}
+
+// lookupAll finds the declarations each ref may refer to. Names not found
+// through imports are searched for at once, with the names of the changed
+// declarations, whose callers are searched for next.
+func (r *related) lookupAll(refs []ref, changed []decl) [][]decl {
+	words := map[string][]string{} // globs -> names
+	globsOf := map[string][]string{}
+	want := func(name string, sp spec) {
+		key := strings.Join(sp.globs, "\x00")
+		globsOf[key] = sp.globs
+		words[key] = append(words[key], name)
+	}
+	skip := func(rf ref) bool {
+		return rf.from == nil || rf.from.spec.builtins[rf.c.name] || !isName(rf.from.unalias(rf.c).name)
+	}
+	for _, rf := range refs {
+		if skip(rf) {
+			continue
+		}
+		if _, ok := r.resolveImport(rf.c, rf.from); !ok {
+			want(rf.from.unalias(rf.c).name, rf.from.spec)
+		}
+	}
+	for _, d := range changed {
+		want(d.name, r.files[d.path].spec)
+	}
+	for key, ws := range words {
+		r.grepAll(ws, globsOf[key])
+	}
+	r.prefetch()
+
+	out := make([][]decl, len(refs))
+	for i, rf := range refs {
+		if skip(rf) {
+			continue
+		}
+		if ds, ok := r.resolveImport(rf.c, rf.from); ok {
+			out[i] = ds
+		} else {
+			out[i] = r.definitions(rf.from.unalias(rf.c), rf.from)
+		}
+	}
+	return out
+}
+
+func sortedLines(lines map[int]bool) []int {
+	out := make([]int, 0, len(lines))
+	for l := range lines {
+		out = append(out, l)
+	}
+	sort.Ints(out)
+	return out
+}
+
 // FormatRelated renders pieces as a prompt section, with line numbers.
 func FormatRelated(pieces []Piece) string {
 	if len(pieces) == 0 {
@@ -236,7 +409,7 @@ func FormatRelated(pieces []Piece) string {
 	}
 	var b strings.Builder
 	b.WriteString("## Related code\n\n")
-	b.WriteString("Read-only context from elsewhere in the repository, with line numbers: definitions of functions and types the change uses, and code that calls the changed functions. It is not under review. Use it to check how the changed code is called and what the code it calls does; it was found by name, so a piece may belong to a different function of the same name.\n")
+	b.WriteString("Read-only context from elsewhere in the repository, with line numbers: definitions of the types and functions the change uses (for a long type, the members it uses), and code that calls the changed functions. It is not under review. Use it to check how the changed code is called, what the code it calls does, and what the types it uses allow, such as whether a field may be missing or null; it was found by name, so a piece may belong to a different declaration of the same name, and a type defined outside the repository isn't shown.\n")
 	for _, pc := range pieces {
 		fmt.Fprintf(&b, "\n### %s:%d-%d (%s)\n\n", pc.Path, pc.Start, pc.End, pc.Label)
 		for i, l := range pc.Lines {
@@ -256,6 +429,12 @@ type related struct {
 	greps map[string][]string
 	// modules caches go.mod module paths by directory (see goModule).
 	modules map[string]string
+	// imported caches resolveImport by file and reference, modulePaths
+	// resolveModule by directory and module, and tsconfigs the module
+	// resolution by directory.
+	imported    map[string][]decl
+	modulePaths map[string]string
+	tsconfigs   map[string]tsPaths
 }
 
 // maxGrepFiles skips a name found in more files than this: too common to
@@ -369,10 +548,19 @@ func (r *related) load(p string) *parsedFile {
 	return parse(p, src)
 }
 
-// definitions finds the declarations c may refer to. A qualifier that
-// names a package directory, or a call from the same directory, picks
-// among same-named declarations; a name with too many candidates is
-// skipped.
+// read reads a file that isn't parsed, such as a tsconfig.json, from the
+// side of the diff its line numbers would match.
+func (r *related) read(p string) ([]byte, error) {
+	if r.diffFiles[p] {
+		return r.repo.NewSideFile(r.ctx, p)
+	}
+	return r.repo.RepoFile(r.ctx, p)
+}
+
+// definitions finds the declarations c may refer to, types only for a
+// type. A qualifier that names a package directory (or a Go import alias
+// for one), or a reference from the same directory, picks among
+// same-named declarations; a name with too many candidates is skipped.
 func (r *related) definitions(c call, from *parsedFile) []decl {
 	if from.spec.builtins[c.name] {
 		return nil
@@ -388,7 +576,7 @@ func (r *related) definitions(c call, from *parsedFile) []decl {
 			continue
 		}
 		for _, d := range f.decls {
-			if d.name == c.name {
+			if d.name == c.name && (c.kind != refType || d.isType) {
 				cands = append(cands, d)
 			}
 		}
@@ -399,7 +587,17 @@ func (r *related) definitions(c call, from *parsedFile) []decl {
 	var picked []decl
 	for _, d := range cands {
 		dir := path.Dir(d.path)
-		if (c.qualifier != "" && path.Base(dir) == c.qualifier) || (c.qualifier == "" && dir == path.Dir(from.path)) {
+		imp, imported := from.imports[c.qualifier]
+		switch {
+		case c.qualifier != "" && imported:
+			if r.importsDir(imp, dir) {
+				picked = append(picked, d)
+			}
+		case c.qualifier != "":
+			if path.Base(dir) == c.qualifier {
+				picked = append(picked, d)
+			}
+		case dir == path.Dir(from.path):
 			picked = append(picked, d)
 		}
 	}
@@ -536,13 +734,8 @@ func (r *related) goModule(dir string) string {
 	if mod, ok := r.modules[dir]; ok {
 		return mod
 	}
-	p := path.Join(dir, "go.mod")
-	read := r.repo.RepoFile
-	if r.diffFiles[p] {
-		read = r.repo.NewSideFile
-	}
 	mod := ""
-	if src, err := read(r.ctx, p); err == nil {
+	if src, err := r.read(path.Join(dir, "go.mod")); err == nil {
 		if m := moduleRe.FindSubmatch(src); m != nil {
 			mod = string(m[1])
 		}
@@ -609,6 +802,9 @@ func addedLines(diff string) map[string]map[int]bool {
 
 // spec describes what Related looks for in one language.
 type spec struct {
+	// family groups languages that share a grammar's node types (see
+	// types.go).
+	family string
 	// globs are the files a name is searched in.
 	globs []string
 	// decls maps a declaration node type to how to read it.
@@ -625,6 +821,8 @@ type spec struct {
 
 type declKind struct {
 	callable bool
+	// isType is a type declaration: a class, interface, struct or alias.
+	isType bool
 	// packageScoped is a function called by bare name only from its own
 	// package, and through the package's name or an import alias from
 	// others (a Go function without a receiver).
@@ -651,28 +849,38 @@ func set(names ...string) map[string]bool {
 }
 
 var jsSpec = spec{
-	globs: []string{"*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs"},
+	family: famJS,
+	globs:  []string{"*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs"},
 	decls: map[string]declKind{
-		"function_declaration":   {callable: true},
-		"method_definition":      {callable: true},
-		"variable_declarator":    {callable: true, outer: "lexical_declaration"},
-		"class_declaration":      {},
-		"interface_declaration":  {},
-		"type_alias_declaration": {},
-		"enum_declaration":       {},
+		"function_declaration":       {callable: true},
+		"method_definition":          {callable: true},
+		"variable_declarator":        {callable: true, outer: "lexical_declaration"},
+		"class_declaration":          {isType: true},
+		"abstract_class_declaration": {isType: true},
+		"interface_declaration":      {isType: true},
+		"type_alias_declaration":     {isType: true},
+		"enum_declaration":           {isType: true},
 	},
 	calls:      map[string]string{"call_expression": "function", "new_expression": "constructor"},
 	signatures: set("method_signature", "abstract_method_signature"),
-	builtins:   set("require", "log", "push", "map", "filter", "then", "catch", "toString", "parseInt", "String", "Number", "Error", "Promise", "Array", "Object", "Map", "Set"),
+	builtins: set("require", "log", "push", "map", "filter", "then", "catch", "toString", "parseInt", "String", "Number", "Error", "Promise", "Array", "Object", "Map", "Set",
+		// Types from the language, the DOM, RxJS and Angular.
+		"Record", "Partial", "Required", "Readonly", "ReadonlyArray", "Pick", "Omit", "Exclude", "Extract", "NonNullable",
+		"ReturnType", "Parameters", "InstanceType", "Awaited", "PromiseLike", "Iterable", "AsyncIterable", "Date", "RegExp",
+		"Function", "Symbol", "Uint8Array", "WeakMap", "WeakSet", "HTMLElement", "Element", "Event", "Window", "Document",
+		"Observable", "Subject", "BehaviorSubject", "ReplaySubject", "Subscription", "EventEmitter",
+		"Signal", "WritableSignal", "InputSignal", "ModelSignal", "OutputEmitterRef", "ElementRef", "TemplateRef", "Injectable", "Component", "Input", "Output", "inject", "input", "output", "signal", "computed", "effect"),
 }
 
 var specs = map[string]spec{
 	"go": {
-		globs: []string{"*.go"},
+		family: famGo,
+		globs:  []string{"*.go"},
 		decls: map[string]declKind{
 			"function_declaration": {callable: true, packageScoped: true},
 			"method_declaration":   {callable: true},
-			"type_spec":            {outer: "type_declaration"},
+			"type_spec":            {isType: true, outer: "type_declaration"},
+			"type_alias":           {isType: true, outer: "type_declaration"},
 		},
 		calls:      map[string]string{"call_expression": "function", "composite_literal": "type"},
 		signatures: set("method_elem", "method_spec"),
@@ -683,26 +891,37 @@ var specs = map[string]spec{
 			"Error", "String"),
 	},
 	"python": {
-		globs: []string{"*.py"},
+		family: famPython,
+		globs:  []string{"*.py"},
 		decls: map[string]declKind{
 			"function_definition": {callable: true},
-			"class_definition":    {},
+			"class_definition":    {isType: true},
 		},
-		calls:    map[string]string{"call": "function"},
-		builtins: set("print", "len", "str", "int", "float", "list", "dict", "set", "tuple", "range", "isinstance", "super", "open", "append", "format", "get", "join"),
+		calls: map[string]string{"call": "function"},
+		builtins: set("print", "len", "str", "int", "float", "list", "dict", "set", "tuple", "range", "isinstance", "super", "open", "append", "format", "get", "join",
+			"bool", "bytes", "object", "type", "None", "self", "cls", "Exception", "ValueError", "TypeError", "KeyError",
+			// typing, pydantic, dataclasses and SQLAlchemy.
+			"Any", "Optional", "Union", "List", "Dict", "Set", "Tuple", "Type", "Literal", "Annotated", "Callable", "ClassVar",
+			"Final", "Iterable", "Iterator", "Sequence", "Mapping", "Generator", "Awaitable", "Coroutine", "Self", "TypeVar",
+			"Generic", "Protocol", "TypedDict", "NamedTuple", "BaseModel", "Field", "ConfigDict", "field_validator",
+			"model_validator", "validator", "root_validator", "computed_field", "dataclass", "field", "Mapped", "mapped_column",
+			"Enum", "classmethod", "staticmethod", "property", "datetime", "date", "Decimal", "UUID"),
 	},
 	"rust": {
-		globs: []string{"*.rs"},
+		family: famRust,
+		globs:  []string{"*.rs"},
 		decls: map[string]declKind{
 			"function_item": {callable: true},
-			"struct_item":   {},
-			"enum_item":     {},
-			"trait_item":    {},
-			"type_item":     {},
+			"struct_item":   {isType: true},
+			"enum_item":     {isType: true},
+			"trait_item":    {isType: true},
+			"type_item":     {isType: true},
 		},
 		calls:      map[string]string{"call_expression": "function", "struct_expression": "name"},
 		signatures: set("function_signature_item"),
-		builtins:   set("new", "clone", "unwrap", "expect", "into", "from", "to_string", "iter", "map", "collect", "Some", "Ok", "Err", "Box", "Vec", "String"),
+		builtins: set("new", "clone", "unwrap", "expect", "into", "from", "to_string", "iter", "map", "collect", "Some", "Ok", "Err", "Box", "Vec", "String",
+			"Option", "Result", "Self", "HashMap", "HashSet", "BTreeMap", "BTreeSet", "VecDeque", "Arc", "Rc", "RefCell", "Cell",
+			"Mutex", "RwLock", "Cow", "PhantomData", "Default", "Debug", "Clone", "Display"),
 	},
 	"typescript": jsSpec,
 	"tsx":        jsSpec,
@@ -714,11 +933,26 @@ type decl struct {
 	name          string
 	callable      bool
 	packageScoped bool
-	start, end    int // 1-based, inclusive
+	isType        bool
+	// topLevel is declared at the top of its file, so it can be exported.
+	topLevel   bool
+	start, end int // 1-based, inclusive
+	// sig are the types a use of the declaration yields (see signature),
+	// and params a function's parameter types by name.
+	sig    []call
+	params map[string][]call
+	// members are a type's fields and methods (see members).
+	members map[string][]member
+	// owner is the type a Go method's receiver or a Rust impl names, and
+	// self the name the method reads it through.
+	owner, self string
 }
 
+// call is a reference to a function, type or value: a call, unless kind
+// says otherwise.
 type call struct {
 	qualifier, name string
+	kind            refKind
 }
 
 type parsedFile struct {
@@ -726,8 +960,18 @@ type parsedFile struct {
 	spec  spec
 	lines []string
 	decls []decl
-	// uses are the calls and type uses in the file, by line.
-	uses map[int][]call
+	// uses are the calls and composite literals in the file, and types the
+	// type references, by line.
+	uses, types map[int][]call
+	// props are the names of the members the file reads (x.name), selfs
+	// those it reads through this, self or a Go receiver, and idents the
+	// identifiers, by line.
+	props, selfs, idents map[int][]string
+	// aliases maps names imported under an alias to the names they import:
+	// P to Project for import { Project as P }.
+	aliases map[string]string
+	// ts is what a TypeScript or JavaScript file imports and exports.
+	ts *tsModule
 	// signatures are the lines that start a method signature without a
 	// body.
 	signatures map[int]bool
@@ -755,17 +999,57 @@ func parse(p string, src []byte) *parsedFile {
 		return nil
 	}
 
-	f := &parsedFile{path: p, spec: sp, lines: strings.Split(strings.TrimSuffix(string(src), "\n"), "\n"), uses: map[int][]call{}, signatures: map[int]bool{}, imports: map[string]string{}}
-	var visit func(n *gotreesitter.Node)
-	visit = func(n *gotreesitter.Node) {
+	f := &parsedFile{
+		path: p, spec: sp, lines: strings.Split(strings.TrimSuffix(string(src), "\n"), "\n"),
+		uses: map[int][]call{}, types: map[int][]call{}, props: map[int][]string{}, selfs: map[int][]string{}, idents: map[int][]string{},
+		signatures: map[int]bool{}, imports: map[string]string{}, aliases: map[string]string{},
+	}
+	if sp.family == famJS {
+		f.ts = &tsModule{imports: map[string]tsImport{}, localExports: map[string]string{}}
+	}
+	// recv is the receiver of the Go method being visited.
+	var visit func(n *gotreesitter.Node, recv string)
+	visit = func(n *gotreesitter.Node, recv string) {
 		t := n.Type(lang)
+		row := int(n.StartPoint().Row) + 1
 		if k, ok := sp.decls[t]; ok {
 			if d, ok := readDecl(n, k, t, lang, src); ok {
 				d.path = p
+				d.sig = signature(sp.family, n, t, lang, src)
+				if d.isType {
+					d.members = members(sp.family, n, t, lang, src)
+				}
+				if d.callable {
+					d.params = params(sp.family, n, lang, src)
+					d.owner, d.self = owner(sp.family, n, t, lang, src)
+					if sp.family == famGo {
+						recv = d.self
+					}
+				}
 				f.decls = append(f.decls, d)
 			}
 		}
+		if obj, name := access(sp.family, n, t, lang); obj != nil && name != nil {
+			f.props[row] = append(f.props[row], name.Text(src))
+			if isSelf(sp.family, obj, lang, src, recv) {
+				f.selfs[row] = append(f.selfs[row], name.Text(src))
+			}
+		}
 		switch t {
+		case "identifier":
+			f.idents[row] = append(f.idents[row], n.Text(src))
+		case "import_statement", "export_statement":
+			if f.ts != nil && n.Parent() != nil && n.Parent().Type(lang) == "program" {
+				readTSModule(f.ts, n, lang, src)
+			}
+		case "aliased_import", "use_as_clause": // Python, Rust
+			name, alias := n.ChildByFieldName("name", lang), n.ChildByFieldName("alias", lang)
+			if name == nil {
+				name = n.ChildByFieldName("path", lang)
+			}
+			if name != nil && alias != nil {
+				f.aliases[alias.Text(src)] = lastSegment(name.Text(src))
+			}
 		case "package_clause":
 			if n.NamedChildCount() > 0 {
 				f.pkg = n.NamedChild(0).Text(src)
@@ -790,20 +1074,43 @@ func parse(p string, src []byte) *parsedFile {
 			}
 		}
 		if sp.signatures[t] {
-			f.signatures[int(n.StartPoint().Row)+1] = true
+			f.signatures[row] = true
 		}
 		if field, ok := sp.calls[t]; ok {
 			if c, ok := readCall(n.ChildByFieldName(field, lang), lang, src); ok {
-				row := int(n.StartPoint().Row) + 1
 				f.uses[row] = append(f.uses[row], c)
 			}
 		}
+		if typeRef(sp.family, n, lang, src, func(c call) {
+			// One letter is enough: it may be an alias (import { Project
+			// as P }); lookupAll drops it if it isn't.
+			if isIdent(c.name) && !sp.builtins[c.name] {
+				f.types[row] = append(f.types[row], c)
+			}
+		}) {
+			return // a type reference holds no declarations or calls
+		}
 		for i := 0; i < n.ChildCount(); i++ {
-			visit(n.Child(i))
+			visit(n.Child(i), recv)
 		}
 	}
-	visit(tree.RootNode())
+	visit(tree.RootNode(), "")
+	if f.ts != nil {
+		for local, imp := range f.ts.imports {
+			if imp.name != "*" && imp.name != "default" && imp.name != local {
+				f.aliases[local] = imp.name
+			}
+		}
+	}
 	return f
+}
+
+// unalias returns c with the name an alias stands for.
+func (f *parsedFile) unalias(c call) call {
+	if orig, ok := f.aliases[c.name]; ok {
+		c.name = orig
+	}
+	return c
 }
 
 func readDecl(n *gotreesitter.Node, k declKind, t string, lang *gotreesitter.Language, src []byte) (decl, bool) {
@@ -812,10 +1119,15 @@ func readDecl(n *gotreesitter.Node, k declKind, t string, lang *gotreesitter.Lan
 		return decl{}, false
 	}
 	if t == "variable_declarator" {
-		// Only functions assigned to a name: const f = () => {...}.
+		// Functions assigned to a name, const f = () => {...}, and other
+		// top-level constants, such as a schema a type is inferred from.
 		v := n.ChildByFieldName("value", lang)
-		if v == nil || (v.Type(lang) != "arrow_function" && v.Type(lang) != "function_expression" && v.Type(lang) != "function") {
-			return decl{}, false
+		isFunc := v != nil && (v.Type(lang) == "arrow_function" || v.Type(lang) == "function_expression" || v.Type(lang) == "function")
+		if !isFunc {
+			if v == nil || !isTopLevel(n.Parent(), lang) {
+				return decl{}, false
+			}
+			k.callable = false
 		}
 	}
 	shown := n
@@ -826,9 +1138,30 @@ func readDecl(n *gotreesitter.Node, k declKind, t string, lang *gotreesitter.Lan
 		name:          name.Text(src),
 		callable:      k.callable,
 		packageScoped: k.packageScoped,
+		isType:        k.isType,
+		topLevel:      isTopLevel(shown, lang),
 		start:         int(shown.StartPoint().Row) + 1,
 		end:           int(shown.EndPoint().Row) + 1,
 	}, true
+}
+
+// isTopLevel reports whether n is at the top of its file, exported or not.
+func isTopLevel(n *gotreesitter.Node, lang *gotreesitter.Language) bool {
+	if n == nil {
+		return false
+	}
+	p := n.Parent()
+	if p != nil && p.Type(lang) == "export_statement" {
+		p = p.Parent()
+	}
+	if p == nil {
+		return false
+	}
+	switch p.Type(lang) {
+	case "program", "module", "source_file":
+		return true
+	}
+	return false
 }
 
 // readCall reads the name a call or type use refers to, and what qualifies
@@ -857,11 +1190,17 @@ func readCall(n *gotreesitter.Node, lang *gotreesitter.Language, src []byte) (ca
 	return call{}, false
 }
 
-var nameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]+$`)
+var (
+	nameRe  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]+$`)
+	identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
 
 // isName reports whether s is an identifier worth looking up: at least two
 // characters, so a one-letter variable isn't searched for.
 func isName(s string) bool { return nameRe.MatchString(s) }
+
+// isIdent reports whether s is an identifier, one letter included.
+func isIdent(s string) bool { return identRe.MatchString(s) }
 
 // enclosing returns the innermost declaration around line.
 func (f *parsedFile) enclosing(line int) (decl, bool) {
@@ -875,22 +1214,24 @@ func (f *parsedFile) enclosing(line int) (decl, bool) {
 	return best, found
 }
 
-// calls returns the calls on the given lines, in order, without repeats.
-func (f *parsedFile) calls(lines map[int]bool) []call {
-	rows := make([]int, 0, len(lines))
-	for l := range lines {
-		rows = append(rows, l)
-	}
-	sort.Ints(rows)
-	var out []call
-	seen := map[call]bool{}
-	for _, l := range rows {
-		for _, c := range f.uses[l] {
-			if !seen[c] {
-				seen[c] = true
-				out = append(out, c)
-			}
+// enclosingType returns the innermost type declaration around line, for a
+// field read through this or self.
+func (f *parsedFile) enclosingType(line int) (decl, bool) {
+	return f.innermost(line, func(d decl) bool { return d.isType })
+}
+
+// enclosingCallable returns the innermost function around line.
+func (f *parsedFile) enclosingCallable(line int) (decl, bool) {
+	return f.innermost(line, func(d decl) bool { return d.callable })
+}
+
+func (f *parsedFile) innermost(line int, ok func(decl) bool) (decl, bool) {
+	var best decl
+	found := false
+	for _, d := range f.decls {
+		if ok(d) && d.start <= line && line <= d.end && (!found || d.end-d.start < best.end-best.start) {
+			best, found = d, true
 		}
 	}
-	return out
+	return best, found
 }

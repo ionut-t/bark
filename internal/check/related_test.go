@@ -71,7 +71,8 @@ func (r repo) Grep(_ context.Context, word string, _ ...string) ([]string, error
 }
 
 // The check gets the code around the findings' lines from other files:
-// here, the nil-safe method a "nil dereference" finding is about.
+// here, the nil-safe method a "nil dereference" finding is about, and
+// the type of its receiver.
 func TestRelated(t *testing.T) {
 	t.Parallel()
 
@@ -88,7 +89,7 @@ func TestRelated(t *testing.T) {
 		shown map[string]string
 		want  []string
 	}{
-		{"definitions and callers", []findings.Finding{{File: "a.go", Line: 4}}, nil, []string{"log/log.go definition of Write", "b.go other calls run"}},
+		{"definitions and callers", []findings.Finding{{File: "a.go", Line: 4}}, nil, []string{"log/log.go definition of Log", "log/log.go definition of Write", "b.go other calls run"}},
 		{"files already shown are left out", []findings.Finding{{File: "a.go", Line: 4}}, map[string]string{"log/log.go": ""}, []string{"b.go other calls run"}},
 		{"findings without a line", []findings.Finding{{File: "a.go"}}, nil, nil},
 	}
