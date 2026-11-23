@@ -112,8 +112,9 @@ const maxExportDepth = 12
 // resolveImport looks c up through from's imports: a name it imports, a
 // name in a namespace it imports, or, if neither, a declaration in from
 // itself. It reports false when it can't tell, for name-based lookup.
+// TypeScript, JavaScript and Python follow imports; see pymodules.go.
 func (r *related) resolveImport(c call, from *parsedFile) ([]decl, bool) {
-	if from.ts == nil {
+	if from.ts == nil && from.py == nil {
 		return nil, false
 	}
 	key := from.path + "\x00" + c.qualifier + "\x00" + c.name + "\x00" + string(rune('0'+c.kind))
@@ -126,6 +127,9 @@ func (r *related) resolveImport(c call, from *parsedFile) ([]decl, bool) {
 }
 
 func (r *related) resolveImportUncached(c call, from *parsedFile) []decl {
+	if from.py != nil {
+		return r.resolvePyImport(c, from)
+	}
 	var source, name string
 	if c.qualifier != "" {
 		imp, ok := from.ts.imports[c.qualifier]
