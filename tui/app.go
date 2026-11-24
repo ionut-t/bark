@@ -873,12 +873,14 @@ func (m *Model) handleSelectedReviewer(reviewer *reviewers.Reviewer) (tea.Model,
 
 func (m *Model) handleSelectedReviewOption(option ReviewOption) (tea.Model, tea.Cmd) {
 	m.selectedReviewOption = option
+	// Set from the option, not only turned on: after going back from the
+	// commit list, another option must not review commit "".
+	m.selectCommit = option == ReviewOptionCommit
 
 	switch m.selectedReviewOption {
 	case ReviewOptionCurrentChanges, ReviewOptionStagedChanges:
 		return m, utils.DispatchMsg(listReviewersMsg{})
 	case ReviewOptionCommit:
-		m.selectCommit = true
 		return m, utils.DispatchMsg(listCommitsMsg{})
 	case ReviewOptionBranch:
 		m.currentView = viewBranchInput

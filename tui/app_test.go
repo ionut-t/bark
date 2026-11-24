@@ -3,10 +3,13 @@ package tui
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/bark/v2/internal/reviewers"
+	"github.com/ionut-t/coffee/styles"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // An empty diff has nothing to review, so the TUI must say why instead of
@@ -69,4 +72,32 @@ func TestReviewDiffLoadedEmptyDiff(t *testing.T) {
 			assert.Contains(t, view, "Press Esc to go back, or ctrl+c to exit.")
 		})
 	}
+}
+
+// Going back from the commit list and choosing another review option must
+// not review commit "": git fails with "bad revision ”".
+func TestReviewOptionAfterCancelledCommitSelection(t *testing.T) {
+	var m tea.Model = Model{
+		config:        config.New("", config.Data{}),
+		width:         80,
+		height:        24,
+		currentView:   viewReviewOptions,
+		reviewOptions: newReviewOptionsModel(styles.New(true), true),
+	}
+	m, _ = m.Update(reviewOptionSelectedMsg{option: ReviewOptionCommit})
+	m, _ = m.Update(commitSelectedMsg{commit: git.Commit{Hash: "abc1234"}})
+	require.True(t, asModel(m).selectCommit)
+
+	m, _ = m.Update(cancelCommitSelectionMsg{})
+	m, _ = m.Update(reviewOptionSelectedMsg{option: ReviewOptionCurrentChanges})
+
+	assert.False(t, asModel(m).selectCommit, "the current changes, not a commit, are reviewed")
+}
+
+// asModel returns the Model that Update returned, by value or by pointer.
+func asModel(m tea.Model) Model {
+	if p, ok := m.(*Model); ok {
+		return *p
+	}
+	return m.(Model)
 }
