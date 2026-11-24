@@ -519,6 +519,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.currentView = viewTasks
 		m.selectedReviewOption = ReviewOptionNone
+		// The commit task reads it too
+		m.stagedOnly = false
 
 	case prNumberSelectedMsg:
 		m.prNumber = msg.prNumber
@@ -876,6 +878,7 @@ func (m *Model) handleSelectedReviewOption(option ReviewOption) (tea.Model, tea.
 	// Set from the option, not only turned on: after going back from the
 	// commit list, another option must not review commit "".
 	m.selectCommit = option == ReviewOptionCommit
+	m.stagedOnly = option == ReviewOptionStagedChanges
 
 	switch m.selectedReviewOption {
 	case ReviewOptionCurrentChanges, ReviewOptionStagedChanges:
