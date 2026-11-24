@@ -693,3 +693,89 @@ func TestReviewDiff_IgnoredFiles(t *testing.T) {
 	assert.False(t, ignored("src/client.py"))
 	assert.False(t, ignored(IgnoreFileName))
 }
+
+// A diff that's empty because .barkignore leaves out every file the change
+// touches lists those files, so a review can skip it rather than fail; a
+// diff that's empty because nothing changed lists none.
+func TestGetReviewDiffListsIgnoredFiles(t *testing.T) {
+	setup := func(t *testing.T) string {
+		dir := newDivergedRepo(t)
+		commitFile(t, dir, ".barkignore", "CHANGELOG.md\n")
+		runGit(t, dir, "checkout", "-b", "release")
+		return dir
+	}
+
+	t.Run("branch", func(t *testing.T) {
+		dir := setup(t)
+		r, err := GetReviewDiff(t.Context(), BranchDiff("release"))
+		require.NoError(t, err)
+		assert.Empty(t, r.Diff)
+		assert.Empty(t, r.Ignored, "no commits, so nothing was left out")
+
+		commitFile(t, dir, "CHANGELOG.md", "# 1.0\n")
+		commitFile(t, dir, "go.sum", "sum\n")
+		commitFile(t, dir, "release notes.lock", "lock\n")
+		r, err = GetReviewDiff(t.Context(), BranchDiff("feature"))
+		require.NoError(t, err)
+		assert.Empty(t, r.Diff)
+		assert.Equal(t, []string{"CHANGELOG.md", "go.sum", "release notes.lock"}, r.Ignored)
+	})
+
+	t.Run("commit", func(t *testing.T) {
+		dir := setup(t)
+		commitFile(t, dir, "CHANGELOG.md", "# 1.0\n")
+		r, err := GetReviewDiff(t.Context(), CommitDiff("HEAD"))
+		require.NoError(t, err)
+		assert.Empty(t, r.Diff)
+		assert.Equal(t, []string{"CHANGELOG.md"}, r.Ignored)
+
+		runGit(t, dir, "commit", "--allow-empty", "-m", "empty")
+		r, err = GetReviewDiff(t.Context(), CommitDiff("HEAD"))
+		require.NoError(t, err)
+		assert.Empty(t, r.Ignored, "an empty commit changes nothing")
+	})
+
+	t.Run("working tree and staged", func(t *testing.T) {
+		dir := setup(t)
+		for _, staged := range []bool{false, true} {
+			r, err := GetReviewDiff(t.Context(), WorkingTreeDiff(staged))
+			require.NoError(t, err)
+			assert.Empty(t, r.Ignored, "no changes, staged=%v", staged)
+		}
+
+		// Untracked: only a working tree review sees it.
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "CHANGELOG.md"), []byte("# 1.0\n"), 0o644))
+		r, err := GetReviewDiff(t.Context(), WorkingTreeDiff(false))
+		require.NoError(t, err)
+		assert.Empty(t, r.Diff)
+		assert.Equal(t, []string{"CHANGELOG.md"}, r.Ignored)
+		r, err = GetReviewDiff(t.Context(), WorkingTreeDiff(true))
+		require.NoError(t, err)
+		assert.Empty(t, r.Ignored, "nothing is staged")
+
+		runGit(t, dir, "add", "CHANGELOG.md")
+		r, err = GetReviewDiff(t.Context(), WorkingTreeDiff(true))
+		require.NoError(t, err)
+		assert.Empty(t, r.Diff)
+		assert.Equal(t, []string{"CHANGELOG.md"}, r.Ignored)
+	})
+
+	t.Run("pull request", func(t *testing.T) {
+		setup(t)
+		fakeGH(t, nil, "diff --git a/CHANGELOG.md b/CHANGELOG.md\n--- a/CHANGELOG.md\n+++ b/CHANGELOG.md\n@@ -1 +1 @@\n-a\n+b\n")
+		r, err := GetReviewDiff(t.Context(), PRDiff("7"))
+		require.NoError(t, err)
+		assert.Empty(t, r.Diff)
+		assert.Equal(t, []string{"CHANGELOG.md"}, r.Ignored)
+	})
+
+	t.Run("reviewed files", func(t *testing.T) {
+		dir := setup(t)
+		commitFile(t, dir, "CHANGELOG.md", "# 1.0\n")
+		commitFile(t, dir, "main.go", "package main\n")
+		r, err := GetReviewDiff(t.Context(), BranchDiff("feature"))
+		require.NoError(t, err)
+		assert.NotEmpty(t, r.Diff)
+		assert.Empty(t, r.Ignored, "only listed when nothing is left to review")
+	})
+}
