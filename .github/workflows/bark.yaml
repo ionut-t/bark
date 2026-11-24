@@ -5,6 +5,9 @@ name: Bark
 # (the review job removes it again). With inline comments, "bark: review"
 # reviews only the commits since Bark's last review; "bark: full review"
 # reviews the whole PR. "bark: describe" regenerates the PR description.
+# A "bark: as <name>" label (e.g. "bark: as Yoda") picks the reviewer for
+# every review of that PR, over the BARK_REVIEWER variable; it stays on the
+# PR and doesn't start a review by itself.
 # With the BARK_APPROVE variable set to "true" (and BARK_INLINE_COMMENTS),
 # a review with nothing blocking approves the PR (BARK_APPROVE_BELOW sets the
 # severity that blocks it, medium by default); the repository must allow
@@ -117,6 +120,7 @@ jobs:
         run: go build -o /tmp/bark .
 
       - name: Run bark review
+        id: review
         env:
           BARK_API_KEY: ${{ secrets.BARK_API_KEY }}
           BARK_PROVIDER: ${{ vars.BARK_PROVIDER }}
@@ -124,6 +128,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           BARK_MODEL: ${{ vars.BARK_MODEL }}
           BARK_REVIEWER: ${{ vars.BARK_REVIEWER }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           BARK_MAX_DIFF_TOKENS: ${{ vars.BARK_MAX_DIFF_TOKENS }}
           BARK_TIMEOUT: ${{ vars.BARK_TIMEOUT }}
           BARK_WITH_CONTEXT: ${{ vars.BARK_WITH_CONTEXT }}
@@ -143,6 +149,14 @@ jobs:
               exit 1 ;;
             *) echo "Error: unknown provider '$PROVIDER'. Use gemini, openai or anthropic." >&2; exit 1 ;;
           esac
+
+          LABEL_REVIEWER=$(bash .github/actions/reviewer-from-label.sh)
+          if [ -n "$LABEL_REVIEWER" ]; then
+            echo "Reviewer from the PR's \"bark: as\" label: $LABEL_REVIEWER"
+            BARK_REVIEWER=$LABEL_REVIEWER
+          fi
+          # For the "Reviewed by" label.
+          echo "reviewer=$BARK_REVIEWER" >> "$GITHUB_OUTPUT"
 
           ARGS=(review --pr "${{ github.event.pull_request.number }}" --provider "$PROVIDER")
           [ -n "$BARK_REVIEWER" ] && ARGS+=(--as "$BARK_REVIEWER")
@@ -199,10 +213,9 @@ jobs:
       - name: Add reviewer label
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BARK_REVIEWER: ${{ vars.BARK_REVIEWER }}
+          BARK_REVIEWER: ${{ steps.review.outputs.reviewer }}
         run: |
-          REVIEWER="${BARK_REVIEWER:-bark}"
-          LABEL="Reviewed by ${REVIEWER^}"
+          LABEL="Reviewed by $(bash .github/actions/reviewer-label-name.sh "$BARK_REVIEWER")"
           gh label create "$LABEL" --repo "${{ github.repository }}" --color "0075ca" --force 2>/dev/null || true
           gh pr edit "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --add-label "$LABEL"
 

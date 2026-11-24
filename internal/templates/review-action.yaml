@@ -20,6 +20,9 @@ jobs:
           provider: ${{ vars.BARK_PROVIDER }}
           api-key: ${{ secrets.BARK_API_KEY }}
           model: ${{ vars.BARK_MODEL }}
+          # A "bark: as <name>" label on a pull request (e.g. "bark: as Yoda")
+          # picks the reviewer for it instead; reviewer-from-label: false
+          # turns that off.
           reviewer: ${{ vars.BARK_REVIEWER }}
           max-diff-tokens: ${{ vars.BARK_MAX_DIFF_TOKENS }}
           timeout: ${{ vars.BARK_TIMEOUT }}

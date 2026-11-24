@@ -21,9 +21,19 @@ inputs:
     description: |
       Reviewer to use. Accepts a built-in name (e.g. linus, bob, rob, yoda),
       a path to a .md file (e.g. .bark/reviewer.md), or omit to auto-detect
-      .bark/reviewer.md in the repo root.
+      .bark/reviewer.md in the repo root. A "bark: as <name>" label on the
+      pull request overrides it (see reviewer-from-label).
     required: false
     default: ""
+  reviewer-from-label:
+    description: |
+      Let a "bark: as <name>" label on the pull request (for example
+      "bark: as Yoda") pick the reviewer for every review of it, over the
+      reviewer input. The name must be a built-in or saved reviewer's name,
+      not a file path. More than one such label fails the job. Only people
+      with triage access can add labels. Set to false to ignore the label.
+    required: false
+    default: "true"
   instructions:
     description: |
       Instructions to guide the review. Accepts a built-in name (e.g. go, rust),
@@ -170,6 +180,8 @@ runs:
         BARK_PROVIDER: ${{ inputs.provider }}
         BARK_API_KEY: ${{ inputs.api-key }}
         BARK_REVIEWER: ${{ inputs.reviewer }}
+        BARK_REVIEWER_FROM_LABEL: ${{ inputs.reviewer-from-label }}
+        REPO: ${{ github.repository }}
         BARK_INSTRUCTIONS: ${{ inputs.instructions }}
         BARK_MODEL: ${{ inputs.model }}
         BARK_MAX_DIFF_TOKENS: ${{ inputs.max-diff-tokens }}
@@ -208,6 +220,16 @@ runs:
         unset BARK_API_KEY
 
         ARGS=(review --pr "$PR_NUMBER" --provider "$PROVIDER")
+
+        if [ "$BARK_REVIEWER_FROM_LABEL" != "false" ]; then
+          LABEL_REVIEWER=$(bash "$GITHUB_ACTION_PATH/../reviewer-from-label.sh")
+          if [ -n "$LABEL_REVIEWER" ]; then
+            echo "Reviewer from the pull request's \"bark: as\" label: $LABEL_REVIEWER"
+            BARK_REVIEWER=$LABEL_REVIEWER
+          fi
+        fi
+        # For the "Reviewed by" label.
+        echo "reviewer=$BARK_REVIEWER" >> "$GITHUB_OUTPUT"
 
         if [ -n "$BARK_REVIEWER" ]; then
           ARGS+=(--as "$BARK_REVIEWER")
@@ -286,15 +308,9 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         REPO: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
-        REVIEWER: ${{ inputs.reviewer }}
+        REVIEWER: ${{ steps.review.outputs.reviewer }}
       run: |
-        if [ -n "$REVIEWER" ] && [[ "$REVIEWER" != */* ]] && [[ "$REVIEWER" != *.md ]]; then
-          NAME="${REVIEWER^}"
-        else
-          NAME="Bark"
-        fi
-
-        LABEL="Reviewed by $NAME"
+        LABEL="Reviewed by $(bash "$GITHUB_ACTION_PATH/../reviewer-label-name.sh" "$REVIEWER")"
         gh label create "$LABEL" --repo "$REPO" --color "0075ca" --force 2>/dev/null || true
         gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL"
 
