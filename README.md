@@ -64,6 +64,8 @@ To use a specific reviewer, use the `--as` flag:
 bark review --as linus
 ```
 
+In GitHub Actions, the `bark-review` action's `reviewer` input sets the reviewer for every pull request. To pick one for a single pull request, add a `bark: as <name>` label to it, such as `bark: as Yoda`. The label stays on the pull request, so every later review of it uses that reviewer too. The name must be a built-in or saved reviewer, not a file path, and a pull request can have only one such label. Set `reviewer-from-label: false` to ignore these labels.
+
 To provide custom instructions to the reviewer, use the `--instructions` or `-i` flag with the name of a saved instruction, a file path or the instructions as text. Repeat the flag to combine several; they're added in the order given:
 
 ```bash
