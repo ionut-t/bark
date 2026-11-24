@@ -20,7 +20,6 @@ import (
 
 var (
 	ErrNotAGitRepository     = errors.New("not a git repository")
-	ErrNoChangesInRepository = errors.New("no changes in repository")
 	ErrNoCommitsInRepository = errors.New("no commits in repository")
 )
 
@@ -145,7 +144,7 @@ func GetWorkingTreeDiff(ctx context.Context, all bool) (string, error) {
 
 	var baseArgs []string
 	if all {
-		baseArgs = []string{"diff", "HEAD", "--"}
+		baseArgs = []string{"diff", workingTreeBase(ctx), "--"}
 	} else {
 		baseArgs = []string{"diff", "--staged", "--"}
 	}
@@ -161,18 +160,27 @@ func GetWorkingTreeDiff(ctx context.Context, all bool) (string, error) {
 
 	output, err := cmd.Output()
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && all {
-			// Check if the error is due to no changes in the working directory
-			if exitErr.ExitCode() == 128 {
-				return "", ErrNoChangesInRepository
-			}
-		}
-
 		return "", fmt.Errorf("failed to get working tree diff: %w", err)
 	}
 
 	return string(output), nil
+}
+
+// workingTreeBase returns what uncommitted changes are diffed against: HEAD,
+// or the empty tree in a repository with no commits yet, so every file there
+// is new.
+func workingTreeBase(ctx context.Context) string {
+	if exec.CommandContext(ctx, "git", "rev-parse", "--verify", "--quiet", "HEAD^{commit}").Run() == nil {
+		return "HEAD"
+	}
+	// Hashing an empty tree gives its ID in the repository's object format
+	// (SHA-1 or SHA-256); the object needn't exist for git diff.
+	out, err := exec.CommandContext(ctx, "git", "hash-object", "-t", "tree", "--stdin").Output()
+	if err != nil {
+		// Let git diff report the problem.
+		return "HEAD"
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // workingTreePaths lists every file with uncommitted changes, ignored or
@@ -182,7 +190,7 @@ func workingTreePaths(ctx context.Context, all bool) []string {
 	if !all {
 		return changedPaths(exec.CommandContext(ctx, "git", "diff", "--name-only", "-z", "--staged"))
 	}
-	cmd := exec.CommandContext(ctx, "git", "diff", "--name-only", "-z", "HEAD")
+	cmd := exec.CommandContext(ctx, "git", "diff", "--name-only", "-z", workingTreeBase(ctx))
 	cleanup, err := withUntrackedIndex(ctx, cmd)
 	if err != nil {
 		return nil
@@ -196,7 +204,7 @@ func workingTreePaths(ctx context.Context, all bool) []string {
 func GetWorkingTreeStat(ctx context.Context, all bool) string {
 	var args []string
 	if all {
-		args = append([]string{"diff", "--stat", "HEAD", "--"}, excludes(ctx)...)
+		args = append([]string{"diff", "--stat", workingTreeBase(ctx), "--"}, excludes(ctx)...)
 	} else {
 		args = append([]string{"diff", "--stat", "--staged", "--"}, excludes(ctx)...)
 	}
@@ -216,7 +224,7 @@ func GetWorkingTreeStat(ctx context.Context, all bool) string {
 }
 
 // withUntrackedIndex points cmd at a temporary copy of the index in which every untracked,
-// non-ignored file is marked intent-to-add, so "git diff HEAD" includes new files as
+// non-ignored file is marked intent-to-add, so "git diff HEAD" (or the empty tree) includes new files as
 // additions. The user's real index is never modified. The returned cleanup removes the
 // temporary index and must be called after cmd has run.
 func withUntrackedIndex(ctx context.Context, cmd *exec.Cmd) (cleanup func(), err error) {

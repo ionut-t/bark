@@ -744,26 +744,13 @@ func (m Model) getTitle() string {
 
 func (m Model) createView() string {
 	if m.error != nil {
-		if errors.Is(m.error, git.ErrNoChangesInRepository) {
-			return m.styles.Info.Padding(2).Render(
-				lipgloss.JoinVertical(
-					lipgloss.Left,
-					"Could not find any changes to review.",
-					"This can happen when there are no commits in the repository.",
-					"Stage some changes and run `bark review --stage`.",
-					"\n",
-					"Press `ctrl+c` to exit.",
-				),
-			)
-		}
-
 		if errors.Is(m.error, git.ErrNoCommitsInRepository) {
 			return m.styles.Info.Padding(2).Render(
 				lipgloss.JoinVertical(
 					lipgloss.Left,
 					"Could not find any commits.",
 					"This can happen when there are no commits in the repository.",
-					"Try running `bark review --stage` to review staged changes.",
+					"Review the uncommitted changes with `bark review --changes`, or only the staged ones with `bark review --staged`.",
 					"\n",
 					"Press `ctrl+c` to exit.",
 				),
