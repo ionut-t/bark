@@ -44,7 +44,7 @@ func runPRCmd(cmd *cobra.Command, cfg config.Config) error {
 	provider, _ := cmd.Flags().GetString("provider")
 	instructions, _ := cmd.Flags().GetStringArray("instructions")
 
-	stdinDiff, err := readStdinIfPiped()
+	stdinDiff, err := readStdinIfPiped(branch != "" || pr != "")
 	if err != nil {
 		return err
 	}

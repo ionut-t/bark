@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,9 +45,21 @@ type barkResult struct {
 // provider credentials, so no command can reach an LLM.
 func runBark(t *testing.T, args ...string) barkResult {
 	t.Helper()
+	return runBarkWithStdin(t, nil, args...)
+}
+
+// runBarkWithStdin is runBark with stdin read from in (nil for none). A
+// run that takes over a minute is killed, so a hang fails the test.
+func runBarkWithStdin(t *testing.T, in *os.File, args ...string) barkResult {
+	t.Helper()
 
 	home := t.TempDir()
-	cmd := exec.Command(barkBin, args...)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, barkBin, args...)
+	if in != nil {
+		cmd.Stdin = in
+	}
 	cmd.Dir = home
 	cmd.Env = []string{
 		"HOME=" + home,
@@ -196,4 +210,34 @@ func TestConfigFlag_MissingFileIsAnError(t *testing.T) {
 	assert.Equal(t, 1, res.exitCode, "stdout: %s\nstderr: %s", res.stdout, res.stderr)
 	assert.Contains(t, res.stderr, "Error: ")
 	assert.NoFileExists(t, path, "a mistyped --config path must not be created")
+}
+
+// A flag that names the diff's source means stdin isn't read, so a pipe an
+// agent or task runner leaves open doesn't block the run (bug 31). The
+// directory isn't a git repository, so each run then fails on git.
+func TestSourceFlag_DoesNotWaitOnOpenStdin(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"review --branch", []string{"review", "--plain", "--dry-run", "--branch", "main"}},
+		{"review --staged", []string{"review", "--plain", "--dry-run", "--staged"}},
+		{"review --hash", []string{"review", "--plain", "--dry-run", "--hash", "HEAD"}},
+		{"pr --branch", []string{"pr", "--plain", "--branch", "main"}},
+		{"commit --all", []string{"commit", "--plain", "--all"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, w, err := os.Pipe()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = r.Close(); _ = w.Close() }) // w stays open during the run
+
+			start := time.Now()
+			res := runBarkWithStdin(t, r, tt.args...)
+
+			assert.Less(t, time.Since(start), 30*time.Second, "bark waited on stdin")
+			assert.Equal(t, 1, res.exitCode, "stdout: %s\nstderr: %s", res.stdout, res.stderr)
+			assert.NotContains(t, res.stderr, "waiting for a diff on stdin")
+		})
+	}
 }
