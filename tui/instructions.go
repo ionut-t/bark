@@ -70,7 +70,7 @@ func newInstructionsModel(instructions []instructions.Instruction, s styles.Styl
 }
 
 func (m *instructionsModel) setSize(width, height int) {
-	m.list.SetSize(width, height-4)
+	sizeList(&m.list, width, height)
 }
 
 func (m instructionsModel) Init() tea.Cmd {
@@ -79,8 +79,6 @@ func (m instructionsModel) Init() tea.Cmd {
 
 func (m instructionsModel) Update(msg tea.Msg) (instructionsModel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.list.SetSize(msg.Width, msg.Height-4)
 	case tea.KeyMsg:
 		if m.list.FilterState() == list.Filtering {
 			break

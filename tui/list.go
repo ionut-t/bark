@@ -96,6 +96,11 @@ func newItemDelegate(s styles.Styles) itemDelegate {
 
 // restyleList applies s to a list built by newListModel, keeping its items,
 // cursor and filter.
+// sizeList fits a list to the window, leaving room for the header.
+func sizeList(l *list.Model, width, height int) {
+	l.SetSize(width, height-4)
+}
+
 func restyleList(l *list.Model, s styles.Styles, isDark bool) {
 	l.Styles = styles.ListStyles(s, isDark)
 	l.Styles.Title = l.Styles.Title.MarginLeft(2)
