@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.38.0](https://github.com/ionut-t/bark/compare/v2.37.0...v2.38.0) (2026-11-24)
+
+
+### Features
+
+* **enclosing:** implement Python module resolution for imports ([#181](https://github.com/ionut-t/bark/issues/181)) ([78d34ff](https://github.com/ionut-t/bark/commit/78d34ff6d652f583022d01ab891d76034fbd79a3))
+* **review:** add dry-run mode to review prompts ([#178](https://github.com/ionut-t/bark/issues/178)) ([5351f7e](https://github.com/ionut-t/bark/commit/5351f7ef8aeaa287af69a554884914832a4f7f14))
+
+
+### Bug Fixes
+
+* **cli:** improve stdin pipe behaviour and prevent hangs ([#182](https://github.com/ionut-t/bark/issues/182)) ([bf64657](https://github.com/ionut-t/bark/commit/bf646579b947218fa530c399e5a8252781d8de02))
+* **enclosing:** prefer definitions outside .barkignore when a name is ambiguous ([#180](https://github.com/ionut-t/bark/issues/180)) ([a3e7b60](https://github.com/ionut-t/bark/commit/a3e7b60547b416440a5939c56ea7f996c80e8c1c))
+
 ## [2.37.0](https://github.com/ionut-t/bark/compare/v2.36.0...v2.37.0) (2026-11-23)
 
 
