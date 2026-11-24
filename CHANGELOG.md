@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.39.0](https://github.com/ionut-t/bark/compare/v2.38.0...v2.39.0) (2026-11-24)
+
+
+### Features
+
+* **ci:** allow selecting reviewer via pull request label ([#189](https://github.com/ionut-t/bark/issues/189)) ([31964fe](https://github.com/ionut-t/bark/commit/31964fe6cbd478f473b7563f0ace29fb9b182a9c))
+* **reviewers:** add Billy Butcher and Homelander persona prompts ([#191](https://github.com/ionut-t/bark/issues/191)) ([02cf664](https://github.com/ionut-t/bark/commit/02cf664eb0fb47ae3da4ac9edbcbbd254c57de6a))
+* **reviewers:** add new fictional character personas ([#188](https://github.com/ionut-t/bark/issues/188)) ([3d465e4](https://github.com/ionut-t/bark/commit/3d465e4a632dec270ef244c36ba25f67453a156c))
+
+
+### Bug Fixes
+
+* **git:** allow reviewing changes in repositories without commits ([#187](https://github.com/ionut-t/bark/issues/187)) ([11d64ef](https://github.com/ionut-t/bark/commit/11d64eff7b83600473b288dda0664eef5938d393))
+* **review:** handle changes containing only ignored files ([#183](https://github.com/ionut-t/bark/issues/183)) ([3218486](https://github.com/ionut-t/bark/commit/321848617f2130f1576eede8cbfa316561736b9f))
+* **tui:** ensure consistent list sizing on window resize ([#190](https://github.com/ionut-t/bark/issues/190)) ([2424035](https://github.com/ionut-t/bark/commit/242403575920540532b8e4eac757fb59be3c660f))
+* **tui:** handle empty review diffs gracefully ([#185](https://github.com/ionut-t/bark/issues/185)) ([49516e9](https://github.com/ionut-t/bark/commit/49516e91baa5be9abd0e9b15ac48e9b38fa4eb25))
+* **tui:** manage staged-only flag during review selection ([#186](https://github.com/ionut-t/bark/issues/186)) ([1e61650](https://github.com/ionut-t/bark/commit/1e616502bd4a1422e41b09ee0268fcbea6d3abcb))
+
 ## [2.38.0](https://github.com/ionut-t/bark/compare/v2.37.0...v2.38.0) (2026-11-24)
 
 
