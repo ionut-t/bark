@@ -175,6 +175,22 @@ func GetWorkingTreeDiff(ctx context.Context, all bool) (string, error) {
 	return string(output), nil
 }
 
+// workingTreePaths lists every file with uncommitted changes, ignored or
+// not: staged ones only unless all, with untracked ones if all, as
+// GetWorkingTreeDiff diffs them.
+func workingTreePaths(ctx context.Context, all bool) []string {
+	if !all {
+		return changedPaths(exec.CommandContext(ctx, "git", "diff", "--name-only", "-z", "--staged"))
+	}
+	cmd := exec.CommandContext(ctx, "git", "diff", "--name-only", "-z", "HEAD")
+	cleanup, err := withUntrackedIndex(ctx, cmd)
+	if err != nil {
+		return nil
+	}
+	defer cleanup()
+	return changedPaths(cmd)
+}
+
 // GetWorkingTreeStat returns the --stat summary for uncommitted working tree changes.
 // Errors are treated as best-effort: a non-nil error returns an empty string.
 func GetWorkingTreeStat(ctx context.Context, all bool) string {
@@ -560,32 +576,60 @@ func GetBranchInfo(ctx context.Context, baseBranch string, limit DiffLimit) (*Br
 
 // GetPRDiff returns the diff for a GitHub pull request.
 func GetPRDiff(ctx context.Context, prNumber string) (string, error) {
-	diff, err := github.New().PullRequestDiff(ctx, prNumber)
+	diff, _, err := prDiff(ctx, prNumber)
+	return diff, err
+}
+
+// prDiff is GetPRDiff that also returns the paths it left out.
+func prDiff(ctx context.Context, prNumber string) (diff string, ignored []string, err error) {
+	raw, err := github.New().PullRequestDiff(ctx, prNumber)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return filterDiff(diff, loadIgnore(ctx)), nil
+	diff, ignored = filterDiff(raw, loadIgnore(ctx))
+	return diff, ignored, nil
 }
 
 var diffFileHeaderRe = regexp.MustCompile(`^diff --git a/.+ b/(.+)$`)
 
 // filterDiff removes the file sections of a unified git diff whose path the
-// rules ignore.
-func filterDiff(diff string, rules ignoreRules) string {
+// rules ignore, and returns what's left and the paths it removed.
+func filterDiff(diff string, rules ignoreRules) (string, []string) {
 	lines := strings.Split(diff, "\n")
 	out := make([]string, 0, len(lines))
+	var ignored []string
 	skip := false
 
 	for _, line := range lines {
 		if m := diffFileHeaderRe.FindStringSubmatch(line); m != nil {
 			skip = rules.matches(m[1])
+			if skip {
+				ignored = append(ignored, m[1])
+			}
 		}
 		if !skip {
 			out = append(out, line)
 		}
 	}
 
-	return strings.Join(out, "\n")
+	return strings.Join(out, "\n"), ignored
+}
+
+// changedPaths runs cmd, a git command that lists paths with --name-only
+// -z, and returns them, or nil if it fails. It reads every path the change
+// touches, ignored or not.
+func changedPaths(cmd *exec.Cmd) []string {
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	var paths []string
+	for p := range strings.SplitSeq(string(out), "\x00") {
+		if p = strings.TrimSpace(p); p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths
 }
 
 // PRMeta holds lightweight metadata about a GitHub pull request.
@@ -803,6 +847,11 @@ type ReviewDiff struct {
 	// FullReason says why the whole pull request was diffed although
 	// ReviewDiffParams.Since asked for less.
 	FullReason string
+	// Ignored are the files the change touches, all of which .barkignore
+	// (or the defaults) leaves out, when that is why Diff is empty. It is
+	// nil when Diff isn't empty, when nothing changed, and for a diff
+	// since an earlier review (Since).
+	Ignored []string
 
 	// source is where NewSideFile reads files from: a revision, or a pull
 	// request's head (prHead). A ReviewDiff not made by GetReviewDiff has
@@ -1059,6 +1108,9 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		// The diff is <branch>...HEAD, so uncommitted changes aren't in it.
 		r.source = "HEAD"
 		r.Commits, _ = GetBranchCommits(ctx, params.branch)
+		if r.Diff == "" {
+			r.Ignored = changedPaths(exec.CommandContext(ctx, "git", "diff", "--name-only", "-z", branchRange(params.branch)))
+		}
 
 	case params.commitHash != "":
 		r.source = params.commitHash
@@ -1069,6 +1121,9 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		}
 		r.Diff, r.Cut = truncateDiff(r.Diff, params.limit)
 		r.Stat = GetCommitStat(ctx, params.commitHash)
+		if r.Diff == "" {
+			r.Ignored = changedPaths(exec.CommandContext(ctx, "git", "show", "--name-only", "-z", "--format=", params.commitHash))
+		}
 
 	default:
 		all := !params.stagedOnly
@@ -1083,6 +1138,9 @@ func GetReviewDiff(ctx context.Context, params ReviewDiffParams) (ReviewDiff, er
 		}
 		r.Diff, r.Cut = truncateDiff(r.Diff, params.limit)
 		r.Stat = GetWorkingTreeStat(ctx, all)
+		if r.Diff == "" {
+			r.Ignored = workingTreePaths(ctx, all)
+		}
 		branch, _ := GetCurrentBranch(ctx)
 		r.ContextHeader = FormatBranchHeader(branch)
 	}
@@ -1127,16 +1185,22 @@ func (r *ReviewDiff) loadPR(ctx context.Context, params ReviewDiffParams) error 
 		}
 	}
 
-	diff, err := GetPRDiff(ctx, params.pr)
+	diff, ignored, err := prDiff(ctx, params.pr)
 	switch {
 	case err == nil:
 		r.Diff, r.Cut = truncateDiff(diff, params.limit)
+		if r.Diff == "" {
+			r.Ignored = ignored
+		}
 	case local != "":
 		// GitHub refuses the diff of a very large pull request.
 		var localErr error
 		r.Diff, r.Cut, localErr = rangeDiff(ctx, local, params.limit)
 		if localErr != nil {
 			return fmt.Errorf("%w (the local diff of its commits failed too: %v)", err, localErr)
+		}
+		if r.Diff == "" {
+			r.Ignored = changedPaths(exec.CommandContext(ctx, "git", "diff", "--name-only", "-z", local))
 		}
 		r.Warnings = append(r.Warnings, fmt.Sprintf(
 			"GitHub didn't give pull request #%s's diff (%s), so Bark reviews the local diff of its commits instead",

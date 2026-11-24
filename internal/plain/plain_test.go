@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -962,6 +963,72 @@ func TestRunReviewDryRunMakesNoCall(t *testing.T) {
 	assert.Contains(t, stdout, "+b", "the diff is in the prompt")
 	assert.Contains(t, stderr, "no model call made")
 	assert.NotContains(t, stderr, "debug log")
+}
+
+// A change to only files Bark ignores (say, a release that only edits
+// CHANGELOG.md) has nothing to review, which isn't an error: the review
+// says so and succeeds. With no change at all it still fails.
+func TestRunReviewIgnoredOnlyChange(t *testing.T) {
+	isolateProvider(t)
+	gitRun := func(args ...string) {
+		out, err := exec.Command("git", args...).CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, out)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	gitRun("init", "-b", "main")
+	gitRun("config", "user.name", "Test")
+	gitRun("config", "user.email", "test@example.com")
+	require.NoError(t, os.WriteFile(".barkignore", []byte("CHANGELOG.md\n"), 0o644))
+	gitRun("add", ".barkignore")
+	gitRun("commit", "-m", "init")
+	cfg := config.New("", config.Data{})
+
+	err := RunReview(ReviewOptions{Config: cfg, SkipInstruction: true})
+	assert.ErrorContains(t, err, "no uncommitted changes to review", "nothing changed")
+
+	require.NoError(t, os.WriteFile("CHANGELOG.md", []byte("# 1.0\n"), 0o644))
+	var stderr string
+	stdout := capture(t, &os.Stdout, func() {
+		stderr = captureStderr(t, func() {
+			err = RunReview(ReviewOptions{Config: cfg, SkipInstruction: true})
+		})
+	})
+	require.NoError(t, err)
+	assert.Empty(t, stdout)
+	assert.Equal(t, "bark: the uncommitted changes touch only files Bark ignores (CHANGELOG.md), so there's nothing to review\n", stderr)
+
+	gitRun("add", "CHANGELOG.md")
+	gitRun("commit", "-m", "release")
+	stderr = captureStderr(t, func() {
+		err = RunReview(ReviewOptions{Config: cfg, SkipInstruction: true, Hash: "HEAD"})
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "bark: commit HEAD changes only files Bark ignores (CHANGELOG.md), so there's nothing to review\n", stderr)
+}
+
+func TestIgnoredOnlyNote(t *testing.T) {
+	files := []string{"CHANGELOG.md"}
+	tests := []struct {
+		name string
+		opts ReviewOptions
+		r    git.ReviewDiff
+		want string
+	}{
+		{name: "pull request", opts: ReviewOptions{PR: "179"}, r: git.ReviewDiff{Ignored: files},
+			want: "pull request #179 changes only files Bark ignores (CHANGELOG.md)"},
+		{name: "branch", opts: ReviewOptions{Branch: "main"}, r: git.ReviewDiff{Ignored: files},
+			want: "the commits since main change only files Bark ignores (CHANGELOG.md)"},
+		{name: "staged", opts: ReviewOptions{Staged: true}, r: git.ReviewDiff{Ignored: files},
+			want: "the staged changes touch only files Bark ignores (CHANGELOG.md)"},
+		{name: "many files", opts: ReviewOptions{Hash: "abc123"}, r: git.ReviewDiff{Ignored: []string{"a.lock", "b.lock", "c.lock", "d.lock", "e.lock"}},
+			want: "commit abc123 changes only files Bark ignores (a.lock, b.lock, c.lock and 2 more)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, "bark: "+tt.want+", so there's nothing to review", ignoredOnlyNote(tt.opts, tt.r))
+		})
+	}
 }
 
 // An empty diff says why for its source, so a branch diff with only

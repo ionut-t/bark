@@ -290,7 +290,8 @@ func TestFilterDiffMatchesWholePaths(t *testing.T) {
 		"+lock",
 	}, "\n")
 
-	got := filterDiff(diff, rules)
+	got, ignored := filterDiff(diff, rules)
+	assert.Equal(t, []string{"pkg/vendor/x.go", "go.sum"}, ignored)
 	assert.Contains(t, got, "+main")
 	assert.Contains(t, got, "+lock")
 	assert.NotContains(t, got, "+vendored")

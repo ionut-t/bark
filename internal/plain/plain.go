@@ -168,6 +168,12 @@ func RunReview(opts ReviewOptions) error {
 			fmt.Println(nothingToReview(reviewDiff))
 			return nil
 		}
+		if reviewDiff.Diff == "" && len(reviewDiff.Ignored) > 0 {
+			// Nothing to review isn't a failure: CI shouldn't fail a
+			// release that only edits CHANGELOG.md.
+			fmt.Fprintln(os.Stderr, ignoredOnlyNote(opts, reviewDiff))
+			return nil
+		}
 	} else {
 		reviewDiff.Diff = *opts.Diff
 	}
@@ -960,6 +966,30 @@ func emptyDiffError(opts ReviewOptions, r git.ReviewDiff) error {
 	default:
 		return fmt.Errorf("nothing to review: no uncommitted changes to review (%s); use --branch <base> to review this branch's commits, or --hash for one commit", ignoredNote)
 	}
+}
+
+// ignoredOnlyNote says that r, the diff of opts' source, is empty because
+// every file it changes is one Bark ignores.
+func ignoredOnlyNote(opts ReviewOptions, r git.ReviewDiff) string {
+	var what string
+	switch {
+	case opts.PR != "":
+		what = fmt.Sprintf("pull request #%s changes", opts.PR)
+	case opts.Branch != "":
+		what = fmt.Sprintf("the commits since %s change", opts.Branch)
+	case opts.Hash != "":
+		what = fmt.Sprintf("commit %s changes", opts.Hash)
+	case opts.Staged:
+		what = "the staged changes touch"
+	default:
+		what = "the uncommitted changes touch"
+	}
+	const shown = 3
+	files := strings.Join(r.Ignored[:min(shown, len(r.Ignored))], ", ")
+	if len(r.Ignored) > shown {
+		files += fmt.Sprintf(" and %d more", len(r.Ignored)-shown)
+	}
+	return fmt.Sprintf("bark: %s only files Bark ignores (%s), so there's nothing to review", what, files)
 }
 
 // nothingToReview is the output of a review with nothing to review: no
