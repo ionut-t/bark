@@ -52,6 +52,12 @@ To select a commit to review from a list of recent commits, use the `--commit` o
 bark review --commit
 ```
 
+To review a diff from another command, pipe it in. Bark reads stdin only when no flag names what to review (`--changes`, `--staged`, `--branch`, `--hash`, `--commit` or `--pr`; for `bark pr`, `--branch` or `--pr`; for `bark commit`, `--all`), and waits until the pipe closes. If nothing has arrived after a few seconds it says so on stderr. When running Bark from a script, agent or task runner that leaves stdin open, pass one of those flags or `</dev/null`:
+
+```bash
+gh pr diff 12 | bark review --as linus
+```
+
 To use a specific reviewer, use the `--as` flag:
 
 ```bash

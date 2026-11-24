@@ -133,3 +133,58 @@ func TestOverrideTimeout(t *testing.T) {
 	require.NoError(t, overrideTimeout(cmd, cfg))
 	assert.Equal(t, 90*time.Second, cfg.GetLLMTimeout(time.Minute))
 }
+
+func TestReadPiped(t *testing.T) {
+	const hintAfter = 50 * time.Millisecond
+	tests := []struct {
+		name string
+		// write feeds the pipe and closes it.
+		write    func(w io.WriteCloser)
+		wantHint bool
+	}{
+		{
+			name:  "a diff that is there at once",
+			write: func(w io.WriteCloser) { _, _ = io.WriteString(w, "diff"); _ = w.Close() },
+		},
+		{
+			name: "a diff that starts at once and ends later",
+			write: func(w io.WriteCloser) {
+				_, _ = io.WriteString(w, "di")
+				time.Sleep(4 * hintAfter)
+				_, _ = io.WriteString(w, "ff")
+				_ = w.Close()
+			},
+		},
+		{
+			name:     "a diff that starts late",
+			write:    func(w io.WriteCloser) { time.Sleep(4 * hintAfter); _, _ = io.WriteString(w, "diff"); _ = w.Close() },
+			wantHint: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r, w := io.Pipe()
+			go tt.write(w)
+			var hint syncBuffer
+
+			got, err := readPiped(r, &hint, hintAfter)
+
+			require.NoError(t, err)
+			assert.Equal(t, "diff", got)
+			if tt.wantHint {
+				assert.Equal(t, stdinHint+"\n", string(hint.Bytes()))
+			} else {
+				assert.Empty(t, hint.Bytes())
+			}
+		})
+	}
+}
+
+func TestReadPiped_Empty(t *testing.T) {
+	var hint syncBuffer
+	got, err := readPiped(strings.NewReader(""), &hint, time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	assert.Empty(t, hint.Bytes())
+}

@@ -51,7 +51,7 @@ func runCommitCmd(cmd *cobra.Command, cfg config.Config) error {
 	warnRepoLLM(os.Stderr, cfg)
 
 	// Read stdin if piped
-	stdinDiff, err := readStdinIfPiped()
+	stdinDiff, err := readStdinIfPiped(all)
 	if err != nil {
 		return err
 	}

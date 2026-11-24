@@ -112,7 +112,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		return fmt.Errorf("--full requires --pr")
 	}
 
-	stdinDiff, err := readStdinIfPiped()
+	stdinDiff, err := readStdinIfPiped(changes || commit || branch != "" || staged || hash != "" || pr != "")
 	if err != nil {
 		return err
 	}
