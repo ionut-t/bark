@@ -229,6 +229,24 @@ func New(options Options) *Model {
 	return m
 }
 
+// sizeLists fits every built list to the window, not only the one on screen,
+// so a list you go back to doesn't keep the size it had before a resize.
+// Lists not built yet are zero values and get sized when they are built.
+func (m *Model) sizeLists() {
+	for _, l := range []*list.Model{
+		&m.tasks.list,
+		&m.reviewOptions.list,
+		&m.prDescriptionOptions.list,
+		&m.commits.list,
+		&m.reviewers.list,
+		&m.instructions.list,
+	} {
+		if len(l.Items()) > 0 {
+			sizeList(l, m.width, m.height)
+		}
+	}
+}
+
 // llmTimeout is how long one model call may take (llm_timeout).
 func (m *Model) llmTimeout() time.Duration {
 	if m.config == nil {
@@ -349,13 +367,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.SetWidth(max(msg.Width-2, 10))
 		m.viewport.SetHeight(max(msg.Height-10, 5))
 
+		m.sizeLists()
+
 		switch m.currentView {
-		case viewCommits:
-			m.commits.setSize(m.width, m.height)
-		case viewReviewers:
-			m.reviewers.setSize(m.width, m.height)
-		case viewInstructions:
-			m.instructions.setSize(m.width, m.height)
 		case viewReview:
 			m.review.setSize(m.width, m.height)
 		case viewCommitChanges:
@@ -404,11 +418,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.error = msg.reviewersErr
 		}
 		m.reviewers = newReviewersModel(listReviewers, m.styles, m.isDarkMode)
+		m.reviewers.setSize(m.width, m.height)
 
 		if m.reviewerName != "" {
 			if reviewer, err := reviewers.Find(m.reviewerName, listReviewers); err == nil {
 				m.selectedReviewer = reviewer
-				m.reviewers = newReviewersModel(listReviewers, m.styles, m.isDarkMode)
 				return m, utils.DispatchMsg(reviewerSelectedMsg{Reviewer: reviewer})
 			}
 		}
@@ -421,7 +435,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.currentView = viewReviewers
-		m.reviewers = newReviewersModel(listReviewers, m.styles, m.isDarkMode)
 
 	case reviewerSelectedMsg:
 		return m.handleSelectedReviewer(msg.Reviewer)
@@ -455,6 +468,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.instructions = newInstructionsModel(listInstructions, m.styles, m.isDarkMode)
+		m.instructions.setSize(m.width, m.height)
 		m.currentView = viewInstructions
 
 	case instructionSelectedMsg:

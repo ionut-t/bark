@@ -3,7 +3,6 @@ package tui
 import (
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/ionut-t/bark/v2/internal/git"
 	"github.com/ionut-t/coffee/styles"
 	"github.com/stretchr/testify/assert"
@@ -37,7 +36,8 @@ func TestCommitsModel(t *testing.T) {
 	_, cmd = m.Update(keyEsc)
 	assert.Equal(t, cancelCommitSelectionMsg{}, runCmd(t, cmd))
 
-	m, _ = m.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+	m.setSize(60, 10)
 	assert.Equal(t, 60, m.list.Width())
+	assert.Equal(t, 6, m.list.Height(), "room is left for the header")
 	assert.Contains(t, m.View(), "Recent Commits")
 }

@@ -44,7 +44,7 @@ func (m *commitsModel) setStyles(s styles.Styles, isDark bool) {
 }
 
 func (m *commitsModel) setSize(width, height int) {
-	m.list.SetSize(width, height-4)
+	sizeList(&m.list, width, height)
 }
 
 func (m commitsModel) Init() tea.Cmd {
@@ -53,8 +53,6 @@ func (m commitsModel) Init() tea.Cmd {
 
 func (m commitsModel) Update(msg tea.Msg) (commitsModel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.list.SetSize(msg.Width, msg.Height)
 	case tea.KeyMsg:
 		if m.list.FilterState() == list.Filtering {
 			break
