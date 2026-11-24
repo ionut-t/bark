@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/list"
@@ -872,12 +873,14 @@ func (m *Model) handleSelectedReviewer(reviewer *reviewers.Reviewer) (tea.Model,
 
 func (m *Model) handleSelectedReviewOption(option ReviewOption) (tea.Model, tea.Cmd) {
 	m.selectedReviewOption = option
+	// Set from the option, not only turned on: after going back from the
+	// commit list, another option must not review commit "".
+	m.selectCommit = option == ReviewOptionCommit
 
 	switch m.selectedReviewOption {
 	case ReviewOptionCurrentChanges, ReviewOptionStagedChanges:
 		return m, utils.DispatchMsg(listReviewersMsg{})
 	case ReviewOptionCommit:
-		m.selectCommit = true
 		return m, utils.DispatchMsg(listCommitsMsg{})
 	case ReviewOptionBranch:
 		m.currentView = viewBranchInput
@@ -937,6 +940,13 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 		return m, nil
 	}
 
+	if msg.diff == "" {
+		m.message = m.styles.Info.Padding(2).Render(
+			m.nothingToReview(msg.reviewDiff) + "\n\nPress Esc to go back, or ctrl+c to exit.",
+		)
+		return m, nil
+	}
+
 	if msg.instruction != "" {
 		m.selectedInstruction = msg.instruction
 	}
@@ -989,6 +999,40 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	m.currentView = viewReview
 
 	return m, m.review.startReview(ctx)
+}
+
+// nothingToReview says why r, the diff of the review's source, is empty:
+// nothing changed, or only files Bark ignores did.
+func (m *Model) nothingToReview(r git.ReviewDiff) string {
+	var hash string
+	if m.selectedCommit != nil {
+		hash = m.selectedCommit.Hash[:min(7, len(m.selectedCommit.Hash))]
+	}
+
+	var change, nothing string
+	switch {
+	case m.prNumber != "":
+		change = fmt.Sprintf("pull request #%s changes", m.prNumber)
+		nothing = fmt.Sprintf("Pull request #%s has no changes to review.", m.prNumber)
+	case m.branch != "":
+		change = fmt.Sprintf("the commits since %s change", m.branch)
+		nothing = fmt.Sprintf("No changes since %s to review.", m.branch)
+	case m.selectCommit:
+		change = fmt.Sprintf("commit %s changes", hash)
+		nothing = fmt.Sprintf("Commit %s has no changes to review.", hash)
+	case m.stagedOnly:
+		change = "the staged changes touch"
+		nothing = "No staged changes to review."
+	default:
+		change = "the uncommitted changes touch"
+		nothing = "No uncommitted changes to review."
+	}
+
+	if len(r.Ignored) == 0 {
+		return nothing
+	}
+	note := r.IgnoredOnly(change)
+	return strings.ToUpper(note[:1]) + note[1:] + "."
 }
 
 func (m *Model) handleCommitMessage(commitAll bool) (tea.Model, tea.Cmd) {

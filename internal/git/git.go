@@ -866,6 +866,18 @@ type ReviewDiff struct {
 	prDiff string
 }
 
+// IgnoredOnly says that r's diff is empty because every file the change
+// touches is one Bark ignores (Ignored), naming the first few. change
+// names the change with its verb, e.g. "commit abc1234 changes".
+func (r ReviewDiff) IgnoredOnly(change string) string {
+	const shown = 3
+	files := strings.Join(r.Ignored[:min(shown, len(r.Ignored))], ", ")
+	if len(r.Ignored) > shown {
+		files += fmt.Sprintf(" and %d more", len(r.Ignored)-shown)
+	}
+	return fmt.Sprintf("%s only files Bark ignores (%s), so there's nothing to review", change, files)
+}
+
 // PRHead returns the pull request's head commit the diff was made at, or ""
 // if it isn't a pull request's diff or its metadata couldn't be read.
 func (r ReviewDiff) PRHead() string {

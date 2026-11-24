@@ -984,12 +984,7 @@ func ignoredOnlyNote(opts ReviewOptions, r git.ReviewDiff) string {
 	default:
 		what = "the uncommitted changes touch"
 	}
-	const shown = 3
-	files := strings.Join(r.Ignored[:min(shown, len(r.Ignored))], ", ")
-	if len(r.Ignored) > shown {
-		files += fmt.Sprintf(" and %d more", len(r.Ignored)-shown)
-	}
-	return fmt.Sprintf("bark: %s only files Bark ignores (%s), so there's nothing to review", what, files)
+	return "bark: " + r.IgnoredOnly(what)
 }
 
 // nothingToReview is the output of a review with nothing to review: no
