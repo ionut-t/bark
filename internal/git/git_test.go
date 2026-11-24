@@ -779,3 +779,77 @@ func TestGetReviewDiffListsIgnoredFiles(t *testing.T) {
 		assert.Empty(t, r.Ignored, "only listed when nothing is left to review")
 	})
 }
+
+// newUnbornRepo builds a repo with no commits yet and makes it the current
+// directory.
+func newUnbornRepo(t *testing.T) string {
+	t.Helper()
+
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+	t.Chdir(dir)
+	return dir
+}
+
+// A repo with no commits has no HEAD to diff against, but its uncommitted
+// changes are still worth a review.
+func TestGetReviewDiff_UnbornHead(t *testing.T) {
+	t.Run("working tree", func(t *testing.T) {
+		dir := newUnbornRepo(t)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.26\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc helper() {}\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "staged.go"), []byte("package main\n\nfunc main() { helper() }\n"), 0o644))
+		runGit(t, dir, "add", "staged.go")
+
+		r, err := GetReviewDiff(t.Context(), WorkingTreeDiff(false))
+		require.NoError(t, err)
+
+		assert.Contains(t, r.Diff, "diff --git a/main.go b/main.go")
+		assert.Contains(t, r.Diff, "+func helper() {}")
+		assert.Contains(t, r.Diff, "diff --git a/staged.go b/staged.go")
+		assert.Contains(t, r.Stat, "3 files changed")
+		assert.Contains(t, r.ContextHeader, "1.26")
+
+		files, err := r.Grep(t.Context(), "helper", "*.go")
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"main.go", "staged.go"}, files)
+	})
+
+	t.Run("staged", func(t *testing.T) {
+		dir := newUnbornRepo(t)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "staged.go"), []byte("package main\n"), 0o644))
+		runGit(t, dir, "add", "staged.go")
+
+		r, err := GetReviewDiff(t.Context(), WorkingTreeDiff(true))
+		require.NoError(t, err)
+
+		assert.Contains(t, r.Diff, "diff --git a/staged.go b/staged.go")
+		assert.NotContains(t, r.Diff, "main.go")
+		assert.Contains(t, r.Stat, "1 file changed")
+	})
+
+	t.Run("nothing changed", func(t *testing.T) {
+		newUnbornRepo(t)
+
+		r, err := GetReviewDiff(t.Context(), WorkingTreeDiff(false))
+		require.NoError(t, err)
+
+		assert.Empty(t, r.Diff)
+		assert.Empty(t, r.Ignored)
+	})
+
+	t.Run("only ignored files", func(t *testing.T) {
+		dir := newUnbornRepo(t)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "go.sum"), []byte("sum\n"), 0o644))
+
+		r, err := GetReviewDiff(t.Context(), WorkingTreeDiff(false))
+		require.NoError(t, err)
+
+		assert.Empty(t, r.Diff)
+		assert.Equal(t, []string{"go.sum"}, r.Ignored)
+	})
+}
