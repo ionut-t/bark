@@ -4,6 +4,7 @@
 package debuglog
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,8 +69,7 @@ func start(dir, kind string, meta Meta, now time.Time) (*Log, error) {
 		return nil, fmt.Errorf("creating log directory: %w", err)
 	}
 
-	path := filepath.Join(logDir, now.Format("2006-01-02T15-04-05.000")+"-"+kind+".log")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	file, err := create(filepath.Join(logDir, now.Format("2006-01-02T15-04-05.000")+"-"+kind))
 	if err != nil {
 		return nil, fmt.Errorf("creating log file: %w", err)
 	}
@@ -85,6 +85,24 @@ func start(dir, kind string, meta Meta, now time.Time) (*Log, error) {
 	l.section("response (raw)")
 
 	return l, nil
+}
+
+// maxSameName caps how many runs started in the same millisecond each get
+// their own log.
+const maxSameName = 100
+
+// create makes a new file at base+".log". If another run started in the same
+// millisecond already took that name, it tries base+"-2.log", base+"-3.log",
+// and so on, so neither run loses its log.
+func create(base string) (*os.File, error) {
+	path := base + ".log"
+	for n := 2; ; n++ {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if !errors.Is(err, os.ErrExist) || n > maxSameName {
+			return file, err
+		}
+		path = fmt.Sprintf("%s-%d.log", base, n)
+	}
 }
 
 // Path is the log file's path.
