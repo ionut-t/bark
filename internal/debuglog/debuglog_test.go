@@ -2,6 +2,7 @@ package debuglog
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,4 +137,27 @@ func TestLogMasksSecretsInPrompts(t *testing.T) {
 	assert.Contains(t, string(content), "rules [REDACTED:aws-access-key-id]\n")
 	assert.Contains(t, string(content), "+key = [REDACTED:aws-access-key-id]\n")
 	assert.Contains(t, string(content), redact.Note, "the note sent with the prompt")
+}
+
+func TestLogsStartedInTheSameMillisecondGetTheirOwnFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	now := time.Date(2026, 11, 8, 18, 48, 55, 169_000_000, time.UTC)
+	base := filepath.Join(dir, "logs", "2026-11-08T18-48-55.169-review")
+
+	var paths []string
+	for i := range 3 {
+		l, err := start(dir, "review", Meta{Prompt: fmt.Sprintf("PROMPT %d", i)}, now)
+		require.NoError(t, err)
+		l.Finish(nil)
+		paths = append(paths, l.Path())
+	}
+
+	assert.Equal(t, []string{base + ".log", base + "-2.log", base + "-3.log"}, paths)
+	for i, path := range paths {
+		content, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Contains(t, string(content), fmt.Sprintf("PROMPT %d\n", i))
+	}
 }
