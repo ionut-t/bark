@@ -92,8 +92,11 @@ func detectLanguage(filePath string) *grammars.LangEntry {
 	return entry
 }
 
-// Declarations parses the file source and returns the enclosing definitions for the modified lines.
-func Declarations(filePath string, source []byte, modifiedLines []int) ([]string, error) {
+// Declarations parses the file source and returns the enclosing definitions
+// for the modified lines. A definition whose every line is in added (1-based
+// line numbers of the diff's added lines) is left out: the diff already shows
+// it whole. A nil added leaves nothing out.
+func Declarations(filePath string, source []byte, modifiedLines []int, added map[int]bool) ([]string, error) {
 	if len(modifiedLines) == 0 {
 		return nil, nil
 	}
@@ -148,7 +151,7 @@ func Declarations(filePath string, source []byte, modifiedLines []int) ([]string
 		}
 
 		// If we found a structural node, extract its source
-		if structuralNode != nil {
+		if structuralNode != nil && !allAdded(structuralNode, added) {
 			start := structuralNode.StartByte()
 			end := structuralNode.EndByte()
 			if start < end && end <= uint32(len(source)) {
@@ -163,6 +166,24 @@ func Declarations(filePath string, source []byte, modifiedLines []int) ([]string
 	}
 
 	return snippets, nil
+}
+
+// allAdded reports whether every line of n is an added line.
+func allAdded(n *gotreesitter.Node, added map[int]bool) bool {
+	if len(added) == 0 {
+		return false
+	}
+	start, end := n.StartPoint(), n.EndPoint()
+	last := end.Row
+	if end.Column == 0 && last > start.Row {
+		last-- // n ends at a line break, so its last line is the one before
+	}
+	for row := start.Row; row <= last; row++ {
+		if !added[int(row)+1] {
+			return false
+		}
+	}
+	return true
 }
 
 // firstNonWhitespaceColumn returns the column index of the first non-whitespace character in the line.
@@ -313,6 +334,7 @@ func DeclarationsForDiff(ctx context.Context, diffText string, read func(ctx con
 	if len(modifiedMap) == 0 {
 		return "", nil
 	}
+	added := addedLines(diffText)
 
 	// Iterate in sorted order so the generated prompt section is deterministic.
 	files := make([]string, 0, len(modifiedMap))
@@ -331,7 +353,7 @@ func DeclarationsForDiff(ctx context.Context, diffText string, read func(ctx con
 			continue
 		}
 
-		snippets, err := Declarations(file, content, modifiedMap[file])
+		snippets, err := Declarations(file, content, modifiedMap[file], added[file])
 		if err != nil {
 			continue
 		}
