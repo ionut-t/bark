@@ -13,6 +13,7 @@ Bark is a command-line tool that uses AI to review code, generate commit message
 - **Custom instructions:** Provide custom instructions to the AI to tailor the review.
 - **Review commits, branches, or current changes:** Analyse code at any stage of development.
 - **Interactive TUI:** A user-friendly terminal interface for all tasks.
+- **MCP server:** Let agents such as Claude Code, Cursor or Zed run Bark's review and get its findings as JSON.
 
 ## Installation
 
@@ -256,6 +257,20 @@ To generate a pull request description for the current branch, run `bark pr`:
 ```bash
 bark pr
 ```
+
+### MCP Server
+
+`bark mcp` serves Bark's tools to agents over the Model Context Protocol (stdio). The agent's client starts it from the repository, for example in Claude Code:
+
+```bash
+claude mcp add bark -- bark mcp
+```
+
+Its tools:
+
+- `review`: Bark's review of a change, returned as JSON findings (file, lines, severity, suggestion), after Bark's check if it's on. It calls the model configured in Bark, so it costs the same as `bark review --structured`; it posts nothing. Findings the check doubts are kept, with the reason. Takes the same `source` and `ref` as `review_diff`, plus `reviewer`, `instructions` and `check`.
+- `review_diff` (no model call): the change as Bark's reviewer sees it, with files matched by `.barkignore` and `.gitignore` left out, plus commits, the diffstat, the enclosing declarations of changed lines and related code. `source` is `changes` (the default), `staged`, `branch`, `commit` or `pr`; `ref` names the base branch, commit or pull request.
+- `earlier_findings` (no model call): what Bark's earlier reviews of a pull request raised (needs `gh`).
 
 ## Configuration
 

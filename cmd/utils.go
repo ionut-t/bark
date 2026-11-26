@@ -33,7 +33,7 @@ func printError(w io.Writer, err error) {
 // their keys, it uses. Call it after applying --provider and --model.
 func warnRepoLLM(w io.Writer, cfg config.Config) {
 	if msg := cfg.RepoLLMWarning(); msg != "" {
-		_, _ = fmt.Fprintln(w, "bark: warning: "+msg)
+		_, _ = fmt.Fprintln(w, "bark: warning: "+msg+"; pass --provider/--model to choose")
 	}
 }
 
