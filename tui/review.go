@@ -183,7 +183,10 @@ type reviewModel struct {
 	structured bool
 	// houseRules describes the house rules for the BARK_DEBUG log.
 	houseRules string
-	renderer   *findings.Renderer
+	// enclosingCut lists the enclosing declarations the line cap left out,
+	// for the BARK_DEBUG log (see enclosing.Context.DroppedSummary).
+	enclosingCut string
+	renderer     *findings.Renderer
 	// secrets are the findings Bark made itself for secrets the diff adds
 	// (see redact.Findings). A structured review shows them first; the
 	// model is told not to report them.
@@ -592,6 +595,9 @@ func (m *reviewModel) startReview(ctx context.Context) tea.Cmd {
 	}
 	if m.houseRules != "" {
 		fields = append(fields, debuglog.Field{Key: "house_rules", Value: m.houseRules})
+	}
+	if m.enclosingCut != "" {
+		fields = append(fields, debuglog.Field{Key: "enclosing_cut", Value: m.enclosingCut})
 	}
 	m.debugLog, _ = debuglog.Start(m.logDir, "review", debuglog.Meta{
 		Fields:  fields,

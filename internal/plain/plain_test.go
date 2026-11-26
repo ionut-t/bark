@@ -871,7 +871,7 @@ func TestDryRun(t *testing.T) {
 	pricing := &prices.Pricing{Price: prices.Price{Rates: prices.Rates{Input: 1_000_000}}, Date: "2026-11-01"}
 
 	var out, log strings.Builder
-	dryRun(&out, &log, system, promptText, nil, true, pricing, "")
+	dryRun(&out, &log, system, promptText, nil, "", true, pricing, "")
 
 	assert.Equal(t, dryRunSystemHeading+"\nYou are a reviewer.\n\n"+dryRunPromptHeading+"\n**Code to review:**\n+token := \"[REDACTED:github-token]\"\n\n"+redact.Note+"\n", out.String(),
 		"the prompts are shown masked, as they would be sent")
@@ -888,15 +888,17 @@ func TestDryRun(t *testing.T) {
 		"priced at $1 a token, the cost is the token count")
 	assert.Contains(t, stderr, "the check's call aren't counted")
 	assert.NotContains(t, stderr, "warning: Bark reviewed only")
+	assert.NotContains(t, stderr, "over the 800-line cap")
 }
 
 func TestDryRunWithoutPricing(t *testing.T) {
 	var out, log strings.Builder
 	cut := &git.DiffCut{Files: 3, Kept: 1, Setting: "max_diff_tokens"}
-	dryRun(&out, &log, "system", "prompt", cut, false, nil, "no prices file; run bark prices to download one")
+	dryRun(&out, &log, "system", "prompt", cut, "2 enclosing declarations (130 lines) over the 800-line cap left out\n  b.go f: 100 lines, 3 changed\n  c.go g: 30 lines, 1 changed", false, nil, "no prices file; run bark prices to download one")
 
 	stderr := log.String()
 	assert.Contains(t, stderr, "bark: warning: "+cut.Summary())
+	assert.Contains(t, stderr, "bark: dry run: 2 enclosing declarations (130 lines) over the 800-line cap left out\n  b.go f: 100 lines, 3 changed\n  c.go g: 30 lines, 1 changed\n")
 	assert.Contains(t, stderr, "bark: dry run: no cost estimate: no prices file; run bark prices to download one")
 	assert.NotContains(t, stderr, "would cost")
 }

@@ -964,7 +964,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	if structured {
 		diff = prompt.NumberDiffLines(diff)
 	}
-	reviewPrompt := prompt.FormatReviewContent(msg.contextHeader, msg.stat, msg.commits, diff, msg.enclosingContext)
+	reviewPrompt := prompt.FormatReviewContent(msg.contextHeader, msg.stat, msg.commits, diff, msg.enclosingContext.Text)
 
 	ctx, cancel := context.WithTimeout(context.Background(), m.llmTimeout())
 
@@ -987,6 +987,7 @@ func (m *Model) handleReviewDiffLoaded(msg reviewDiffLoadedMsg) (tea.Model, tea.
 	m.review.minSeverity = findings.Severity(m.config.GetMinSeverity())
 	m.review.setLogInfo(m.paths.State, m.llmProvider)
 	m.review.houseRules = houserules.LogField(m.config.GetHouseRules(), msg.houseRules)
+	m.review.enclosingCut = msg.enclosingContext.DroppedSummary()
 	m.review.setPricing(m.pricing)
 	if structured && m.config.GetCheckFindings() {
 		m.review.setCheck(m.llmTimeout(), check.Review{

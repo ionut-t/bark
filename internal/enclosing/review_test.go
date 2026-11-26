@@ -96,8 +96,8 @@ func TestForReview(t *testing.T) {
 		require.NoError(t, err)
 		got, err := ForReview(t.Context(), r)
 		require.NoError(t, err)
-		assert.Contains(t, got, want)
-		assert.NotContains(t, got, "func other")
+		assert.Contains(t, got.Text, want)
+		assert.NotContains(t, got.Text, "func other")
 	})
 
 	t.Run("pull request whose head isn't checked out", func(t *testing.T) {
@@ -111,7 +111,7 @@ func TestForReview(t *testing.T) {
 		require.NoError(t, err)
 		got, err := ForReview(t.Context(), r)
 		require.NoError(t, err)
-		assert.Contains(t, got, want)
+		assert.Contains(t, got.Text, want)
 	})
 
 	t.Run("related code: a change that calls greet gets its definition", func(t *testing.T) {
@@ -124,15 +124,15 @@ func TestForReview(t *testing.T) {
 		require.NoError(t, err)
 		got, err := ForReview(t.Context(), r)
 		require.NoError(t, err)
-		assert.Contains(t, got, "## Related code")
-		assert.Contains(t, got, "### app.go:3-5 (definition of greet)\n\n3\tfunc greet() string {\n4\t\treturn \"hello, world\"\n5\t}\n")
+		assert.Contains(t, got.Text, "## Related code")
+		assert.Contains(t, got.Text, "### app.go:3-5 (definition of greet)\n\n3\tfunc greet() string {\n4\t\treturn \"hello, world\"\n5\t}\n")
 	})
 
 	t.Run("diff without a source", func(t *testing.T) {
 		newRepo(t)
 		got, err := ForReview(t.Context(), git.ReviewDiff{Diff: "diff --git a/app.go b/app.go\n--- a/app.go\n+++ b/app.go\n@@ -4 +4 @@\n-x\n+y\n"})
 		require.NoError(t, err)
-		assert.Empty(t, got)
+		assert.Empty(t, got.Text)
 	})
 }
 
@@ -159,8 +159,8 @@ func TestDeclarationsForDiffBudget(t *testing.T) {
 	got, err := DeclarationsForDiff(t.Context(), diff.String(), read)
 	require.NoError(t, err)
 
-	assert.Equal(t, maxEnclosingLines/100, strings.Count(got, "func f"))
-	assert.Contains(t, got, "func f0() {")
-	assert.Contains(t, got, "func f7() {")
-	assert.False(t, strings.Contains(got, "func f8() {"), "100-line declarations: 8 fit in 800 lines")
+	assert.Equal(t, maxEnclosingLines/100, strings.Count(got.Text, "func f"))
+	assert.Contains(t, got.Text, "func f0() {")
+	assert.Contains(t, got.Text, "func f7() {")
+	assert.False(t, strings.Contains(got.Text, "func f8() {"), "100-line declarations: 8 fit in 800 lines")
 }
