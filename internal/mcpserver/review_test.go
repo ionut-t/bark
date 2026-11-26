@@ -148,6 +148,8 @@ func TestReviewResult(t *testing.T) {
 			{Intro: "Hmm."},
 			{Finding: &findings.Finding{File: "a.go", Line: 3, EndLine: 4, Severity: findings.High, Category: "bug", Title: "Nil map", Body: "m is nil.", Original: "m[k] = v", Suggestion: "m = map[string]int{}\nm[k] = v"}},
 			{Finding: &findings.Finding{File: "b.go", Line: 9, Severity: findings.Low, Title: "Naming", Doubt: "It's a preference."}},
+			{Finding: &findings.Finding{File: "c.go", Line: 2, Severity: findings.Medium, Title: "Won't fix", Dismissed: "Close the file"}},
+			{Finding: &findings.Finding{File: "d.go", Line: 1, Severity: findings.High, Title: "Race", Unchecked: "the check timed out"}},
 			{Text: "stray line"},
 			{Verdict: "Fix the map."},
 		}}, nil
@@ -161,6 +163,8 @@ func TestReviewResult(t *testing.T) {
 	want := []ReviewFinding{
 		{File: "a.go", Line: 3, EndLine: 4, Severity: "high", Category: "bug", Title: "Nil map", Body: "m is nil.", Original: "m[k] = v", Suggestion: "m = map[string]int{}\nm[k] = v"},
 		{File: "b.go", Line: 9, Severity: "low", Title: "Naming", Doubt: "It's a preference."},
+		{File: "c.go", Line: 2, Severity: "medium", Title: "Won't fix", Dismissed: "Close the file"},
+		{File: "d.go", Line: 1, Severity: "high", Title: "Race", Unchecked: "the check timed out"},
 	}
 	if len(out.Findings) != len(want) {
 		t.Fatalf("findings = %+v", out.Findings)
@@ -195,6 +199,7 @@ func TestReviewErrors(t *testing.T) {
 		want      string
 	}{
 		{"bad source", nil, map[string]any{"source": "stash"}, nil, "", `unknown source "stash"`},
+		{"ref that is an option", nil, map[string]any{"source": "commit", "ref": "--output=/tmp/x"}, nil, "", `can't start with "-"`},
 		{"no reviewer, saved ones", []string{"Linus", "Yoda"}, nil, plain.ErrNoReviewer, "", "pass one of Linus, Yoda"},
 		{"no reviewer, none saved", nil, nil, plain.ErrNoReviewer, "", "add .bark/reviewer.md"},
 		{"failure keeps Bark's notes", nil, map[string]any{"reviewer": "Linus"}, errors.New("error during review: 429"), "bark: debug log: /tmp/x.log\n", "error during review: 429 (debug log: /tmp/x.log)"},
@@ -216,6 +221,81 @@ func TestReviewErrors(t *testing.T) {
 			}
 			if tt.err == nil && called {
 				t.Error("review ran despite bad arguments")
+			}
+		})
+	}
+}
+
+// fail_on is for CI: a review that reaches it still returns its findings.
+func TestReviewFailOnKeepsFindings(t *testing.T) {
+	cs := reviewServer(t, nil, func(_ context.Context, o plain.ReviewOptions) (plain.ReviewResult, error) {
+		_, _ = fmt.Fprintln(o.Log, "bark: failing: 1 finding(s) at or above high severity (fail_on high):")
+		f := findings.Finding{File: "a.go", Line: 3, Severity: findings.High, Title: "Nil map"}
+		return plain.ReviewResult{Events: []findings.Event{{Finding: &f}}},
+			&plain.FailOnError{Threshold: findings.High, Findings: []findings.Finding{f}}
+	})
+	out := reviewOutput(t, call(t, cs, "review", map[string]any{"reviewer": "Linus"}))
+	if len(out.Findings) != 1 || out.Findings[0].Title != "Nil map" {
+		t.Errorf("findings = %+v", out.Findings)
+	}
+	if !strings.Contains(strings.Join(out.Notes, "|"), "fail_on high") {
+		t.Errorf("notes = %q, want the fail_on note", out.Notes)
+	}
+}
+
+// A repository that picks the model spends the user's key on it: the agent
+// is told, as the CLI's user is.
+func TestReviewWarnsWhenTheRepositoryPicksTheModel(t *testing.T) {
+	model := "pricey-1"
+	cfg := config.New("", config.Data{LLMModel: "cheap-1"})
+	cfg.ApplyRepo("/repo", config.RepoData{LLMModel: &model})
+	if cfg.RepoLLMWarning() == "" {
+		t.Fatal("test config gives no warning")
+	}
+
+	for _, fails := range []bool{false, true} {
+		cs := connect(t, Options{Config: cfg, Review: func(context.Context, plain.ReviewOptions) (plain.ReviewResult, error) {
+			if fails {
+				return plain.ReviewResult{}, errors.New("error during review: 401")
+			}
+			return plain.ReviewResult{}, nil
+		}})
+		res := call(t, cs, "review", map[string]any{"reviewer": "Linus"})
+		var got string
+		if fails {
+			got = text(t, res)
+		} else {
+			got = strings.Join(reviewOutput(t, res).Notes, "|")
+		}
+		if !strings.Contains(got, `llm_model = "pricey-1"`) {
+			t.Errorf("fails %v: %q doesn't warn about the repository's model", fails, got)
+		}
+	}
+}
+
+// An empty diff's advice is in the tool's terms, not the CLI's flags.
+func TestReviewNothingToReviewAdvice(t *testing.T) {
+	tests := []struct {
+		name   string
+		args   map[string]any
+		advice string
+		want   string
+	}{
+		{"changes", nil, "use --branch <base> to review this branch's commits, or --hash for one commit", `source "branch"`},
+		{"staged", map[string]any{"source": "staged"}, "stage some with git add, or use --changes to review every uncommitted change", `source "changes"`},
+		{"branch", map[string]any{"source": "branch", "ref": "main"}, "use --changes or --staged to review them", `source "changes" or "staged"`},
+		{"no advice", map[string]any{"source": "commit", "ref": "abc"}, "", "commit abc changes no file"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason := "commit abc changes no file Bark reviews"
+			cs := reviewServer(t, nil, func(context.Context, plain.ReviewOptions) (plain.ReviewResult, error) {
+				return plain.ReviewResult{}, &plain.NothingToReviewError{Reason: reason, Advice: tt.advice}
+			})
+			res := call(t, cs, "review", tt.args)
+			got := text(t, res)
+			if !res.IsError || !strings.Contains(got, reason) || !strings.Contains(got, tt.want) || strings.Contains(got, "--") {
+				t.Errorf("error = %q, want the reason and %q, no flags", got, tt.want)
 			}
 		})
 	}

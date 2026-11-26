@@ -177,23 +177,9 @@ func Review(ctx context.Context, opts ReviewOptions) (ReviewResult, error) {
 		gitCtx, gitCancel := context.WithTimeout(ctx, gitTimeout)
 		defer gitCancel()
 
-		limit := git.LimitFrom(opts.Config)
-		var diffParams git.ReviewDiffParams
-		switch {
-		case opts.PR != "":
-			diffParams = git.PRDiff(opts.PR).WithLimit(limit)
-			if opts.WithPRDescription {
-				diffParams = diffParams.WithPRDescription()
-			}
-			if incremental && hist.Head != "" {
-				diffParams = diffParams.Since(hist.Head, hist.Base)
-			}
-		case opts.Branch != "":
-			diffParams = git.BranchDiff(opts.Branch).WithLimit(limit)
-		case opts.Hash != "":
-			diffParams = git.CommitDiff(opts.Hash).WithLimit(limit)
-		default:
-			diffParams = git.WorkingTreeDiff(opts.Staged).WithLimit(limit)
+		diffParams := DiffParams(opts).WithLimit(git.LimitFrom(opts.Config))
+		if opts.PR != "" && incremental && hist.Head != "" {
+			diffParams = diffParams.Since(hist.Head, hist.Base)
 		}
 
 		var err error
@@ -990,25 +976,69 @@ func postScope(r git.ReviewDiff, truncated bool) prreview.Scope {
 // file it changes is ignored.
 const ignoredNote = "files .barkignore or .gitignore leave out aren't reviewed"
 
+// DiffParams returns the diff that opts review: its pull request, branch,
+// commit or working tree, without a size limit.
+func DiffParams(opts ReviewOptions) git.ReviewDiffParams {
+	switch {
+	case opts.PR != "":
+		p := git.PRDiff(opts.PR)
+		if opts.WithPRDescription {
+			p = p.WithPRDescription()
+		}
+		return p
+	case opts.Branch != "":
+		return git.BranchDiff(opts.Branch)
+	case opts.Hash != "":
+		return git.CommitDiff(opts.Hash)
+	default:
+		return git.WorkingTreeDiff(opts.Staged)
+	}
+}
+
+// NothingToReviewError is returned by Review when its source's diff is
+// empty.
+type NothingToReviewError struct {
+	// Reason says why, with no advice.
+	Reason string
+	// Advice is what to review instead, in the CLI's flags; empty if
+	// nothing else is clearly what was meant.
+	Advice string
+}
+
+func (e *NothingToReviewError) Error() string {
+	if e.Advice == "" {
+		return "nothing to review: " + e.Reason
+	}
+	return "nothing to review: " + e.Reason + "; " + e.Advice
+}
+
 // emptyDiffError says why opts' source gave r an empty diff, and what to
 // review instead where that's clear.
 func emptyDiffError(opts ReviewOptions, r git.ReviewDiff) error {
 	switch {
 	case opts.Diff != nil:
-		return fmt.Errorf("nothing to review: the diff from stdin is empty")
+		return &NothingToReviewError{Reason: "the diff from stdin is empty"}
 	case opts.PR != "":
-		return fmt.Errorf("nothing to review: pull request #%s changes no file Bark reviews (%s)", opts.PR, ignoredNote)
+		return &NothingToReviewError{Reason: fmt.Sprintf("pull request #%s changes no file Bark reviews (%s)", opts.PR, ignoredNote)}
 	case opts.Branch != "" && len(r.Commits) == 0:
-		return fmt.Errorf("nothing to review: HEAD has no commits that %s doesn't have, and uncommitted changes aren't part of a branch diff; "+
-			"use --changes or --staged to review them", opts.Branch)
+		return &NothingToReviewError{
+			Reason: fmt.Sprintf("HEAD has no commits that %s doesn't have, and uncommitted changes aren't part of a branch diff", opts.Branch),
+			Advice: "use --changes or --staged to review them",
+		}
 	case opts.Branch != "":
-		return fmt.Errorf("nothing to review: the commits since %s change no file Bark reviews (%s)", opts.Branch, ignoredNote)
+		return &NothingToReviewError{Reason: fmt.Sprintf("the commits since %s change no file Bark reviews (%s)", opts.Branch, ignoredNote)}
 	case opts.Hash != "":
-		return fmt.Errorf("nothing to review: commit %s changes no file Bark reviews (%s)", opts.Hash, ignoredNote)
+		return &NothingToReviewError{Reason: fmt.Sprintf("commit %s changes no file Bark reviews (%s)", opts.Hash, ignoredNote)}
 	case opts.Staged:
-		return fmt.Errorf("nothing to review: no staged changes to review (%s); stage some with git add, or use --changes to review every uncommitted change", ignoredNote)
+		return &NothingToReviewError{
+			Reason: fmt.Sprintf("no staged changes to review (%s)", ignoredNote),
+			Advice: "stage some with git add, or use --changes to review every uncommitted change",
+		}
 	default:
-		return fmt.Errorf("nothing to review: no uncommitted changes to review (%s); use --branch <base> to review this branch's commits, or --hash for one commit", ignoredNote)
+		return &NothingToReviewError{
+			Reason: fmt.Sprintf("no uncommitted changes to review (%s)", ignoredNote),
+			Advice: "use --branch <base> to review this branch's commits, or --hash for one commit",
+		}
 	}
 }
 

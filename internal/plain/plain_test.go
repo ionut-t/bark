@@ -1055,10 +1055,33 @@ func TestEmptyDiffError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := emptyDiffError(tt.opts, tt.r)
-			require.Error(t, err)
+			var nothing *NothingToReviewError
+			require.ErrorAs(t, err, &nothing)
+			assert.NotContains(t, nothing.Reason, "--", "the reason has no CLI advice, so other callers can give their own")
 			for _, want := range tt.want {
 				assert.Contains(t, err.Error(), want)
 			}
+		})
+	}
+}
+
+// DiffParams is the one mapping from a review's source to its diff.
+func TestDiffParams(t *testing.T) {
+	tests := []struct {
+		name string
+		opts ReviewOptions
+		want git.ReviewDiffParams
+	}{
+		{"working tree", ReviewOptions{}, git.WorkingTreeDiff(false)},
+		{"staged", ReviewOptions{Staged: true}, git.WorkingTreeDiff(true)},
+		{"branch", ReviewOptions{Branch: "main"}, git.BranchDiff("main")},
+		{"commit", ReviewOptions{Hash: "abc"}, git.CommitDiff("abc")},
+		{"pull request", ReviewOptions{PR: "42"}, git.PRDiff("42")},
+		{"pull request with description", ReviewOptions{PR: "42", WithPRDescription: true}, git.PRDiff("42").WithPRDescription()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, DiffParams(tt.opts))
 		})
 	}
 }

@@ -56,13 +56,19 @@ type ReviewFinding struct {
 	// RaisedBefore is the point an earlier review of the pull request raised
 	// that this finding repeats.
 	RaisedBefore string `json:"raised_before,omitempty"`
+	// Dismissed is the point someone dismissed on the pull request that
+	// this finding repeats.
+	Dismissed string `json:"dismissed,omitempty"`
+	// Unchecked is why Bark's check didn't check the finding. Unlike the
+	// three above, it isn't set aside.
+	Unchecked string `json:"unchecked,omitempty"`
 	// Repaired means the model's line wasn't valid JSON and Bark fixed it;
 	// its fields may be cut short.
 	Repaired bool `json:"repaired,omitempty"`
 }
 
 func addReviewTool(server *mcp.Server, opts Options) {
-	desc := "Runs Bark's code review: one call to the model configured in Bark, plus Bark's check if it is on. It costs money and takes a minute or so. Returns the findings as JSON; findings Bark's check doubts or that repeat an earlier review of the pull request are kept, with doubt or raised_before saying why. Nothing is posted anywhere."
+	desc := "Runs Bark's code review: one call to the model configured in Bark, plus Bark's check if it is on. It costs money and takes a minute or so. Returns the findings as JSON; findings Bark's check doubts or that repeat a point an earlier review of the pull request raised or someone dismissed there are kept, set aside, with doubt, raised_before or dismissed saying why; unchecked says why the check didn't check one. Bark's fail_on setting doesn't apply. Nothing is posted anywhere."
 	if len(opts.Reviewers) > 0 {
 		desc += " Saved reviewers: " + strings.Join(opts.Reviewers, ", ") + "."
 	}
@@ -76,48 +82,51 @@ func addReviewTool(server *mcp.Server, opts Options) {
 }
 
 func (o Options) review(ctx context.Context, _ *mcp.CallToolRequest, in ReviewInput) (*mcp.CallToolResult, ReviewOutput, error) {
-	// The same checks as review_diff's.
-	if _, err := diffParams(DiffInput{Source: in.Source, Ref: in.Ref, WithPRDescription: in.WithPRDescription}); err != nil {
+	// The source the same way as review_diff's.
+	ropts, err := sourceOptions(DiffInput{Source: in.Source, Ref: in.Ref, WithPRDescription: in.WithPRDescription})
+	if err != nil {
 		return nil, ReviewOutput{}, err
 	}
 
-	ropts := plain.ReviewOptions{
-		ReviewerName:      in.Reviewer,
-		Instructions:      in.Instructions,
-		Paths:             o.Paths,
-		Config:            o.Config,
-		WithPRDescription: in.WithPRDescription,
-		Structured:        true,
-		Check:             in.Check,
-		// The review comes back as events; its Markdown isn't needed.
-		Out: io.Discard,
-	}
-	switch in.Source {
-	case sourceStaged:
-		ropts.Staged = true
-	case sourceBranch:
-		ropts.Branch = in.Ref
-	case sourceCommit:
-		ropts.Hash = in.Ref
-	case sourcePR:
-		ropts.PR = in.Ref
-	}
-
 	var log bytes.Buffer
+	ropts.ReviewerName = in.Reviewer
+	ropts.Instructions = in.Instructions
+	ropts.Paths = o.Paths
+	ropts.Config = o.Config
+	ropts.Structured = true
+	ropts.Check = in.Check
+	// The review comes back as events; its Markdown isn't needed.
+	ropts.Out = io.Discard
 	ropts.Log = &log
 
 	res, err := o.Review(ctx, ropts)
-	if errors.Is(err, plain.ErrNoReviewer) {
+	var failOn *plain.FailOnError
+	var nothing *plain.NothingToReviewError
+	switch {
+	case errors.As(err, &failOn):
+		// fail_on is for CI's exit status. The agent gets the findings,
+		// and Bark's notes say which reach it.
+		err = nil
+	case errors.Is(err, plain.ErrNoReviewer):
 		err = o.noReviewerError()
+	case errors.As(err, &nothing):
+		err = nothingToReviewError(nothing, in.Source)
+	}
+
+	ns := notes(log.String())
+	// The user's credentials pay for a model the repository picked: the
+	// agent is told, as the CLI's user is.
+	if w := o.Config.RepoLLMWarning(); w != "" {
+		ns = append([]string{"warning: " + w}, ns...)
 	}
 	if err != nil {
-		if notes := notes(log.String()); len(notes) > 0 {
-			err = fmt.Errorf("%w (%s)", err, strings.Join(notes, "; "))
+		if len(ns) > 0 {
+			err = fmt.Errorf("%w (%s)", err, strings.Join(ns, "; "))
 		}
 		return nil, ReviewOutput{}, err
 	}
 
-	out := ReviewOutput{Findings: []ReviewFinding{}, Checked: res.Checked, Notes: notes(log.String())}
+	out := ReviewOutput{Findings: []ReviewFinding{}, Checked: res.Checked, Notes: ns}
 	var text []string
 	for _, e := range res.Events {
 		switch {
@@ -142,6 +151,24 @@ func (o Options) noReviewerError() error {
 	return fmt.Errorf("reviewer is required: pass one of %s, or add .bark/reviewer.md to the repository", strings.Join(o.Reviewers, ", "))
 }
 
+// nothingToReviewError is e with its advice in the tool's terms instead of
+// the CLI's flags.
+func nothingToReviewError(e *plain.NothingToReviewError, source string) error {
+	if e.Advice == "" {
+		return e
+	}
+	var advice string
+	switch source {
+	case sourceStaged:
+		advice = `stage some with git add, or use source "changes" to review every uncommitted change`
+	case sourceBranch:
+		advice = `use source "changes" or "staged" to review them`
+	default:
+		advice = `use source "branch" with the base branch as ref to review this branch's commits, or source "commit" with a hash as ref for one commit`
+	}
+	return &plain.NothingToReviewError{Reason: e.Reason, Advice: advice}
+}
+
 func reviewFinding(f findings.Finding) ReviewFinding {
 	return ReviewFinding{
 		File:         f.File,
@@ -155,6 +182,8 @@ func reviewFinding(f findings.Finding) ReviewFinding {
 		Suggestion:   f.Suggestion,
 		Doubt:        f.Doubt,
 		RaisedBefore: f.RaisedBefore,
+		Dismissed:    f.Dismissed,
+		Unchecked:    f.Unchecked,
 		Repaired:     f.Repaired,
 	}
 }

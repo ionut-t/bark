@@ -206,6 +206,6 @@ func (c *config) RepoLLMWarning() string {
 	if len(theirs) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%s sets %s, so this run uses it instead of your config (%s) and your credentials for it; pass --provider/--model to choose",
+	return fmt.Sprintf("%s sets %s, so this run uses it instead of your config (%s) and your credentials for it",
 		c.repoPath, strings.Join(theirs, " and "), strings.Join(yours, ", "))
 }

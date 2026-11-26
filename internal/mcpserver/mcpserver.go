@@ -82,7 +82,7 @@ func New(opts Options) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "earlier_findings",
 		Title:       "Earlier findings on a pull request",
-		Description: "Returns the findings that Bark's earlier reviews posted on a GitHub pull request recorded, oldest first. Needs the gh CLI. No model call.",
+		Description: "Returns the findings that Bark's earlier reviews posted on a GitHub pull request recorded, oldest first, with what became of them: doubt (Bark's check doubted it), dismissed (someone dismissed it; don't raise it again), resolved (its thread was resolved, and by whom) and fixed (Bark's check found it fixed). Needs the gh CLI. No model call.",
 		Annotations: readOnly,
 	}, opts.earlierFindings)
 
@@ -117,11 +117,11 @@ type DiffInput struct {
 }
 
 func (o Options) reviewDiff(ctx context.Context, _ *mcp.CallToolRequest, in DiffInput) (*mcp.CallToolResult, any, error) {
-	params, err := diffParams(in)
+	source, err := sourceOptions(in)
 	if err != nil {
 		return nil, nil, err
 	}
-	params = params.WithLimit(o.Limit)
+	params := plain.DiffParams(source).WithLimit(o.Limit)
 
 	diffCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
@@ -151,15 +151,12 @@ func (o Options) reviewDiff(ctx context.Context, _ *mcp.CallToolRequest, in Diff
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
-func diffParams(in DiffInput) (git.ReviewDiffParams, error) {
-	needsRef := func() error {
-		if in.Ref == "" {
-			return fmt.Errorf("source %q needs ref", in.Source)
-		}
-		return nil
-	}
+// sourceOptions checks in's source and ref and returns them as the
+// review options that select the same diff; plain.DiffParams turns those
+// into the diff, for review_diff and review alike.
+func sourceOptions(in DiffInput) (plain.ReviewOptions, error) {
 	if in.WithPRDescription && in.Source != sourcePR {
-		return git.ReviewDiffParams{}, fmt.Errorf("with_pr_description needs source %q", sourcePR)
+		return plain.ReviewOptions{}, fmt.Errorf("with_pr_description needs source %q", sourcePR)
 	}
 
 	switch in.Source {
@@ -169,22 +166,39 @@ func diffParams(in DiffInput) (git.ReviewDiffParams, error) {
 			if in.Source == "" {
 				source = fmt.Sprintf("%q (the default)", sourceChanges)
 			}
-			return git.ReviewDiffParams{}, fmt.Errorf("source %s takes no ref; set source to branch, commit or pr", source)
+			return plain.ReviewOptions{}, fmt.Errorf("source %s takes no ref; set source to branch, commit or pr", source)
 		}
-		return git.WorkingTreeDiff(in.Source == sourceStaged), nil
-	case sourceBranch:
-		return git.BranchDiff(in.Ref), needsRef()
-	case sourceCommit:
-		return git.CommitDiff(in.Ref), needsRef()
-	case sourcePR:
-		p := git.PRDiff(in.Ref)
-		if in.WithPRDescription {
-			p = p.WithPRDescription()
-		}
-		return p, needsRef()
+		return plain.ReviewOptions{Staged: in.Source == sourceStaged}, nil
+	case sourceBranch, sourceCommit, sourcePR:
 	default:
-		return git.ReviewDiffParams{}, fmt.Errorf("unknown source %q: use changes, staged, branch, commit or pr", in.Source)
+		return plain.ReviewOptions{}, fmt.Errorf("unknown source %q: use changes, staged, branch, commit or pr", in.Source)
 	}
+
+	if in.Ref == "" {
+		return plain.ReviewOptions{}, fmt.Errorf("source %q needs ref", in.Source)
+	}
+	if err := notAnOption("ref", in.Ref); err != nil {
+		return plain.ReviewOptions{}, err
+	}
+	switch in.Source {
+	case sourceBranch:
+		return plain.ReviewOptions{Branch: in.Ref}, nil
+	case sourceCommit:
+		return plain.ReviewOptions{Hash: in.Ref}, nil
+	default:
+		return plain.ReviewOptions{PR: in.Ref, WithPRDescription: in.WithPRDescription}, nil
+	}
+}
+
+// notAnOption returns an error if value, an argument named name, starts
+// with "-". git and gh get it as an argument, and would take it as an
+// option: git show --output=<file> writes a file. A branch name can't start
+// with "-", nor can a hash, a pull request number or a URL.
+func notAnOption(name, value string) error {
+	if strings.HasPrefix(value, "-") {
+		return fmt.Errorf("%s %q can't start with \"-\"", name, value)
+	}
+	return nil
 }
 
 // EarlierInput is earlier_findings' arguments.
@@ -205,11 +219,25 @@ type EarlierFinding struct {
 	EndLine int    `json:"end_line,omitempty"`
 	Title   string `json:"title"`
 	Body    string `json:"body,omitempty"`
+	// Doubt is set when Bark's check doubted the point in the review that
+	// raised it.
+	Doubt string `json:"doubt,omitempty"`
+	// Dismissed says how someone dismissed the point on the pull request.
+	Dismissed string `json:"dismissed,omitempty"`
+	// Resolved says who resolved the point's thread: someone, or Bark once
+	// its check found the point fixed.
+	Resolved string `json:"resolved,omitempty"`
+	// Fixed means Bark's check found the point fixed; raising it again is
+	// a regression.
+	Fixed bool `json:"fixed,omitempty"`
 }
 
 func (o Options) earlierFindings(ctx context.Context, _ *mcp.CallToolRequest, in EarlierInput) (*mcp.CallToolResult, EarlierOutput, error) {
 	if in.PR == "" {
 		return nil, EarlierOutput{}, fmt.Errorf("pr is required")
+	}
+	if err := notAnOption("pr", in.PR); err != nil {
+		return nil, EarlierOutput{}, err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -222,7 +250,10 @@ func (o Options) earlierFindings(ctx context.Context, _ *mcp.CallToolRequest, in
 	// An empty list, not null, so the output matches its schema.
 	out := EarlierOutput{Findings: make([]EarlierFinding, 0, len(prior))}
 	for _, f := range prior {
-		out.Findings = append(out.Findings, EarlierFinding{File: f.File, Line: f.Line, EndLine: f.EndLine, Title: f.Title, Body: f.Body})
+		out.Findings = append(out.Findings, EarlierFinding{
+			File: f.File, Line: f.Line, EndLine: f.EndLine, Title: f.Title, Body: f.Body,
+			Doubt: f.Doubt, Dismissed: f.Dismissed, Resolved: f.Resolved, Fixed: f.Fixed,
+		})
 	}
 	return nil, out, nil
 }

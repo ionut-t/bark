@@ -121,7 +121,8 @@ type Config interface {
 	// never save the repository's values.
 	ApplyRepo(path string, repo RepoData)
 	// RepoLLMWarning says which provider and model this run takes from the
-	// repository's config instead of the user's own; "" if none.
+	// repository's config instead of the user's own; "" if none. It gives
+	// no advice, which depends on the caller's flags.
 	RepoLLMWarning() string
 }
 

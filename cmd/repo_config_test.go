@@ -72,6 +72,7 @@ func TestWarnRepoLLM(t *testing.T) {
 	warnRepoLLM(&out, cfg)
 	assert.Contains(t, out.String(), "bark: warning: ")
 	assert.Contains(t, out.String(), `llm_model = "claude-opus-5-5"`)
+	assert.Contains(t, out.String(), "pass --provider/--model to choose")
 
 	cfg.OverrideModel("gemini-3.6-flash")
 	require.NoError(t, cfg.OverrideProvider("gemini"))

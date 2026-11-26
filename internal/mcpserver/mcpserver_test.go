@@ -206,11 +206,19 @@ func TestReviewDiffErrors(t *testing.T) {
 		{"ref without source", map[string]any{"ref": "main"}, "+x\n", `source "changes" (the default) takes no ref`},
 		{"description without pr", map[string]any{"with_pr_description": true}, "+x\n", `with_pr_description needs source "pr"`},
 		{"empty diff", nil, "", "no changes to review"},
+		// git or gh would take these as options: git show --output=<file>
+		// writes a file.
+		{"commit ref that is an option", map[string]any{"source": "commit", "ref": "--output=/tmp/x"}, "+x\n", `ref "--output=/tmp/x" can't start with "-"`},
+		{"branch ref that is an option", map[string]any{"source": "branch", "ref": "-o"}, "+x\n", `can't start with "-"`},
+		{"pr ref that is an option", map[string]any{"source": "pr", "ref": "--repo=x/y"}, "+x\n", `can't start with "-"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cs := connect(t, Options{
 				ReviewDiff: func(context.Context, git.ReviewDiffParams) (git.ReviewDiff, error) {
+					if strings.Contains(tt.name, "that is an option") {
+						t.Error("diffed despite a ref that is an option")
+					}
 					return git.ReviewDiff{Diff: tt.diff}, nil
 				},
 				Context: func(context.Context, git.ReviewDiff) (string, error) { return "", nil },
@@ -231,7 +239,13 @@ func TestEarlierFindings(t *testing.T) {
 	cs := connect(t, Options{
 		Earlier: func(_ context.Context, pr string) ([]findings.Finding, error) {
 			gotPR = pr
-			return []findings.Finding{{File: "a.go", Line: 3, Severity: findings.High, Title: "nil map write"}}, nil
+			return []findings.Finding{
+				{File: "a.go", Line: 3, Severity: findings.High, Title: "nil map write"},
+				{File: "b.go", Line: 5, Title: "doubted", Doubt: findings.DoubtedEarlier},
+				{File: "c.go", Line: 7, Title: "won't fix", Dismissed: "a 👎 from a maintainer"},
+				{File: "d.go", Line: 9, Title: "fixed", Resolved: "resolved by Bark: fixed", Fixed: true},
+				{File: "e.go", Line: 11, Title: "resolved", Resolved: "resolved by a maintainer"},
+			}, nil
 		},
 	})
 
@@ -248,7 +262,13 @@ func TestEarlierFindings(t *testing.T) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatal(err)
 	}
-	want := []EarlierFinding{{File: "a.go", Line: 3, Title: "nil map write"}}
+	want := []EarlierFinding{
+		{File: "a.go", Line: 3, Title: "nil map write"},
+		{File: "b.go", Line: 5, Title: "doubted", Doubt: findings.DoubtedEarlier},
+		{File: "c.go", Line: 7, Title: "won't fix", Dismissed: "a 👎 from a maintainer"},
+		{File: "d.go", Line: 9, Title: "fixed", Resolved: "resolved by Bark: fixed", Fixed: true},
+		{File: "e.go", Line: 11, Title: "resolved", Resolved: "resolved by a maintainer"},
+	}
 	if !reflect.DeepEqual(out.Findings, want) {
 		t.Errorf("findings = %+v, want %+v", out.Findings, want)
 	}
@@ -290,5 +310,18 @@ func TestEarlierFindingsErrors(t *testing.T) {
 	res := call(t, cs, "earlier_findings", map[string]any{"pr": "42"})
 	if !res.IsError || !strings.Contains(text(t, res), "not logged in") {
 		t.Errorf("want the gh error as a tool error, got %+v", res)
+	}
+}
+
+func TestEarlierFindingsPRThatIsAnOption(t *testing.T) {
+	cs := connect(t, Options{
+		Earlier: func(context.Context, string) ([]findings.Finding, error) {
+			t.Error("Earlier called with an option for a pull request")
+			return nil, nil
+		},
+	})
+	res := call(t, cs, "earlier_findings", map[string]any{"pr": "--repo=x/y"})
+	if !res.IsError || !strings.Contains(text(t, res), `can't start with "-"`) {
+		t.Errorf("want a tool error, got %+v", res)
 	}
 }

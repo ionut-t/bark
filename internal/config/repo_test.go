@@ -229,10 +229,11 @@ func TestRepoLLMWarning(t *testing.T) {
 			repo:  RepoData{LLMProvider: new("gemini"), LLMModel: new("gemini-2.5-pro")},
 		},
 		{
-			name:  "provider and model",
-			saved: saved,
-			repo:  RepoData{LLMProvider: new("anthropic"), LLMModel: new("claude-opus-5-5")},
-			want:  []string{path, `llm_provider = "anthropic"`, `llm_model = "claude-opus-5-5"`, `"gemini"`, `"gemini-2.5-pro"`, "--provider", "--model"},
+			name:    "provider and model",
+			saved:   saved,
+			repo:    RepoData{LLMProvider: new("anthropic"), LLMModel: new("claude-opus-5-5")},
+			want:    []string{path, `llm_provider = "anthropic"`, `llm_model = "claude-opus-5-5"`, `"gemini"`, `"gemini-2.5-pro"`},
+			notWant: []string{"--provider", "--model"},
 		},
 		{
 			name:    "model only",
