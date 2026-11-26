@@ -222,7 +222,7 @@ func RunReview(opts ReviewOptions) error {
 		system = prompt.FormatStructuredReviewSystem(reviewer.Prompt, reviewInstructions, rules.Text)
 	}
 
-	var enclosingContext string
+	var enclosingContext enclosing.Context
 	if opts.Config.GetContextEnrichment() {
 		enclosingCtx, enclosingCancel := context.WithTimeout(context.Background(), gitTimeout)
 		var err error
@@ -230,7 +230,7 @@ func RunReview(opts ReviewOptions) error {
 		enclosingCancel()
 		if err != nil {
 			// Gracefully continue without enclosing context if extraction fails
-			enclosingContext = ""
+			enclosingContext = enclosing.Context{}
 		}
 	}
 
@@ -242,11 +242,12 @@ func RunReview(opts ReviewOptions) error {
 		diff = prompt.NumberDiffLines(diff)
 		secrets = secretFindings(reviewDiff.Diff, hist.Findings)
 	}
-	promptText := prompt.FormatReviewContent(reviewDiff.ContextHeader, reviewDiff.Stat, reviewDiff.Commits, diff, enclosingContext)
+	promptText := prompt.FormatReviewContent(reviewDiff.ContextHeader, reviewDiff.Stat, reviewDiff.Commits, diff, enclosingContext.Text)
+	dropped := enclosingContext.DroppedSummary()
 
 	if opts.DryRun {
 		pricing, why := dryRunPricing(opts.Config, opts.Paths.Cache)
-		dryRun(os.Stdout, os.Stderr, system, promptText, reviewDiff.Cut, checking, pricing, why)
+		dryRun(os.Stdout, os.Stderr, system, promptText, reviewDiff.Cut, dropped, checking, pricing, why)
 		return nil
 	}
 
@@ -263,14 +264,18 @@ func RunReview(opts ReviewOptions) error {
 	client, meter := meterCalls(client, opts.Paths.Cache, provider, model)
 	defer printCost(meter)
 
+	logFields := []debuglog.Field{
+		{Key: "provider", Value: provider},
+		{Key: "model", Value: model},
+		{Key: "reviewer", Value: reviewer.Name},
+		{Key: "structured", Value: strconv.FormatBool(structured)},
+		{Key: "house_rules", Value: houserules.LogField(opts.Config.GetHouseRules(), rules)},
+	}
+	if dropped != "" {
+		logFields = append(logFields, debuglog.Field{Key: "enclosing_cut", Value: dropped})
+	}
 	debugLog, err := debuglog.Start(opts.Paths.State, "review", debuglog.Meta{
-		Fields: []debuglog.Field{
-			{Key: "provider", Value: provider},
-			{Key: "model", Value: model},
-			{Key: "reviewer", Value: reviewer.Name},
-			{Key: "structured", Value: strconv.FormatBool(structured)},
-			{Key: "house_rules", Value: houserules.LogField(opts.Config.GetHouseRules(), rules)},
-		},
+		Fields:  logFields,
 		System:  system,
 		Prompt:  promptText,
 		Pricing: meter.Pricing(),
@@ -1093,11 +1098,16 @@ const (
 // masked as they would be sent, and to log (stderr) what they would cost:
 // their size in tokens and, with pricing, the price of that input. why says
 // why there's no pricing. Output, thinking and the check's call can't be
-// known before the review runs, so they aren't counted.
-func dryRun(out, log io.Writer, system, promptText string, cut *git.DiffCut, checking bool, pricing *prices.Pricing, why string) {
+// known before the review runs, so they aren't counted. dropped, if not
+// empty, lists the enclosing declarations the line cap left out (see
+// enclosing.Context.DroppedSummary).
+func dryRun(out, log io.Writer, system, promptText string, cut *git.DiffCut, dropped string, checking bool, pricing *prices.Pricing, why string) {
 	system, promptText = redact.Wrap(nil, log).Mask(system, promptText)
 	if cut != nil {
 		_, _ = fmt.Fprintf(log, "bark: warning: %s\n", cut.Summary())
+	}
+	if dropped != "" {
+		_, _ = fmt.Fprintf(log, "bark: dry run: %s\n", dropped)
 	}
 
 	_, _ = fmt.Fprintf(out, "%s\n%s\n\n%s\n%s\n", dryRunSystemHeading, strings.TrimRight(system, "\n"),

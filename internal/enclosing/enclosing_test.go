@@ -2,7 +2,10 @@ package enclosing
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -415,8 +418,8 @@ func TestDeclarationsForDiff_SkipsWhollyAddedDeclarations(t *testing.T) {
 	got, err := DeclarationsForDiff(t.Context(), diff, read)
 	require.NoError(t, err)
 
-	assert.Contains(t, got, "func old() int {")
-	assert.NotContains(t, got, "func added() int {")
+	assert.Contains(t, got.Text, "func old() int {")
+	assert.NotContains(t, got.Text, "func added() int {")
 }
 
 func TestDeclarationsForDiff_OnlyWhollyAddedDeclarations(t *testing.T) {
@@ -427,5 +430,84 @@ func TestDeclarationsForDiff_OnlyWhollyAddedDeclarations(t *testing.T) {
 
 	got, err := DeclarationsForDiff(t.Context(), diff, read)
 	require.NoError(t, err)
-	assert.Empty(t, got, "no section header without a declaration to show")
+	assert.Empty(t, got.Text, "no section header without a declaration to show")
+}
+
+// The dry run and BARK_DEBUG report what the line cap leaves out (C4), so
+// it can be measured: each dropped declaration's file, name, size and how
+// many of the diff's changed lines it holds.
+func TestDeclarationsForDiff_ReportsDroppedDeclarations(t *testing.T) {
+	// a.go: nine 100-line functions with one changed line each; eight fill
+	// the 800-line cap.
+	var a, diff strings.Builder
+	a.WriteString("package app\n")
+	diff.WriteString("diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n")
+	line := 2
+	for i := range 9 {
+		fmt.Fprintf(&a, "\nfunc f%d() {\n", i)
+		line += 2
+		fmt.Fprintf(&diff, "@@ -%d,0 +%d @@\n+\t_ = 0\n", line, line)
+		for range 98 {
+			a.WriteString("\t_ = 0\n")
+			line++
+		}
+		a.WriteString("}\n")
+		line++
+	}
+	b := "package app\n" + //            1
+		"\n" + //                        2
+		"type Config struct {\n" + //    3
+		"\tName string\n" + //           4 changed
+		"\tPort int\n" + //              5 changed
+		"}\n" + //                       6
+		"\n" + //                        7
+		"func (s *Server) Handle() {\n" + // 8
+		"\ts.n++\n" + //                 9 changed
+		"}\n" //                         10
+	diff.WriteString("diff --git a/b.go b/b.go\n--- a/b.go\n+++ b/b.go\n" +
+		"@@ -4,2 +4,2 @@\n-\tName int\n-\tPort string\n+\tName string\n+\tPort int\n" +
+		"@@ -9 +9 @@\n-\ts.n--\n+\ts.n++\n")
+	files := map[string]string{"a.go": a.String(), "b.go": b}
+	read := func(_ context.Context, path string) ([]byte, error) { return []byte(files[path]), nil }
+
+	got, err := DeclarationsForDiff(t.Context(), diff.String(), read)
+	require.NoError(t, err)
+
+	assert.Contains(t, got.Text, "func f7() {")
+	assert.NotContains(t, got.Text, "func f8() {")
+	assert.NotContains(t, got.Text, "### File: b.go")
+	assert.Equal(t, []Dropped{
+		{File: "a.go", Name: "f8", Lines: 100, Changed: 1},
+		{File: "b.go", Name: "Config", Lines: 4, Changed: 2},
+		{File: "b.go", Name: "(*Server).Handle", Lines: 3, Changed: 1},
+	}, got.Dropped)
+	assert.Equal(t, "3 enclosing declarations (107 lines) over the 800-line cap left out\n"+
+		"  a.go f8: 100 lines, 1 changed\n"+
+		"  b.go Config: 4 lines, 2 changed\n"+
+		"  b.go (*Server).Handle: 3 lines, 1 changed", got.DroppedSummary())
+	assert.Empty(t, Context{Text: "x"}.DroppedSummary())
+}
+
+// A name taken from a declaration's first line is cut to maxNameLen
+// characters, never inside a multi-byte one (PR #198 review).
+func TestTruncateName(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("é", maxNameLen+5)
+	tests := []struct {
+		name, in, want string
+	}{
+		{"short", "<p>Café</p>", "<p>Café</p>"},
+		{"exactly the limit", strings.Repeat("é", maxNameLen), strings.Repeat("é", maxNameLen)},
+		{"multi-byte past the limit", long, strings.Repeat("é", maxNameLen) + "…"},
+		{"byte limit inside a character", "a" + long, "a" + strings.Repeat("é", maxNameLen-1) + "…"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := truncateName(tt.in)
+			assert.Equal(t, tt.want, got)
+			assert.True(t, utf8.ValidString(got))
+		})
+	}
 }

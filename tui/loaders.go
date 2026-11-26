@@ -80,7 +80,7 @@ type reviewDiffLoadedMsg struct {
 	stat             string
 	commits          []git.Commit
 	contextHeader    string
-	enclosingContext string
+	enclosingContext enclosing.Context
 	houseRules       houserules.Rules
 	err              error
 	branchErr        error
@@ -134,12 +134,12 @@ func loadReviewDiffCmd(params reviewDiffCmdParams) tea.Cmd {
 			result.Warnings = append(result.Warnings, rules.Warnings()...)
 		}
 
-		var enclosingContext string
+		var enclosingContext enclosing.Context
 		if params.contextEnrichment && err == nil {
 			var ctxErr error
 			enclosingContext, ctxErr = enclosing.ForReview(ctx, result)
 			if ctxErr != nil {
-				enclosingContext = ""
+				enclosingContext = enclosing.Context{}
 			}
 		}
 

@@ -97,6 +97,33 @@ func detectLanguage(filePath string) *grammars.LangEntry {
 // line numbers of the diff's added lines) is left out: the diff already shows
 // it whole. A nil added leaves nothing out.
 func Declarations(filePath string, source []byte, modifiedLines []int, added map[int]bool) ([]string, error) {
+	blocks, err := declarations(filePath, source, modifiedLines, added)
+	snippets := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		snippets = append(snippets, b.text)
+	}
+	if len(snippets) == 0 {
+		snippets = nil
+	}
+	return snippets, err
+}
+
+// block is one enclosing declaration: its trimmed source, its name (see
+// declName) and how many of the diff's modified lines it holds.
+type block struct {
+	text    string
+	name    string
+	changed int
+}
+
+// lines is the number of lines the block takes in the prompt.
+func (b block) lines() int {
+	return strings.Count(b.text, "\n") + 1
+}
+
+// declarations returns the enclosing declarations of modifiedLines, as
+// Declarations does, with their names and changed-line counts.
+func declarations(filePath string, source []byte, modifiedLines []int, added map[int]bool) ([]block, error) {
 	if len(modifiedLines) == 0 {
 		return nil, nil
 	}
@@ -123,7 +150,7 @@ func Declarations(filePath string, source []byte, modifiedLines []int, added map
 
 	sourceLines := strings.Split(string(source), "\n")
 
-	var snippets []string
+	var blocks []block
 	seen := make(map[string]bool)
 
 	for _, line := range modifiedLines {
@@ -159,13 +186,65 @@ func Declarations(filePath string, source []byte, modifiedLines []int, added map
 				snippet = strings.TrimSpace(snippet)
 				if snippet != "" && !seen[snippet] {
 					seen[snippet] = true
-					snippets = append(snippets, snippet)
+					blocks = append(blocks, block{
+						text:    snippet,
+						name:    declName(structuralNode, lang, source),
+						changed: countWithin(structuralNode, modifiedLines),
+					})
 				}
 			}
 		}
 	}
 
-	return snippets, nil
+	return blocks, nil
+}
+
+// maxNameLen caps a declaration name taken from its first line.
+const maxNameLen = 60
+
+// declName names a declaration for reports: its name field ("Config",
+// "(*Server).Handle" for a Go method), the name of its first named child
+// that has one (a Go type_declaration's type_spec, an exported function,
+// a const's declarator), or else its first line.
+func declName(n *gotreesitter.Node, lang *gotreesitter.Language, source []byte) string {
+	name := n.ChildByFieldName("name", lang)
+	for i := 0; name == nil && i < n.NamedChildCount(); i++ {
+		name = n.NamedChild(i).ChildByFieldName("name", lang)
+	}
+	if name == nil {
+		first, _, _ := strings.Cut(strings.TrimSpace(n.Text(source)), "\n")
+		return truncateName(first)
+	}
+	text := name.Text(source)
+	if recv := n.ChildByFieldName("receiver", lang); recv != nil {
+		for i := range recv.NamedChildCount() {
+			if t := recv.NamedChild(i).ChildByFieldName("type", lang); t != nil {
+				return "(" + t.Text(source) + ")." + text
+			}
+		}
+	}
+	return text
+}
+
+// truncateName cuts s to maxNameLen characters (runes, so never inside a
+// multi-byte one), marking the cut with "…".
+func truncateName(s string) string {
+	if r := []rune(s); len(r) > maxNameLen {
+		return string(r[:maxNameLen]) + "…"
+	}
+	return s
+}
+
+// countWithin counts the distinct 1-based lines that fall within n.
+func countWithin(n *gotreesitter.Node, lines []int) int {
+	first, last := int(n.StartPoint().Row)+1, int(n.EndPoint().Row)+1
+	within := make(map[int]bool)
+	for _, l := range lines {
+		if l >= first && l <= last {
+			within[l] = true
+		}
+	}
+	return len(within)
 }
 
 // allAdded reports whether every line of n is an added line.
@@ -302,8 +381,44 @@ func ModifiedLinesFromDiff(diffText string) map[string][]int {
 
 // maxEnclosingLines caps the enclosing declarations sent for one diff.
 // Declarations are taken in the diff's order; one that doesn't fit is left
-// out.
+// out, and reported in Context.Dropped.
 const maxEnclosingLines = 800
+
+// Context is the context sections for a review's diff, and the enclosing
+// declarations the line cap left out of them.
+type Context struct {
+	Text    string
+	Dropped []Dropped
+}
+
+// Dropped is an enclosing declaration the line cap left out of a review.
+type Dropped struct {
+	File string
+	// Name is the declaration's name, or its first line if it has none.
+	Name  string
+	Lines int
+	// Changed counts the diff's changed lines inside the declaration
+	// (a deletion counts as the line after it).
+	Changed int
+}
+
+// DroppedSummary describes what the line cap left out, one line per
+// declaration after a total; "" if nothing.
+func (c Context) DroppedSummary() string {
+	if len(c.Dropped) == 0 {
+		return ""
+	}
+	lines := 0
+	for _, d := range c.Dropped {
+		lines += d.Lines
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%d enclosing declarations (%d lines) over the %d-line cap left out", len(c.Dropped), lines, maxEnclosingLines)
+	for _, d := range c.Dropped {
+		fmt.Fprintf(&sb, "\n  %s %s: %d lines, %d changed", d.File, d.Name, d.Lines, d.Changed)
+	}
+	return sb.String()
+}
 
 // reviewRelatedLines caps the related code a review is shown. Measured on
 // Bark's own pull requests, 600 lines plus enclosing declarations added
@@ -314,25 +429,24 @@ const reviewRelatedLines = 400
 // declarations of the changed lines, then related code (see Related). Files
 // are read from the version whose line numbers the diff uses (see
 // git.ReviewDiff.NewSideFile). A diff without a source gets none.
-func ForReview(ctx context.Context, r git.ReviewDiff) (string, error) {
-	decls, err := DeclarationsForDiff(ctx, r.Diff, r.NewSideFile)
+func ForReview(ctx context.Context, r git.ReviewDiff) (Context, error) {
+	c, err := DeclarationsForDiff(ctx, r.Diff, r.NewSideFile)
 	if err != nil {
-		return "", err
+		return Context{}, err
 	}
-	rel := FormatRelated(Related(ctx, r.Diff, r, RelatedOptions{MaxLines: reviewRelatedLines}))
-	if rel == "" {
-		return decls, nil
+	if rel := FormatRelated(Related(ctx, r.Diff, r, RelatedOptions{MaxLines: reviewRelatedLines})); rel != "" {
+		c.Text += "\n" + rel + "\n"
 	}
-	return decls + "\n" + rel + "\n", nil
+	return c, nil
 }
 
 // DeclarationsForDiff parses a diff, reads each changed file with read, and
 // extracts the enclosing declarations for all modified lines. read must
 // return the new side of the diff, so that its line numbers match.
-func DeclarationsForDiff(ctx context.Context, diffText string, read func(ctx context.Context, path string) ([]byte, error)) (string, error) {
+func DeclarationsForDiff(ctx context.Context, diffText string, read func(ctx context.Context, path string) ([]byte, error)) (Context, error) {
 	modifiedMap := ModifiedLinesFromDiff(diffText)
 	if len(modifiedMap) == 0 {
-		return "", nil
+		return Context{}, nil
 	}
 	added := addedLines(diffText)
 
@@ -344,6 +458,7 @@ func DeclarationsForDiff(ctx context.Context, diffText string, read func(ctx con
 	sort.Strings(files)
 
 	var sb strings.Builder
+	var dropped []Dropped
 	budget := maxEnclosingLines
 
 	for _, file := range files {
@@ -353,18 +468,19 @@ func DeclarationsForDiff(ctx context.Context, diffText string, read func(ctx con
 			continue
 		}
 
-		snippets, err := Declarations(file, content, modifiedMap[file], added[file])
+		blocks, err := declarations(file, content, modifiedMap[file], added[file])
 		if err != nil {
 			continue
 		}
-		var fit []string
-		for _, s := range snippets {
-			if n := strings.Count(s, "\n") + 1; n <= budget {
+		var snippets []string
+		for _, b := range blocks {
+			if n := b.lines(); n <= budget {
 				budget -= n
-				fit = append(fit, s)
+				snippets = append(snippets, b.text)
+			} else {
+				dropped = append(dropped, Dropped{File: file, Name: b.name, Lines: n, Changed: b.changed})
 			}
 		}
-		snippets = fit
 		if len(snippets) == 0 {
 			continue
 		}
@@ -387,5 +503,5 @@ func DeclarationsForDiff(ctx context.Context, diffText string, read func(ctx con
 		}
 	}
 
-	return sb.String(), nil
+	return Context{Text: sb.String(), Dropped: dropped}, nil
 }
