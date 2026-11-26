@@ -213,10 +213,7 @@ func declName(n *gotreesitter.Node, lang *gotreesitter.Language, source []byte) 
 	}
 	if name == nil {
 		first, _, _ := strings.Cut(strings.TrimSpace(n.Text(source)), "\n")
-		if len(first) > maxNameLen {
-			first = first[:maxNameLen] + "…"
-		}
-		return first
+		return truncateName(first)
 	}
 	text := name.Text(source)
 	if recv := n.ChildByFieldName("receiver", lang); recv != nil {
@@ -227,6 +224,15 @@ func declName(n *gotreesitter.Node, lang *gotreesitter.Language, source []byte) 
 		}
 	}
 	return text
+}
+
+// truncateName cuts s to maxNameLen characters (runes, so never inside a
+// multi-byte one), marking the cut with "…".
+func truncateName(s string) string {
+	if r := []rune(s); len(r) > maxNameLen {
+		return string(r[:maxNameLen]) + "…"
+	}
+	return s
 }
 
 // countWithin counts the distinct 1-based lines that fall within n.

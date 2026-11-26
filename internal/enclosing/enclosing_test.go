@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -485,4 +486,28 @@ func TestDeclarationsForDiff_ReportsDroppedDeclarations(t *testing.T) {
 		"  b.go Config: 4 lines, 2 changed\n"+
 		"  b.go (*Server).Handle: 3 lines, 1 changed", got.DroppedSummary())
 	assert.Empty(t, Context{Text: "x"}.DroppedSummary())
+}
+
+// A name taken from a declaration's first line is cut to maxNameLen
+// characters, never inside a multi-byte one (PR #198 review).
+func TestTruncateName(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("é", maxNameLen+5)
+	tests := []struct {
+		name, in, want string
+	}{
+		{"short", "<p>Café</p>", "<p>Café</p>"},
+		{"exactly the limit", strings.Repeat("é", maxNameLen), strings.Repeat("é", maxNameLen)},
+		{"multi-byte past the limit", long, strings.Repeat("é", maxNameLen) + "…"},
+		{"byte limit inside a character", "a" + long, "a" + strings.Repeat("é", maxNameLen-1) + "…"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := truncateName(tt.in)
+			assert.Equal(t, tt.want, got)
+			assert.True(t, utf8.ValidString(got))
+		})
+	}
 }
