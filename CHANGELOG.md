@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.39.1](https://github.com/ionut-t/bark/compare/v2.39.0...v2.39.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **debuglog:** ensure unique filenames for same-millisecond logs ([#192](https://github.com/ionut-t/bark/issues/192)) ([43a159d](https://github.com/ionut-t/bark/commit/43a159d64347e14e7d47c565281e8345332b5f33))
+* **enclosing:** filter qualified calls to imported packages ([#197](https://github.com/ionut-t/bark/issues/197)) ([6fdc707](https://github.com/ionut-t/bark/commit/6fdc70749ea7b836c483a11a4e69cd8c6d2cdcd7))
+
+
+### Performance Improvements
+
+* **enclosing:** skip declarations consisting entirely of added lines ([#196](https://github.com/ionut-t/bark/issues/196)) ([a2915d4](https://github.com/ionut-t/bark/commit/a2915d4bd7efccb31aa84d55e86c1c7b386ac39a))
+
 ## [2.39.0](https://github.com/ionut-t/bark/compare/v2.38.0...v2.39.0) (2026-11-24)
 
 
