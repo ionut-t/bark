@@ -1,6 +1,7 @@
 package enclosing
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,7 @@ func main() {
 `)
 
 	// Line 10: fmt.Println("Hello, World!") -> belongs to func main()
-	snippets, err := Declarations("main.go", source, []int{10})
+	snippets, err := Declarations("main.go", source, []int{10}, nil)
 	require.NoError(t, err)
 
 	expected := []string{
@@ -41,7 +42,7 @@ func TestDeclarations_Typescript(t *testing.T) {
 `)
 
 	// Line 3: console.log("Hello") -> belongs to greet() method
-	snippets, err := Declarations("greet.ts", source, []int{3})
+	snippets, err := Declarations("greet.ts", source, []int{3}, nil)
 	require.NoError(t, err)
 
 	expected := []string{
@@ -57,7 +58,7 @@ func TestDeclarations_Python(t *testing.T) {
 `)
 
 	// Line 2: print("hello world") -> belongs to def hello()
-	snippets, err := Declarations("hello.py", source, []int{2})
+	snippets, err := Declarations("hello.py", source, []int{2}, nil)
 	require.NoError(t, err)
 
 	expected := []string{
@@ -228,7 +229,7 @@ export class CounterComponent {
 `)
 
 	// Line 11: this.count.update(...) -> belongs to the increment() method.
-	snippets, err := Declarations("counter.component.ts", source, []int{11})
+	snippets, err := Declarations("counter.component.ts", source, []int{11}, nil)
 	require.NoError(t, err)
 
 	expected := []string{
@@ -241,7 +242,7 @@ export class CounterComponent {
 	// The @Component decorator is deliberately excluded: class-body changes
 	// shouldn't drag decorator metadata (potentially a large inline template)
 	// into the snippet.
-	snippets, err = Declarations("counter.component.ts", source, []int{8})
+	snippets, err = Declarations("counter.component.ts", source, []int{8}, nil)
 	require.NoError(t, err)
 
 	expected = []string{
@@ -253,7 +254,7 @@ export class CounterComponent {
 	// Line 4: inside the @Component decorator metadata. The decorator is a
 	// sibling of class_declaration under export_statement, so the change
 	// resolves to the full decorated class.
-	snippets, err = Declarations("counter.component.ts", source, []int{4})
+	snippets, err = Declarations("counter.component.ts", source, []int{4}, nil)
 	require.NoError(t, err)
 
 	expected = []string{
@@ -288,7 +289,7 @@ func TestDeclarations_AngularInlineTemplateAndStyles(t *testing.T) {
 	// full decorated component via its export_statement. Line 7 is the
 	// {{ label }} interpolation, line 12 a CSS property; both map to the same
 	// component, which must be emitted once.
-	snippets, err := Declarations("badge.component.ts", source, []int{7, 12})
+	snippets, err := Declarations("badge.component.ts", source, []int{7, 12}, nil)
 	require.NoError(t, err)
 
 	expected := []string{
@@ -299,7 +300,7 @@ func TestDeclarations_AngularInlineTemplateAndStyles(t *testing.T) {
 
 	// Line 17: the label field, unrelated to the template. It must resolve to
 	// the class body only, without dragging the inline template and styles in.
-	snippets, err = Declarations("badge.component.ts", source, []int{17})
+	snippets, err = Declarations("badge.component.ts", source, []int{17}, nil)
 	require.NoError(t, err)
 
 	expected = []string{
@@ -325,7 +326,7 @@ func TestDeclarations_AngularTemplate(t *testing.T) {
 	// <button> element, event binding syntax included. The plain filename
 	// matters: Angular templates have no reliable naming convention, so all
 	// html files are parsed with the angular grammar.
-	snippets, err := Declarations("example.html", source, []int{4})
+	snippets, err := Declarations("example.html", source, []int{4}, nil)
 	require.NoError(t, err)
 
 	expected := []string{
@@ -338,7 +339,7 @@ func TestDeclarations_AngularTemplate(t *testing.T) {
 	// parses the block properly (the plain html grammar truncates the tree at
 	// the first control-flow block), so the smallest enclosing element still
 	// resolves.
-	snippets, err = Declarations("example.html", source, []int{7})
+	snippets, err = Declarations("example.html", source, []int{7}, nil)
 	require.NoError(t, err)
 
 	expected = []string{
@@ -360,7 +361,7 @@ func TestDeclarations_PlainHtml(t *testing.T) {
 	// Non-Angular HTML goes through the angular grammar too; element
 	// resolution must be unaffected, even next to text the grammar cannot
 	// read as an Angular expression (the handlebars-style interpolation).
-	snippets, err := Declarations("page.html", source, []int{3})
+	snippets, err := Declarations("page.html", source, []int{3}, nil)
 	require.NoError(t, err)
 
 	expected := []string{
@@ -381,7 +382,7 @@ func TestDeclarations_Tsx(t *testing.T) {
 	// Line 3: the JSX return -> belongs to the render() method. The .tsx
 	// extension resolves to the distinct "tsx" grammar, which must map to the
 	// same structural node types as typescript.
-	snippets, err := Declarations("widget.tsx", source, []int{3})
+	snippets, err := Declarations("widget.tsx", source, []int{3}, nil)
 	require.NoError(t, err)
 
 	expected := []string{
@@ -389,4 +390,42 @@ func TestDeclarations_Tsx(t *testing.T) {
 	}
 
 	assert.Equal(t, expected, snippets)
+}
+
+// A declaration whose every line is added is already shown whole in the
+// diff, so repeating it as enclosing context only adds tokens (C1: 46% of
+// enclosing blocks on 14 of Bark's commits). One with an unchanged line
+// still gives context the diff lacks.
+func TestDeclarationsForDiff_SkipsWhollyAddedDeclarations(t *testing.T) {
+	src := "package app\n" + //    1
+		"\n" + //                  2
+		"func old() int {\n" + //  3
+		"\tx := 1\n" + //          4 added
+		"\treturn x\n" + //        5
+		"}\n" + //                 6
+		"\n" + //                  7 added
+		"func added() int {\n" + // 8 added
+		"\treturn 2\n" + //        9 added
+		"}\n" //                   10 added
+	diff := "diff --git a/app.go b/app.go\n--- a/app.go\n+++ b/app.go\n" +
+		"@@ -3,3 +3,4 @@\n func old() int {\n+\tx := 1\n \treturn x\n }\n" +
+		"@@ -6,0 +7,4 @@\n+\n+func added() int {\n+\treturn 2\n+}\n"
+	read := func(context.Context, string) ([]byte, error) { return []byte(src), nil }
+
+	got, err := DeclarationsForDiff(t.Context(), diff, read)
+	require.NoError(t, err)
+
+	assert.Contains(t, got, "func old() int {")
+	assert.NotContains(t, got, "func added() int {")
+}
+
+func TestDeclarationsForDiff_OnlyWhollyAddedDeclarations(t *testing.T) {
+	src := "package app\n\nfunc added() int {\n\treturn 2\n}\n"
+	diff := "diff --git a/app.go b/app.go\n--- a/app.go\n+++ b/app.go\n" +
+		"@@ -1,0 +2,4 @@\n+\n+func added() int {\n+\treturn 2\n+}\n"
+	read := func(context.Context, string) ([]byte, error) { return []byte(src), nil }
+
+	got, err := DeclarationsForDiff(t.Context(), diff, read)
+	require.NoError(t, err)
+	assert.Empty(t, got, "no section header without a declaration to show")
 }
