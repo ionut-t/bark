@@ -175,6 +175,35 @@ func TestRelated_SameNamedDefinitions(t *testing.T) {
 	}
 }
 
+func TestRelated_ImportedPackageCalls(t *testing.T) {
+	// time.Since and strings.Cut name packages outside the repository, so
+	// the repository's Since and Cut methods aren't theirs; a call on a
+	// variable, or on a package of the repository, is still looked up.
+	const reviewGo = "package review\n\nimport (\n\t\"strings\"\n\t\"time\"\n\n\t\"example.com/m/store\"\n)\n\n" +
+		"func Run(d *Diff, start time.Time) {\n\t_ = time.Since(start)\n\t_, _, _ = strings.Cut(\"a.b\", \".\")\n\t_ = d.Grep(\"x\")\n\t_ = store.Open()\n}\n"
+	const diffGo = "package review\n\ntype Diff struct{}\n\nfunc (d *Diff) Grep(word string) []string {\n\treturn nil\n}\n"
+	const paramsGo = "package params\n\ntype Params struct{}\n\nfunc (p Params) Since() string {\n\treturn \"\"\n}\n"
+	const rulesGo = "package rules\n\ntype Source struct{}\n\nfunc (s Source) Cut() {\n}\n"
+	const storeGo = "package store\n\nfunc Open() int {\n\treturn 1\n}\n"
+	repo := fakeRepo{
+		"go.mod":           "module example.com/m\n",
+		"review/review.go": reviewGo,
+		"review/diff.go":   diffGo,
+		"params/params.go": paramsGo,
+		"rules/rules.go":   rulesGo,
+		"store/store.go":   storeGo,
+	}
+	first, last := lineOf(t, reviewGo, "time.Since"), lineOf(t, reviewGo, "store.Open")
+
+	got := findRelated(t, repo, addDiff(repo, "review/review.go", first, last), RelatedOptions{})
+
+	assert.Equal(t, []string{
+		"review/diff.go:3-3 definition of Diff",
+		"review/diff.go:5-7 definition of Grep",
+		"store/store.go:3-5 definition of Open",
+	}, labels(got))
+}
+
 func TestRelated_Callers(t *testing.T) {
 	storeLoad := lineOf(t, storeGo, "return s.data[key]")
 	storeTest := "package store\n\nfunc TestLoad(t *testing.T) {\n\t(&Store{}).Load(\"k\")\n}\n"

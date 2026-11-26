@@ -590,9 +590,11 @@ func (r *related) read(p string) ([]byte, error) {
 }
 
 // definitions finds the declarations c may refer to, types only for a
-// type. A qualifier that names a package directory (or a Go import alias
-// for one), or a reference from the same directory, picks among
-// same-named declarations; a name with too many candidates is skipped,
+// type. A Go qualifier naming an import keeps only declarations in the
+// imported package, so a call on a package outside the repository finds
+// none. A qualifier that names a package directory, or a reference from
+// the same directory, picks among same-named declarations; a name with
+// too many candidates is skipped,
 // unless leaving out files .barkignore leaves out makes it few enough.
 func (r *related) definitions(c call, from *parsedFile) []decl {
 	if from.spec.builtins[c.name] {
@@ -614,13 +616,24 @@ func (r *related) definitions(c call, from *parsedFile) []decl {
 			}
 		}
 	}
+	// A Go call qualified by an imported package (time.Since) refers to
+	// that package only: outside the repository, nothing here is it.
+	if imp, ok := from.imports[c.qualifier]; ok && c.qualifier != "" {
+		cands = slices.DeleteFunc(cands, func(d decl) bool {
+			return !r.importsDir(imp, path.Dir(d.path))
+		})
+	}
+
 	if ds, ok := r.pick(c, from, cands); ok {
 		return ds
 	}
+
 	// Still ambiguous: leave out files .barkignore leaves out, such as
 	// generated code, and try again. They count only when nothing else
 	// declares the name, or a qualifier or the directory picks them.
-	kept := slices.DeleteFunc(slices.Clone(cands), func(d decl) bool { return r.ignored(d.path) })
+	kept := slices.DeleteFunc(slices.Clone(cands), func(d decl) bool {
+		return r.ignored(d.path)
+	})
 	if len(kept) > 0 && len(kept) < len(cands) {
 		if ds, ok := r.pick(c, from, kept); ok {
 			return ds
