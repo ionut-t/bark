@@ -264,6 +264,7 @@ func TestReadConfigData_ReadsEveryField(t *testing.T) {
 		HouseRulesFiles:    []string{"docs/STYLE.md"},
 		Effort:             "low",
 		LLMTimeout:         "10m",
+		PreferredReviewers: []string{"Yoda", "Linus"},
 	}
 
 	// Loading starts from the defaults, so a field left at its default here
@@ -570,6 +571,18 @@ func TestReadConfigData_InvalidHouseRulesFile(t *testing.T) {
 	assert.Contains(t, err.Error(), path)
 	assert.Contains(t, err.Error(), "house_rules_files")
 	assert.Contains(t, err.Error(), "../secrets.md")
+}
+
+func TestReadConfigData_BlankPreferredReviewer(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("preferred_reviewers = ['Yoda', '']\n"), 0o644))
+
+	_, err := readConfigData(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), path)
+	assert.Contains(t, err.Error(), "preferred_reviewers entry 2")
 }
 
 // A syntax error says which file and line to fix.

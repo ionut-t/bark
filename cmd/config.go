@@ -396,6 +396,9 @@ func readConfigData(path string) (config.Data, error) {
 	if err := config.ValidateHouseRulesFiles(data.HouseRulesFiles); err != nil {
 		return config.Data{}, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := config.ValidatePreferredReviewers(data.PreferredReviewers); err != nil {
+		return config.Data{}, fmt.Errorf("%s: %w", path, err)
+	}
 
 	return data, nil
 }

@@ -172,6 +172,22 @@ func TestCancelReviewOptionsResetsStagedOnly(t *testing.T) {
 // The window size arrives once at startup, before the reviewers and
 // instructions load, so their lists must take the known size when built
 // instead of staying at the default 25 lines.
+// A reviewer named by --as or preferred_reviewers that doesn't exist is an
+// error, as in plain mode, not a silent fall back to .bark/reviewer.md.
+func TestUnknownReviewerNameIsAnError(t *testing.T) {
+	t.Parallel()
+
+	repoReviewer := &reviewers.Reviewer{Name: "reviewer"}
+	var m tea.Model = Model{config: config.New("", config.Data{}), styles: styles.New(true), reviewerName: "Nobody"}
+	m, cmd := m.Update(reviewersLoadedMsg{reviewers: []reviewers.Reviewer{{Name: "Yoda"}}, fileReviewer: repoReviewer})
+
+	got := asModel(m)
+	require.Error(t, got.error)
+	assert.Contains(t, got.error.Error(), "Nobody")
+	assert.Nil(t, got.selectedReviewer)
+	assert.Nil(t, cmd, "the repo's reviewer isn't selected")
+}
+
 func TestListsFollowWindowSize(t *testing.T) {
 	const count = 30
 

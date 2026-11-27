@@ -469,6 +469,47 @@ func TestParseRepo_HouseRules(t *testing.T) {
 	}
 }
 
+// The repo's preferred reviewers beat the user's own, and an empty list
+// in the repo turns them off.
+func TestPreferredReviewers(t *testing.T) {
+	t.Parallel()
+
+	assert.Empty(t, DefaultData().PreferredReviewers, "none by default")
+
+	cfg := New(filepath.Join(t.TempDir(), configFileName), Data{PreferredReviewers: []string{"Yoda", "Linus"}})
+	assert.Equal(t, []string{"Yoda", "Linus"}, cfg.GetPreferredReviewers())
+
+	got := cfg.GetPreferredReviewers()
+	got[0] = "changed"
+	assert.Equal(t, "Yoda", cfg.GetPreferredReviewers()[0], "returns a copy")
+
+	cfg.ApplyRepo("/repo/.bark/config.toml", RepoData{PreferredReviewers: &[]string{"Bob"}})
+	assert.Equal(t, []string{"Bob"}, cfg.GetPreferredReviewers(), "the repo beats the user")
+
+	cfg.ApplyRepo("/repo/.bark/config.toml", RepoData{PreferredReviewers: &[]string{}})
+	assert.Empty(t, cfg.GetPreferredReviewers(), "an empty repo list beats the user's")
+}
+
+func TestParseRepo_PreferredReviewers(t *testing.T) {
+	t.Parallel()
+
+	got, err := ParseRepo("/repo/.bark/config.toml", []byte("preferred_reviewers = ['Yoda', 'Linus']\n"))
+	require.NoError(t, err)
+	assert.Equal(t, RepoData{PreferredReviewers: &[]string{"Yoda", "Linus"}}, got)
+
+	for _, bad := range []string{"''", "'  '"} {
+		_, err := ParseRepo("/repo/.bark/config.toml", []byte("preferred_reviewers = ['Yoda', "+bad+"]\n"))
+		require.Error(t, err, bad)
+		assert.Contains(t, err.Error(), "preferred_reviewers entry 2")
+		assert.Contains(t, err.Error(), "/repo/.bark/config.toml")
+	}
+
+	// The unknown-key error lists every key a repo may set.
+	_, err = ParseRepo("/repo/.bark/config.toml", []byte("editor = 'vi'\n"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "preferred_reviewers")
+}
+
 func TestSeveritiesAndEffortsAreCopies(t *testing.T) {
 	s := Severities()
 	assert.Equal(t, []string{"critical", "high", "medium", "low"}, s)

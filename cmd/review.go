@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"strings"
 
@@ -176,6 +177,10 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	}
 	warnRepoLLM(os.Stderr, cfg)
 
+	if reviewerName == "" && !repoReviewerExists() {
+		reviewerName = pickPreferredReviewer(cfg.GetPreferredReviewers(), rand.IntN)
+	}
+
 	// Posting and failing on findings run in plain mode: the TUI has no
 	// step for posting, and its exit status means nothing. A dry run prints
 	// prompts, which the TUI has no view for.
@@ -231,4 +236,24 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		PR:                pr,
 		WithPRDescription: withDescription,
 	})
+}
+
+// repoReviewerFile is the repository's own reviewer, used when --as names none.
+const repoReviewerFile = ".bark/reviewer.md"
+
+// repoReviewerExists reports whether the repository has its own reviewer,
+// which beats the preferred reviewers.
+func repoReviewerExists() bool {
+	_, err := os.Stat(repoReviewerFile)
+	return err == nil
+}
+
+// pickPreferredReviewer returns one of names chosen with intN (rand.IntN,
+// or a fixed choice in tests), or "" if names is empty.
+func pickPreferredReviewer(names []string, intN func(n int) int) string {
+	if len(names) == 0 {
+		return ""
+	}
+
+	return names[intN(len(names))]
 }

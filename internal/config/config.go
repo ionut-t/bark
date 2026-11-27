@@ -31,6 +31,7 @@ const (
 	HouseRulesFilesKey    = "house_rules_files"
 	EffortKey             = "effort"
 	LLMTimeoutKey         = "llm_timeout"
+	PreferredReviewersKey = "preferred_reviewers"
 
 	// rootDir is a repository's Bark directory.
 	rootDir                    = ".bark"
@@ -123,6 +124,10 @@ type Config interface {
 	// RepoLLMWarning says which provider and model this run takes from the
 	// repository's config instead of the user's own; "" if none.
 	RepoLLMWarning() string
+	// GetPreferredReviewers returns the reviewers a review picks one from
+	// at random when neither --as nor .bark/reviewer.md names one; empty
+	// if none.
+	GetPreferredReviewers() []string
 }
 
 // Data is the contents of the config file. The toml tags name the keys both
@@ -145,6 +150,7 @@ type Data struct {
 	HouseRulesFiles    []string `toml:"house_rules_files" comment:"The house rules files, most important first. A name (AGENTS.md) is also looked for in the folders above changed files; a path (docs/STYLE.md) is read from that place only. Empty means AGENTS.md and CLAUDE.md"`
 	Effort             string   `toml:"effort" comment:"How hard the model thinks before answering: low, medium or high. Mapped to Gemini's thinking level (or budget on Gemini 2.5), OpenAI's reasoning effort and Anthropic's effort with adaptive thinking; Ollama ignores it. Lower is faster and cheaper (default: empty, the model's own default)"`
 	LLMTimeout         string   `toml:"llm_timeout" comment:"How long one model call (a review, the check of its findings, a commit message or a PR description) may take before Bark gives up, as a duration such as 10m or 90s. Raise it for slow models or large diffs (default: empty, 5m for reviews and checks and 3m for commit messages and PR descriptions in plain mode, 5m in the TUI)"`
+	PreferredReviewers []string `toml:"preferred_reviewers" comment:"Reviewer names a review picks one from at random when neither --as nor .bark/reviewer.md names one (default: empty)"`
 }
 
 // config is safe for concurrent use: the TUI saves relative_number from a tea.Cmd
@@ -745,6 +751,25 @@ func ValidateHouseRulesFiles(files []string) error {
 			return fmt.Errorf("invalid %s entry: %w", HouseRulesFilesKey, err)
 		}
 	}
+	return nil
+}
+
+func (c *config) GetPreferredReviewers() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return slices.Clone(valueOr(c.repo.PreferredReviewers, c.data.PreferredReviewers))
+}
+
+// ValidatePreferredReviewers checks no preferred_reviewers entry is blank.
+// Whether a name matches a reviewer is only known once reviewers load.
+func ValidatePreferredReviewers(names []string) error {
+	for i, name := range names {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("invalid %s entry %d: empty reviewer name", PreferredReviewersKey, i+1)
+		}
+	}
+
 	return nil
 }
 
