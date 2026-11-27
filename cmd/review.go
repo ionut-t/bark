@@ -177,14 +177,20 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	}
 	warnRepoLLM(os.Stderr, cfg)
 
+	pickedReviewer := false
 	if reviewerName == "" && !repoReviewerExists() {
 		reviewerName = pickPreferredReviewer(cfg.GetPreferredReviewers(), rand.IntN)
+		pickedReviewer = reviewerName != ""
 	}
 
 	// Posting and failing on findings run in plain mode: the TUI has no
 	// step for posting, and its exit status means nothing. A dry run prints
 	// prompts, which the TUI has no view for.
 	if stdinDiff != nil || comment || failOn != "" || dryRun || isPlainMode(cmd) {
+		if pickedReviewer {
+			// The GitHub Action reads this line for its "Reviewed by" label.
+			fmt.Fprintf(os.Stderr, "%s%s\n", pickedReviewerPrefix, reviewerName)
+		}
 		return plain.RunReview(plain.ReviewOptions{
 			Diff:              stdinDiff,
 			ReviewerName:      reviewerName,
@@ -237,6 +243,10 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		WithPRDescription: withDescription,
 	})
 }
+
+// pickedReviewerPrefix starts the message naming the reviewer picked from
+// preferred_reviewers. The GitHub Action matches it, so keep them in step.
+const pickedReviewerPrefix = "bark: reviewer picked from preferred_reviewers: "
 
 // repoReviewerFile is the repository's own reviewer, used when --as names none.
 const repoReviewerFile = ".bark/reviewer.md"
