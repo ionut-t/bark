@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.40.1](https://github.com/ionut-t/bark/compare/v2.40.0...v2.40.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **ci:** allow disabling with-context in bark-review ([#205](https://github.com/ionut-t/bark/issues/205)) ([2475c51](https://github.com/ionut-t/bark/commit/2475c5165e8a2e3188234110b9bfbf78bf7dc123))
+* **review:** resolve preferred reviewers by name only ([#207](https://github.com/ionut-t/bark/issues/207)) ([03aea5b](https://github.com/ionut-t/bark/commit/03aea5b6d5fecc6123addf481d824e54d74c30ce))
+
 ## [2.40.0](https://github.com/ionut-t/bark/compare/v2.39.1...v2.40.0) (2026-11-27)
 
 
