@@ -43,8 +43,12 @@ const (
 
 // ReviewOptions configures the plain text review runner.
 type ReviewOptions struct {
-	Diff              *string
-	ReviewerName      string
+	Diff         *string
+	ReviewerName string
+	// FindReviewerByNameOnly looks ReviewerName up among the reviewers only:
+	// set for a name picked from preferred_reviewers
+	FindReviewerByNameOnly bool
+
 	Instructions      []string
 	SkipInstruction   bool
 	Paths             paths.Paths
@@ -183,7 +187,7 @@ func RunReview(opts ReviewOptions) error {
 		return emptyDiffError(opts, reviewDiff)
 	}
 
-	reviewer, err := resolveReviewer(opts.ReviewerName, opts.Paths.Config)
+	reviewer, err := resolveReviewer(opts.ReviewerName, opts.Paths.Config, opts.FindReviewerByNameOnly)
 	if err != nil {
 		return err
 	}
@@ -1026,9 +1030,9 @@ func noteReviewScope(w io.Writer, full bool, recorded string, r git.ReviewDiff) 
 
 // resolveReviewer loads a reviewer from a file path, by name, or from the
 // .bark/reviewer.md at the repository's root.
-func resolveReviewer(name, storage string) (*reviewers.Reviewer, error) {
+func resolveReviewer(name, storage string, byName bool) (*reviewers.Reviewer, error) {
 	if name != "" {
-		if _, err := os.Stat(name); err == nil {
+		if _, err := os.Stat(name); err == nil && !byName {
 			return reviewers.FromFile(name)
 		}
 		reviewerList, err := reviewers.Get(storage)

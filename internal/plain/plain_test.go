@@ -573,41 +573,58 @@ func TestResolveReviewer(t *testing.T) {
 	t.Run("from a file path", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "Mine.md")
 		writeFile(t, path, "Be strict.")
-		r, err := resolveReviewer(path, storage)
+		r, err := resolveReviewer(path, storage, false)
 		require.NoError(t, err)
 		assert.Equal(t, &reviewers.Reviewer{Name: "Mine", Prompt: "Be strict."}, r)
 	})
 
 	t.Run("by name", func(t *testing.T) {
 		t.Chdir(t.TempDir())
-		r, err := resolveReviewer("linus", storage)
+		r, err := resolveReviewer("linus", storage, false)
+		require.NoError(t, err)
+		assert.Equal(t, "Linus Torvalds", r.Name)
+	})
+
+	// A reviewer picked from preferred_reviewers is a name: a repository's
+	// config mustn't be able to read a local file into the prompt.
+	t.Run("picked by name ignores a file path", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "Mine.md")
+		writeFile(t, path, "Private notes.")
+		_, err := resolveReviewer(path, storage, true)
+		assert.ErrorContains(t, err, "reviewer not found")
+	})
+
+	t.Run("picked by name", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		writeFile(t, "linus", "Not a persona.")
+		r, err := resolveReviewer("linus", storage, true)
 		require.NoError(t, err)
 		assert.Equal(t, "Linus Torvalds", r.Name)
 	})
 
 	t.Run("unknown name", func(t *testing.T) {
 		t.Chdir(t.TempDir())
-		_, err := resolveReviewer("nobody-at-all", storage)
+		_, err := resolveReviewer("nobody-at-all", storage, false)
 		assert.ErrorContains(t, err, "reviewer not found")
 	})
 
 	t.Run("missing storage", func(t *testing.T) {
 		t.Chdir(t.TempDir())
-		_, err := resolveReviewer("linus", filepath.Join(t.TempDir(), "missing"))
+		_, err := resolveReviewer("linus", filepath.Join(t.TempDir(), "missing"), false)
 		assert.ErrorContains(t, err, "error loading reviewers")
 	})
 
 	t.Run("repo reviewer file", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 		writeFile(t, filepath.Join(".bark", "reviewer.md"), "Repo persona.")
-		r, err := resolveReviewer("", storage)
+		r, err := resolveReviewer("", storage, false)
 		require.NoError(t, err)
 		assert.Equal(t, &reviewers.Reviewer{Name: "reviewer", Prompt: "Repo persona."}, r)
 	})
 
 	t.Run("none given", func(t *testing.T) {
 		t.Chdir(t.TempDir())
-		_, err := resolveReviewer("", storage)
+		_, err := resolveReviewer("", storage, false)
 		assert.ErrorContains(t, err, "reviewer is required in plain mode")
 	})
 
@@ -622,7 +639,7 @@ func TestResolveReviewer(t *testing.T) {
 		require.NoError(t, os.MkdirAll(sub, 0o755))
 		t.Chdir(sub)
 
-		r, err := resolveReviewer("", storage)
+		r, err := resolveReviewer("", storage, false)
 		require.NoError(t, err)
 		assert.Equal(t, "Repo persona.", r.Prompt)
 	})
@@ -631,7 +648,7 @@ func TestResolveReviewer(t *testing.T) {
 		t.Chdir(t.TempDir())
 		require.NoError(t, os.MkdirAll(filepath.Join(".bark", "reviewer.md"), 0o755))
 
-		_, err := resolveReviewer("", storage)
+		_, err := resolveReviewer("", storage, false)
 		assert.ErrorContains(t, err, "is not a file")
 	})
 }

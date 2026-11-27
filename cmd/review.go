@@ -191,12 +191,14 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	// prompts, which the TUI has no view for.
 	if stdinDiff != nil || comment || failOn != "" || dryRun || isPlainMode(cmd) {
 		if pickedReviewer {
-			// The GitHub Action reads this line for its "Reviewed by" label.
+			// The Action reads this line for its "Reviewed by" label.
 			fmt.Fprintf(os.Stderr, "%s%s\n", pickedReviewerPrefix, reviewerName)
 		}
 		return plain.RunReview(plain.ReviewOptions{
-			Diff:              stdinDiff,
-			ReviewerName:      reviewerName,
+			Diff:                   stdinDiff,
+			ReviewerName:           reviewerName,
+			FindReviewerByNameOnly: pickedReviewer,
+
 			Instructions:      instructions,
 			SkipInstruction:   skipInstruction,
 			Paths:             dirs,
