@@ -610,6 +610,30 @@ func TestResolveReviewer(t *testing.T) {
 		_, err := resolveReviewer("", storage)
 		assert.ErrorContains(t, err, "reviewer is required in plain mode")
 	})
+
+	// Run from a subdirectory, the repository's reviewer is still found
+	// at its root.
+	t.Run("repo reviewer file from a subdirectory", func(t *testing.T) {
+		root := t.TempDir()
+		t.Chdir(root)
+		require.NoError(t, exec.Command("git", "init", "-q").Run())
+		writeFile(t, filepath.Join(root, ".bark", "reviewer.md"), "Repo persona.")
+		sub := filepath.Join(root, "internal", "pkg")
+		require.NoError(t, os.MkdirAll(sub, 0o755))
+		t.Chdir(sub)
+
+		r, err := resolveReviewer("", storage)
+		require.NoError(t, err)
+		assert.Equal(t, "Repo persona.", r.Prompt)
+	})
+
+	t.Run("repo reviewer path is not a file", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		require.NoError(t, os.MkdirAll(filepath.Join(".bark", "reviewer.md"), 0o755))
+
+		_, err := resolveReviewer("", storage)
+		assert.ErrorContains(t, err, "is not a file")
+	})
 }
 
 func TestResolveInstructions(t *testing.T) {

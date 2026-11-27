@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/plain"
+	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/tui"
 	"github.com/spf13/cobra"
 )
@@ -178,7 +181,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	warnRepoLLM(os.Stderr, cfg)
 
 	pickedReviewer := false
-	if reviewerName == "" && !repoReviewerExists() {
+	if reviewerName == "" && !repoReviewerExists(cmd.Context()) {
 		reviewerName = pickPreferredReviewer(cfg.GetPreferredReviewers(), rand.IntN)
 		pickedReviewer = reviewerName != ""
 	}
@@ -248,14 +251,13 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 // preferred_reviewers. The GitHub Action matches it, so keep them in step.
 const pickedReviewerPrefix = "bark: reviewer picked from preferred_reviewers: "
 
-// repoReviewerFile is the repository's own reviewer, used when --as names none.
-const repoReviewerFile = ".bark/reviewer.md"
-
 // repoReviewerExists reports whether the repository has its own reviewer,
-// which beats the preferred reviewers.
-func repoReviewerExists() bool {
-	_, err := os.Stat(repoReviewerFile)
-	return err == nil
+// .bark/reviewer.md at its root, which beats the preferred reviewers. A
+// path there that can't be read counts too, so the review reports it
+// instead of silently picking another reviewer.
+func repoReviewerExists(ctx context.Context) bool {
+	_, err := reviewers.FromRepo(ctx)
+	return !errors.Is(err, os.ErrNotExist)
 }
 
 // pickPreferredReviewer returns one of names chosen with intN (rand.IntN,

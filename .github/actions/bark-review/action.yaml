@@ -269,8 +269,9 @@ runs:
 
         # For the "Reviewed by" label.
         if [ -z "$BARK_REVIEWER" ]; then
-          PICKED=$(grep -m1 '^bark: reviewer picked from preferred_reviewers: ' /tmp/bark-stderr.txt || true)
-          BARK_REVIEWER=${PICKED#bark: reviewer picked from preferred_reviewers: }
+          PICKED_PREFIX='bark: reviewer picked from preferred_reviewers: '
+          PICKED=$(grep -m1 "^$PICKED_PREFIX" /tmp/bark-stderr.txt || true)
+          BARK_REVIEWER=${PICKED#"$PICKED_PREFIX"}
         fi
         echo "reviewer=$BARK_REVIEWER" >> "$GITHUB_OUTPUT"
 

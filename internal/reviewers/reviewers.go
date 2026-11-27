@@ -1,6 +1,7 @@
 package reviewers
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/assets"
+	"github.com/ionut-t/bark/v2/internal/git"
 )
 
 //go:embed prompts/*.md
@@ -61,6 +63,31 @@ func FromFile(path string) (*Reviewer, error) {
 	}
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	return &Reviewer{Name: name, Prompt: string(content)}, nil
+}
+
+// RepoFile is where a repository keeps its own reviewer, relative to the
+// repository's root.
+const RepoFile = ".bark/reviewer.md"
+
+// FromRepo loads the reviewer kept in RepoFile at the root of the
+// repository Bark runs in, or in the working directory outside one. An
+// error matching os.ErrNotExist means there is none. Anything other than a
+// regular file there is an error.
+func FromRepo(ctx context.Context) (*Reviewer, error) {
+	root, err := git.RepoRoot(ctx)
+	if err != nil {
+		root = "" // Outside a repository: the working directory.
+	}
+	path := filepath.Join(root, RepoFile)
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("error reading reviewer file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("error reading reviewer file: %s is not a file", path)
+	}
+
+	return FromFile(path)
 }
 
 func GetEmbedded(name string) (*Reviewer, error) {
