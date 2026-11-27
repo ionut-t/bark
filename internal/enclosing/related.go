@@ -336,17 +336,32 @@ func definitionPieces(d decl, accessed map[string]bool) []Piece {
 	if n <= maxDefinitionLines {
 		return []Piece{pc}
 	}
-	var out []Piece
+	// A range may declare several names (width, height int): one piece
+	// for it, naming them all in order, so the label is the same each run.
+	names := map[span][]string{}
 	for name, ms := range d.members {
 		if !accessed[name] {
 			continue
 		}
 		for _, m := range ms {
-			out = append(out, Piece{Path: d.path, Start: m.start, End: min(m.end, m.start+maxDefinitionLines-1), Label: fmt.Sprintf("%s in %s, lines %d-%d", name, d.name, d.start, d.end)})
+			names[m.span] = append(names[m.span], name)
 		}
 	}
+	var out []Piece
+	for s, ns := range names {
+		slices.Sort(ns)
+		out = append(out, Piece{Path: d.path, Start: s.start, End: min(s.end, s.start+maxDefinitionLines-1), Label: fmt.Sprintf("%s in %s, lines %d-%d", strings.Join(ns, ", "), d.name, d.start, d.end)})
+	}
 	if len(out) > 0 {
-		sort.Slice(out, func(i, j int) bool { return out[i].Start < out[j].Start })
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].Start != out[j].Start {
+				return out[i].Start < out[j].Start
+			}
+			if out[i].End != out[j].End {
+				return out[i].End < out[j].End
+			}
+			return out[i].Label < out[j].Label
+		})
 		return out
 	}
 	pc.End = d.start + maxDefinitionLines - 1

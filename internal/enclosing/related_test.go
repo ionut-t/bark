@@ -696,3 +696,37 @@ func TestRelated_GoFunctionCallersByImport(t *testing.T) {
 		})
 	}
 }
+
+// A line of a long type that declares two names the change uses is shown
+// once, labelled with both names, the same on every run.
+func TestRelated_MembersOnOneLine(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package tui\n\ntype Model struct {\n\twidth, height int\n")
+	for i := range 70 {
+		fmt.Fprintf(&b, "\tfield%d string\n", i)
+	}
+	b.WriteString("}\n")
+	repo := fakeRepo{
+		"tui/model.go": b.String(),
+		"tui/view.go":  "package tui\n\nfunc (m Model) View() int {\n\treturn m.width * m.height\n}\n",
+	}
+
+	// The members are a map, so one run may pass by chance.
+	for range 20 {
+		got := relatedTo(t, repo, "tui/view.go", "m.width * m.height")
+		require.Equal(t, []string{"tui/model.go:4-4 height, width in Model, lines 3-75"}, got)
+	}
+}
+
+// Members starting on one line and both cut to maxDefinitionLines end up
+// with the same range; their order mustn't depend on the map.
+func TestDefinitionPieces_SameCutRange(t *testing.T) {
+	d := decl{path: "a.go", name: "T", start: 1, end: 400, members: map[string][]member{
+		"a": {{span: span{10, 200}}},
+		"b": {{span: span{10, 300}}},
+	}}
+	for range 20 {
+		got := labels(definitionPieces(d, map[string]bool{"a": true, "b": true}))
+		require.Equal(t, []string{"a.go:10-69 a in T, lines 1-400", "a.go:10-69 b in T, lines 1-400"}, got)
+	}
+}
