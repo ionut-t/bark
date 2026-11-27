@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.40.0](https://github.com/ionut-t/bark/compare/v2.39.1...v2.40.0) (2026-11-27)
+
+
+### Features
+
+* **enclosing:** prioritise densest declarations when capping diff context ([#200](https://github.com/ionut-t/bark/issues/200)) ([d0c307b](https://github.com/ionut-t/bark/commit/d0c307ba74bafa443371cbd1da592ed847fa984e))
+* **enclosing:** report dropped declarations exceeding line cap ([#198](https://github.com/ionut-t/bark/issues/198)) ([948501f](https://github.com/ionut-t/bark/commit/948501f40f8e6e7c7b2be429ec1107f171180033))
+* **review:** add random selection of preferred reviewers ([#202](https://github.com/ionut-t/bark/issues/202)) ([f808da3](https://github.com/ionut-t/bark/commit/f808da3dadd5a98a3db0e3d5ccf6358b883e7060))
+* **review:** enable context enrichment by default ([#203](https://github.com/ionut-t/bark/issues/203)) ([393064a](https://github.com/ionut-t/bark/commit/393064af3c3029d32395a1d32f0cad5bd46cbb60))
+
+
+### Bug Fixes
+
+* **enclosing:** group labels for shared line declarations ([#201](https://github.com/ionut-t/bark/issues/201)) ([9d8c92c](https://github.com/ionut-t/bark/commit/9d8c92c444082d6e4c4389fb4049f5704d1a3b5a))
+
 ## [2.39.1](https://github.com/ionut-t/bark/compare/v2.39.0...v2.39.1) (2026-11-26)
 
 
