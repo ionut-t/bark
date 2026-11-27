@@ -357,7 +357,10 @@ func definitionPieces(d decl, accessed map[string]bool) []Piece {
 			if out[i].Start != out[j].Start {
 				return out[i].Start < out[j].Start
 			}
-			return out[i].End < out[j].End
+			if out[i].End != out[j].End {
+				return out[i].End < out[j].End
+			}
+			return out[i].Label < out[j].Label
 		})
 		return out
 	}

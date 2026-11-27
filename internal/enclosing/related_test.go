@@ -717,3 +717,16 @@ func TestRelated_MembersOnOneLine(t *testing.T) {
 		require.Equal(t, []string{"tui/model.go:4-4 height, width in Model, lines 3-75"}, got)
 	}
 }
+
+// Members starting on one line and both cut to maxDefinitionLines end up
+// with the same range; their order mustn't depend on the map.
+func TestDefinitionPieces_SameCutRange(t *testing.T) {
+	d := decl{path: "a.go", name: "T", start: 1, end: 400, members: map[string][]member{
+		"a": {{span: span{10, 200}}},
+		"b": {{span: span{10, 300}}},
+	}}
+	for range 20 {
+		got := labels(definitionPieces(d, map[string]bool{"a": true, "b": true}))
+		require.Equal(t, []string{"a.go:10-69 a in T, lines 1-400", "a.go:10-69 b in T, lines 1-400"}, got)
+	}
+}
