@@ -260,6 +260,7 @@ func TestEnsureFile_CreatesDefaultsOnce(t *testing.T) {
 	assert.NotEmpty(t, saved.Editor)
 	assert.Equal(t, uint32(DEFAULT_MAX_DIFF_TOKENS), saved.MaxDiffTokens)
 	assert.Equal(t, uint32(DEFAULT_MAX_DIFF_LINES), saved.MaxDiffLines)
+	assert.True(t, saved.ContextEnrichment, "context enrichment is on by default")
 
 	const existing = "llm_model = 'kept'\n"
 	require.NoError(t, os.WriteFile(path, []byte(existing), 0o644))

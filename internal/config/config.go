@@ -141,7 +141,7 @@ type Data struct {
 	// MaxDiffTokens. omitempty keeps it out of new files.
 	MaxDiffLines       uint32   `toml:"max_diff_lines,omitempty" comment:"Deprecated: use max_diff_tokens. Maximum number of diff lines to include in the prompt (0 disables the limit)"`
 	RelativeNumber     bool     `toml:"relative_number" comment:"Whether to use relative line numbers in the editor (default: false)"`
-	ContextEnrichment  bool     `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review (default: false)"`
+	ContextEnrichment  bool     `toml:"context_enrichment" comment:"Whether to include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review (default: true)"`
 	StructuredFindings bool     `toml:"structured_findings" comment:"Whether reviews ask the model for structured findings (file, line, severity, ...) instead of free text (default: false)"`
 	CheckFindings      bool     `toml:"check_findings" comment:"Whether structured reviews make a second model call that checks each finding against the code and sets aside the ones that don't hold up (default: true)"`
 	MinSeverity        string   `toml:"min_severity" comment:"The lowest severity a structured review shows: critical, high, medium or low (default: empty, every finding)"`
@@ -211,12 +211,13 @@ func New(path string, data Data) Config {
 // DefaultData is what a new config file contains.
 func DefaultData() Data {
 	return Data{
-		Editor:        DefaultEditor(),
-		LLMModel:      defaultLLMModel,
-		MaxDiffTokens: DEFAULT_MAX_DIFF_TOKENS,
-		MaxDiffLines:  DEFAULT_MAX_DIFF_LINES,
-		CheckFindings: true,
-		HouseRules:    true,
+		Editor:            DefaultEditor(),
+		LLMModel:          defaultLLMModel,
+		MaxDiffTokens:     DEFAULT_MAX_DIFF_TOKENS,
+		MaxDiffLines:      DEFAULT_MAX_DIFF_LINES,
+		ContextEnrichment: true,
+		CheckFindings:     true,
+		HouseRules:        true,
 	}
 }
 
