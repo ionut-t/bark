@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -27,6 +28,22 @@ func TestLoaders(t *testing.T) {
 		require.NoError(t, os.MkdirAll(".bark", 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(".bark", "reviewer.md"), []byte("Repo persona."), 0o644))
 		msg = loadReviewersCmd(storage)().(reviewersLoadedMsg)
+		require.NoError(t, msg.fileErr)
+		assert.Equal(t, "Repo persona.", msg.fileReviewer.Prompt)
+	})
+
+	// From a subdirectory of a repository, the reviewer file at its root
+	// is found.
+	t.Run("reviewer file from a subdirectory", func(t *testing.T) {
+		root := t.TempDir()
+		t.Chdir(root)
+		require.NoError(t, exec.Command("git", "init", "-q").Run())
+		require.NoError(t, os.MkdirAll(".bark", 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(".bark", "reviewer.md"), []byte("Repo persona."), 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Join("internal", "pkg"), 0o755))
+		t.Chdir(filepath.Join(root, "internal", "pkg"))
+
+		msg := loadReviewersCmd(storage)().(reviewersLoadedMsg)
 		require.NoError(t, msg.fileErr)
 		assert.Equal(t, "Repo persona.", msg.fileReviewer.Prompt)
 	})

@@ -1,13 +1,17 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"strings"
 
 	"github.com/ionut-t/bark/v2/internal/config"
 	"github.com/ionut-t/bark/v2/internal/findings"
 	"github.com/ionut-t/bark/v2/internal/plain"
+	"github.com/ionut-t/bark/v2/internal/reviewers"
 	"github.com/ionut-t/bark/v2/tui"
 	"github.com/spf13/cobra"
 )
@@ -176,10 +180,20 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	}
 	warnRepoLLM(os.Stderr, cfg)
 
+	pickedReviewer := false
+	if reviewerName == "" && !repoReviewerExists(cmd.Context()) {
+		reviewerName = pickPreferredReviewer(cfg.GetPreferredReviewers(), rand.IntN)
+		pickedReviewer = reviewerName != ""
+	}
+
 	// Posting and failing on findings run in plain mode: the TUI has no
 	// step for posting, and its exit status means nothing. A dry run prints
 	// prompts, which the TUI has no view for.
 	if stdinDiff != nil || comment || failOn != "" || dryRun || isPlainMode(cmd) {
+		if pickedReviewer {
+			// The GitHub Action reads this line for its "Reviewed by" label.
+			fmt.Fprintf(os.Stderr, "%s%s\n", pickedReviewerPrefix, reviewerName)
+		}
 		return plain.RunReview(plain.ReviewOptions{
 			Diff:              stdinDiff,
 			ReviewerName:      reviewerName,
@@ -231,4 +245,27 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		PR:                pr,
 		WithPRDescription: withDescription,
 	})
+}
+
+// pickedReviewerPrefix starts the message naming the reviewer picked from
+// preferred_reviewers. The GitHub Action matches it, so keep them in step.
+const pickedReviewerPrefix = "bark: reviewer picked from preferred_reviewers: "
+
+// repoReviewerExists reports whether the repository has its own reviewer,
+// .bark/reviewer.md at its root, which beats the preferred reviewers. A
+// path there that can't be read counts too, so the review reports it
+// instead of silently picking another reviewer.
+func repoReviewerExists(ctx context.Context) bool {
+	_, err := reviewers.FromRepo(ctx)
+	return !errors.Is(err, os.ErrNotExist)
+}
+
+// pickPreferredReviewer returns one of names chosen with intN (rand.IntN,
+// or a fixed choice in tests), or "" if names is empty.
+func pickPreferredReviewer(names []string, intN func(n int) int) string {
+	if len(names) == 0 {
+		return ""
+	}
+
+	return names[intN(len(names))]
 }

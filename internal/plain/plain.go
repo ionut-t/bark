@@ -2,6 +2,7 @@ package plain
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1023,7 +1024,8 @@ func noteReviewScope(w io.Writer, full bool, recorded string, r git.ReviewDiff) 
 	}
 }
 
-// resolveReviewer loads a reviewer from a file path, by name, or from .bark/reviewer.md.
+// resolveReviewer loads a reviewer from a file path, by name, or from the
+// .bark/reviewer.md at the repository's root.
 func resolveReviewer(name, storage string) (*reviewers.Reviewer, error) {
 	if name != "" {
 		if _, err := os.Stat(name); err == nil {
@@ -1040,8 +1042,11 @@ func resolveReviewer(name, storage string) (*reviewers.Reviewer, error) {
 		return r, nil
 	}
 
-	if _, err := os.Stat(".bark/reviewer.md"); err == nil {
-		return reviewers.FromFile(".bark/reviewer.md")
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	reviewer, err := reviewers.FromRepo(ctx)
+	if err == nil || !errors.Is(err, os.ErrNotExist) {
+		return reviewer, err
 	}
 
 	return nil, fmt.Errorf("reviewer is required in plain mode (use --as or add .bark/reviewer.md)")

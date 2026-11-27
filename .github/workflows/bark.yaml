@@ -155,9 +155,6 @@ jobs:
             echo "Reviewer from the PR's \"bark: as\" label: $LABEL_REVIEWER"
             BARK_REVIEWER=$LABEL_REVIEWER
           fi
-          # For the "Reviewed by" label.
-          echo "reviewer=$BARK_REVIEWER" >> "$GITHUB_OUTPUT"
-
           ARGS=(review --pr "${{ github.event.pull_request.number }}" --provider "$PROVIDER")
           [ -n "$BARK_REVIEWER" ] && ARGS+=(--as "$BARK_REVIEWER")
           [ -n "$BARK_MODEL" ] && ARGS+=(--model "$BARK_MODEL")
@@ -180,7 +177,19 @@ jobs:
           elif [ "$BARK_APPROVE" = "true" ]; then
             echo "::warning::BARK_APPROVE needs BARK_INLINE_COMMENTS=true; posting the review without approving."
           fi
-          /tmp/bark "${ARGS[@]}" > /tmp/bark-review.txt
+          # Bark's messages also go to a file, to read the reviewer it picked
+          # from preferred_reviewers. pipefail keeps a failed review failing
+          # the step instead of taking tee's status.
+          set -o pipefail
+          /tmp/bark "${ARGS[@]}" 2>&1 > /tmp/bark-review.txt | tee /tmp/bark-stderr.txt >&2
+
+          # For the "Reviewed by" label.
+          if [ -z "$BARK_REVIEWER" ]; then
+            PICKED_PREFIX='bark: reviewer picked from preferred_reviewers: '
+            PICKED=$(grep -m1 "^$PICKED_PREFIX" /tmp/bark-stderr.txt || true)
+            BARK_REVIEWER=${PICKED#"$PICKED_PREFIX"}
+          fi
+          echo "reviewer=$BARK_REVIEWER" >> "$GITHUB_OUTPUT"
 
       - name: Post or update PR comment
         if: vars.BARK_INLINE_COMMENTS != 'true'

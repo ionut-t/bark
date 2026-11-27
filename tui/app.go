@@ -421,10 +421,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reviewers.setSize(m.width, m.height)
 
 		if m.reviewerName != "" {
-			if reviewer, err := reviewers.Find(m.reviewerName, listReviewers); err == nil {
+			reviewer, err := reviewers.Find(m.reviewerName, listReviewers)
+			if err == nil {
 				m.selectedReviewer = reviewer
 				return m, utils.DispatchMsg(reviewerSelectedMsg{Reviewer: reviewer})
 			}
+			m.error = err
+			return m, nil
 		}
 
 		if msg.fileErr == nil {

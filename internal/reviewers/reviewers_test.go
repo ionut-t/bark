@@ -1,7 +1,9 @@
 package reviewers
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -80,6 +82,43 @@ func TestFromFile(t *testing.T) {
 
 	_, err = FromFile(filepath.Join(t.TempDir(), "missing.md"))
 	assert.ErrorContains(t, err, "error reading reviewer file")
+}
+
+func TestFromRepo(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	require.NoError(t, exec.Command("git", "init", "-q").Run())
+	sub := filepath.Join(root, "internal", "pkg")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	t.Chdir(sub)
+
+	_, err := FromRepo(context.Background())
+	require.ErrorIs(t, err, os.ErrNotExist, "no reviewer file")
+
+	// Found at the repository's root, not the working directory.
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".bark"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, RepoFile), []byte("Repo persona."), 0o644))
+	r, err := FromRepo(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, &Reviewer{Name: "reviewer", Prompt: "Repo persona."}, r)
+
+	require.NoError(t, os.Remove(filepath.Join(root, RepoFile)))
+	require.NoError(t, os.Mkdir(filepath.Join(root, RepoFile), 0o755))
+	_, err = FromRepo(context.Background())
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, os.ErrNotExist, "a directory is reported, not taken as none")
+	assert.ErrorContains(t, err, "is not a file")
+}
+
+// Outside a repository, the working directory is the root.
+func TestFromRepo_OutsideARepository(t *testing.T) {
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.MkdirAll(".bark", 0o755))
+	require.NoError(t, os.WriteFile(RepoFile, []byte("Here."), 0o644))
+
+	r, err := FromRepo(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "Here.", r.Prompt)
 }
 
 func TestGetEmbedded(t *testing.T) {

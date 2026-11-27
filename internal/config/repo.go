@@ -40,7 +40,8 @@ type RepoData struct {
 	LLMTimeout         *string `toml:"llm_timeout"`
 	// HouseRulesFiles is a pointer so an empty list, which means the
 	// defaults, still beats a user's own list.
-	HouseRulesFiles *[]string `toml:"house_rules_files"`
+	HouseRulesFiles    *[]string `toml:"house_rules_files"`
+	PreferredReviewers *[]string `toml:"preferred_reviewers"`
 }
 
 // repoKeys are the keys RepoData accepts, for error messages.
@@ -48,6 +49,7 @@ var repoKeys = []string{
 	LLMProviderKey, LLMModelKey, MaxDiffTokensKey, ContextEnrichmentKey,
 	StructuredFindingsKey, CheckFindingsKey, MinSeverityKey, FailOnKey,
 	HouseRulesKey, HouseRulesFilesKey, EffortKey, LLMTimeoutKey,
+	PreferredReviewersKey,
 }
 
 // ParseRepo reads a repository's config from content, the contents of the
@@ -106,6 +108,11 @@ func ParseRepo(path string, content []byte) (RepoData, error) {
 	}
 	if repo.HouseRulesFiles != nil {
 		if err := ValidateHouseRulesFiles(*repo.HouseRulesFiles); err != nil {
+			return RepoData{}, fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	if repo.PreferredReviewers != nil {
+		if err := ValidatePreferredReviewers(*repo.PreferredReviewers); err != nil {
 			return RepoData{}, fmt.Errorf("%s: %w", path, err)
 		}
 	}

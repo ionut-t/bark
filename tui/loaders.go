@@ -41,7 +41,9 @@ type reviewersLoadedMsg struct {
 func loadReviewersCmd(storage string) tea.Cmd {
 	return func() tea.Msg {
 		list, listErr := reviewers.Get(storage)
-		fileReviewer, fileErr := reviewers.FromFile(".bark/reviewer.md")
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		fileReviewer, fileErr := reviewers.FromRepo(ctx)
 		return reviewersLoadedMsg{
 			reviewers:    list,
 			reviewersErr: listErr,

@@ -228,9 +228,6 @@ runs:
             BARK_REVIEWER=$LABEL_REVIEWER
           fi
         fi
-        # For the "Reviewed by" label.
-        echo "reviewer=$BARK_REVIEWER" >> "$GITHUB_OUTPUT"
-
         if [ -n "$BARK_REVIEWER" ]; then
           ARGS+=(--as "$BARK_REVIEWER")
         fi
@@ -261,10 +258,23 @@ runs:
 
         # Exit status 3 means the review kept findings at or above fail-on.
         # The review is still posted and labelled; the last step fails the
-        # job. Any other failure stops here.
+        # job. Any other failure stops here. Bark's messages are copied to a
+        # file as they print, to read the reviewer it picked from
+        # preferred_reviewers, if any.
         STATUS=0
-        bark "${ARGS[@]}" > /tmp/bark-review.txt || STATUS=$?
+        # The review goes to the file and Bark's messages through tee; under
+        # pipefail the status is Bark's.
+        bark "${ARGS[@]}" 2>&1 > /tmp/bark-review.txt | tee /tmp/bark-stderr.txt >&2 || STATUS=$?
         echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+
+        # For the "Reviewed by" label.
+        if [ -z "$BARK_REVIEWER" ]; then
+          PICKED_PREFIX='bark: reviewer picked from preferred_reviewers: '
+          PICKED=$(grep -m1 "^$PICKED_PREFIX" /tmp/bark-stderr.txt || true)
+          BARK_REVIEWER=${PICKED#"$PICKED_PREFIX"}
+        fi
+        echo "reviewer=$BARK_REVIEWER" >> "$GITHUB_OUTPUT"
+
         if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 3 ]; then
           exit "$STATUS"
         fi
