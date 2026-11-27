@@ -41,7 +41,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().Uint32("max-diff-lines", 0, "Maximum number of diff lines to include in the prompt (0 disables the limit)")
 	_ = cmd.Flags().MarkDeprecated("max-diff-lines", "use --max-diff-tokens instead")
 	cmd.Flags().Bool("with-description", false, "Include the PR description in the review context (only applies with --pr)")
-	cmd.Flags().Bool("with-context", false, "Include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review")
+	cmd.Flags().Bool("with-context", true, "Include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review (overrides config)")
 	cmd.Flags().Bool("structured", false, "Ask for structured findings (file, line, severity, suggestion); the reviewer persona voices the intro, remarks and verdict")
 	cmd.Flags().Bool("house-rules", true, "Read the repository's house rules (AGENTS.md and CLAUDE.md, or the house_rules_files config) into the review and hold the change to them (overrides config)")
 	cmd.Flags().Bool("check", true, "Check structured findings with a second model call that reads the code around them, and set aside the ones that don't hold up (overrides config)")

@@ -240,7 +240,7 @@ func TestConfigCmd_SetsEditor(t *testing.T) {
 	cmd.SetArgs([]string{"-e", "nano"})
 	require.NoError(t, cmd.Execute())
 
-	assert.Equal(t, savedConfig{Editor: "nano", LLMModel: "gpt-x", CheckFindings: true}, readSavedConfig(t, path))
+	assert.Equal(t, savedConfig{Editor: "nano", LLMModel: "gpt-x", ContextEnrichment: true, CheckFindings: true}, readSavedConfig(t, path))
 }
 
 // Every field saved to the config file must be read back. Catches a field
@@ -255,7 +255,7 @@ func TestReadConfigData_ReadsEveryField(t *testing.T) {
 		MaxDiffTokens:      9000,
 		MaxDiffLines:       300,
 		RelativeNumber:     true,
-		ContextEnrichment:  true,
+		ContextEnrichment:  false,
 		StructuredFindings: true,
 		CheckFindings:      false,
 		MinSeverity:        "high",
