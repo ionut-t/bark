@@ -63,7 +63,7 @@ func TestOverlayCenter(t *testing.T) {
 	assert.Equal(t, strings.Repeat(".", 20), lines[0])
 
 	wide := overlayCenter(base, strings.Repeat("W", 50), 20, 10)
-	for _, l := range strings.Split(wide, "\n") {
+	for l := range strings.SplitSeq(wide, "\n") {
 		assert.LessOrEqual(t, len(l), 20, "the modal is clamped to the width")
 	}
 }

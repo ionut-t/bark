@@ -79,7 +79,7 @@ func TestWithdrawUsesGH(t *testing.T) {
 	assert.Zero(t, n)
 	assert.Empty(t, calls(t, log), "nothing to withdraw makes no call")
 
-	pull := github.Pull{Repo: github.Repo{Owner: "o", Name: "r"}, Number: 7}
+	pull := github.Pull{Owner: "o", Name: "r", Number: 7}
 	n, err = Withdraw(ctx, []Approval{{ID: 1, Commit: "1234567890", pull: pull}}, "abcdef1234", "a finding")
 	assert.Zero(t, n)
 	assert.ErrorContains(t, err, "failed to dismiss Bark's approval of 1234567")
