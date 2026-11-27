@@ -696,3 +696,24 @@ func TestRelated_GoFunctionCallersByImport(t *testing.T) {
 		})
 	}
 }
+
+// A line of a long type that declares two names the change uses is shown
+// once, labelled with both names, the same on every run.
+func TestRelated_MembersOnOneLine(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package tui\n\ntype Model struct {\n\twidth, height int\n")
+	for i := range 70 {
+		fmt.Fprintf(&b, "\tfield%d string\n", i)
+	}
+	b.WriteString("}\n")
+	repo := fakeRepo{
+		"tui/model.go": b.String(),
+		"tui/view.go":  "package tui\n\nfunc (m Model) View() int {\n\treturn m.width * m.height\n}\n",
+	}
+
+	// The members are a map, so one run may pass by chance.
+	for range 20 {
+		got := relatedTo(t, repo, "tui/view.go", "m.width * m.height")
+		require.Equal(t, []string{"tui/model.go:4-4 height, width in Model, lines 3-75"}, got)
+	}
+}
