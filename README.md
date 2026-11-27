@@ -66,6 +66,14 @@ bark review --as linus
 
 In GitHub Actions, the `bark-review` action's `reviewer` input sets the reviewer for every pull request. To pick one for a single pull request, add a `bark: as <name>` label to it, such as `bark: as Yoda`. The label stays on the pull request, so every later review of it uses that reviewer too. The name must be a built-in or saved reviewer, not a file path, and a pull request can have only one such label. Set `reviewer-from-label: false` to ignore these labels.
 
+To have Bark pick a random reviewer for each review, list reviewer names in `preferred_reviewers`, in your config file or in a repository's `.bark/config.toml`:
+
+```toml
+preferred_reviewers = ["Linus Torvalds", "Yoda", "Spock"]
+```
+
+Bark uses this list only when no reviewer is set another way (`--as`, `.bark/reviewer.md`, or in GitHub Actions the `reviewer` input or a `bark: as` label). The list takes names only, not file paths. In GitHub Actions, the pull request gets a label naming the reviewer, such as `Reviewed by Yoda`.
+
 To add Bark's `bark: …` labels, to a repository, run [`scripts/bark-labels.sh`](scripts/bark-labels.sh) with the GitHub CLI signed in: `scripts/bark-labels.sh owner/repo`. Add `--dry-run` to see the labels first.
 
 To provide custom instructions to the reviewer, use the `--instructions` or `-i` flag with the name of a saved instruction, a file path or the instructions as text. Repeat the flag to combine several; they're added in the order given:
@@ -297,7 +305,7 @@ bark review --config ~/work/bark.toml
 
 ### Per-repository config
 
-A repository can share review settings in `.bark/config.toml` at its top level. Its values win over your config file and lose to command-line flags. It can set `llm_provider`, `llm_model`, `max_diff_tokens`, `context_enrichment`, `structured_findings`, `check_findings`, `min_severity`, `fail_on`, `effort`, `llm_timeout`, `house_rules` and `house_rules_files`. Other keys are an error. That includes `editor` and `relative_number`, which stay personal (the editor is run as a command, so a cloned repository can't choose it).
+A repository can share review settings in `.bark/config.toml` at its top level. Its values win over your config file and lose to command-line flags. It can set `llm_provider`, `llm_model`, `max_diff_tokens`, `context_enrichment`, `structured_findings`, `check_findings`, `min_severity`, `fail_on`, `effort`, `llm_timeout`, `house_rules`, `house_rules_files` and `preferred_reviewers`. Other keys are an error. That includes `editor` and `relative_number`, which stay personal (the editor is run as a command, so a cloned repository can't choose it).
 
 ```toml
 structured_findings = true
