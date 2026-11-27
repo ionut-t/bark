@@ -52,8 +52,13 @@ func runBark(t *testing.T, args ...string) barkResult {
 // run that takes over a minute is killed, so a hang fails the test.
 func runBarkWithStdin(t *testing.T, in *os.File, args ...string) barkResult {
 	t.Helper()
+	return runBarkIn(t, t.TempDir(), in, args...)
+}
 
-	home := t.TempDir()
+// runBarkIn is runBarkWithStdin run in dir, which is also HOME.
+func runBarkIn(t *testing.T, home string, in *os.File, args ...string) barkResult {
+	t.Helper()
+
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, barkBin, args...)
@@ -240,4 +245,32 @@ func TestSourceFlag_DoesNotWaitOnOpenStdin(t *testing.T) {
 			assert.NotContains(t, res.stderr, "waiting for a diff on stdin")
 		})
 	}
+}
+
+// A repository's .bark/config.toml can set preferred_reviewers, so a name
+// picked from it is only looked up among the reviewers: a path there must
+// not read a local file into the prompt.
+func TestPreferredReviewers_PathNotRead(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "private.md")
+	require.NoError(t, os.WriteFile(secret, []byte("PRIVATE-NOTES-CONTENT"), 0o644))
+
+	repo := t.TempDir()
+	require.NoError(t, exec.Command("git", "-C", repo, "init", "-q").Run())
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".bark"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".bark", "config.toml"),
+		[]byte("preferred_reviewers = ['"+secret+"']\n"), 0o644))
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(cfg, []byte("editor = 'true'\nllm_provider = 'openai'\n"), 0o644))
+
+	diff := filepath.Join(t.TempDir(), "change.diff")
+	require.NoError(t, os.WriteFile(diff, []byte("diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-a\n+b\n"), 0o644))
+	in, err := os.Open(diff)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = in.Close() })
+
+	res := runBarkIn(t, repo, in, "review", "--plain", "--dry-run", "--skip-instruction", "--config", cfg)
+
+	assert.NotContains(t, res.stdout+res.stderr, "PRIVATE-NOTES-CONTENT")
+	assert.Equal(t, 1, res.exitCode, "stdout: %s\nstderr: %s", res.stdout, res.stderr)
+	assert.Contains(t, res.stderr, "reviewer not found")
 }
