@@ -65,9 +65,9 @@ inputs:
     required: false
     default: "false"
   with-context:
-    description: Include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review. Adds input tokens to each review.
+    description: Include enclosing declarations (functions, structs, classes) and related code (definitions the change uses, callers of changed functions) as context for review. On by default; set to false to leave it out, since it adds input tokens to each review.
     required: false
-    default: "false"
+    default: "true"
   inline-comments:
     description: |
       Post the review as a pull request review, with findings as inline
@@ -239,7 +239,8 @@ runs:
         ARGS+=(--model "$BARK_MODEL")
         [ -n "$BARK_MAX_DIFF_TOKENS" ] && ARGS+=(--max-diff-tokens "$BARK_MAX_DIFF_TOKENS")
         [ -n "$BARK_MAX_DIFF_LINES" ] && ARGS+=(--max-diff-lines "$BARK_MAX_DIFF_LINES")
-        [ "$BARK_WITH_CONTEXT" = "true" ] && ARGS+=(--with-context)
+        # Either way: context is on by default, so "false" must reach Bark.
+        [ -n "$BARK_WITH_CONTEXT" ] && ARGS+=("--with-context=$BARK_WITH_CONTEXT")
         [ "$BARK_WITH_DESCRIPTION" = "true" ] && ARGS+=(--with-description)
         [ "$BARK_INLINE_COMMENTS" = "true" ] && ARGS+=(--comment)
         # Only when set, so a pinned older Bark doesn't get a flag it lacks.

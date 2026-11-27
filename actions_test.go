@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -186,5 +187,63 @@ func TestApprovePassedOnlyWithInlineComments(t *testing.T) {
 		require.Positive(t, i, name)
 		assert.Contains(t, run[:i], `"$BARK_INLINE_COMMENTS"`, "%s: --approve only with inline comments", name)
 		assert.Contains(t, run[i:], `ARGS+=(--approve-below "$BARK_APPROVE_BELOW")`, "%s: --approve-below only with --approve", name)
+	}
+}
+
+// TestWithContextPassedBothWays checks that the review action and Bark's
+// own workflow pass the with-context setting to Bark either way. Context is
+// on by default, so passing only --with-context when it's "true" leaves no
+// way to turn it off; unset leaves Bark's default. The action's input
+// defaults to true to match.
+func TestWithContextPassedBothWays(t *testing.T) {
+	data, err := os.ReadFile(".github/actions/bark-review/action.yaml")
+	require.NoError(t, err)
+	var action struct {
+		Inputs map[string]struct {
+			Default string `yaml:"default"`
+		} `yaml:"inputs"`
+		compositeAction `yaml:",inline"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &action))
+	assert.Equal(t, "true", action.Inputs["with-context"].Default)
+
+	data, err = os.ReadFile(".github/workflows/bark.yaml")
+	require.NoError(t, err)
+	var wf workflow
+	require.NoError(t, yaml.Unmarshal(data, &wf))
+
+	scripts := map[string][]step{"action": action.Runs.Steps, "workflow": wf.Jobs["review"].Steps}
+	for name, steps := range scripts {
+		var lines []string
+		for _, s := range steps {
+			if s.Name != "Run bark review" {
+				continue
+			}
+			for line := range strings.SplitSeq(s.Run, "\n") {
+				if strings.Contains(line, "$BARK_WITH_CONTEXT") {
+					lines = append(lines, line)
+				}
+			}
+		}
+		require.NotEmpty(t, lines, name)
+		script := "ARGS=()\n" + strings.Join(lines, "\n") + "\nprintf '%s\\n' \"${ARGS[@]}\"\n"
+
+		tests := []struct {
+			value string
+			want  string
+		}{
+			{value: "", want: ""},
+			{value: "true", want: "--with-context=true\n"},
+			{value: "false", want: "--with-context=false\n"},
+		}
+		for _, tt := range tests {
+			t.Run(name+"/"+tt.value, func(t *testing.T) {
+				cmd := exec.Command("bash", "-c", script)
+				cmd.Env = append(os.Environ(), "BARK_WITH_CONTEXT="+tt.value)
+				out, err := cmd.Output()
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, strings.TrimLeft(string(out), "\n"))
+			})
+		}
 	}
 }
