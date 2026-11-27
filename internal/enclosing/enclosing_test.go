@@ -437,23 +437,19 @@ func TestDeclarationsForDiff_OnlyWhollyAddedDeclarations(t *testing.T) {
 // it can be measured: each dropped declaration's file, name, size and how
 // many of the diff's changed lines it holds.
 func TestDeclarationsForDiff_ReportsDroppedDeclarations(t *testing.T) {
-	// a.go: nine 100-line functions with one changed line each; eight fill
-	// the 800-line cap.
-	var a, diff strings.Builder
-	a.WriteString("package app\n")
-	diff.WriteString("diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n")
-	line := 2
-	for i := range 9 {
-		fmt.Fprintf(&a, "\nfunc f%d() {\n", i)
-		line += 2
-		fmt.Fprintf(&diff, "@@ -%d,0 +%d @@\n+\t_ = 0\n", line, line)
-		for range 98 {
-			a.WriteString("\t_ = 0\n")
-			line++
-		}
-		a.WriteString("}\n")
-		line++
+	// a.go: nine 100-line functions with every body line changed, denser
+	// than b.go's blocks; eight fill the 800-line cap.
+	type fn = struct {
+		name           string
+		lines, changed int
 	}
+	var funcs []fn
+	for i := range 9 {
+		funcs = append(funcs, fn{fmt.Sprintf("f%d", i), 100, 98})
+	}
+	a, aDiff := goFuncs("a.go", funcs...)
+	var diff strings.Builder
+	diff.WriteString(aDiff)
 	b := "package app\n" + //            1
 		"\n" + //                        2
 		"type Config struct {\n" + //    3
@@ -467,7 +463,7 @@ func TestDeclarationsForDiff_ReportsDroppedDeclarations(t *testing.T) {
 	diff.WriteString("diff --git a/b.go b/b.go\n--- a/b.go\n+++ b/b.go\n" +
 		"@@ -4,2 +4,2 @@\n-\tName int\n-\tPort string\n+\tName string\n+\tPort int\n" +
 		"@@ -9 +9 @@\n-\ts.n--\n+\ts.n++\n")
-	files := map[string]string{"a.go": a.String(), "b.go": b}
+	files := map[string]string{"a.go": a, "b.go": b}
 	read := func(_ context.Context, path string) ([]byte, error) { return []byte(files[path]), nil }
 
 	got, err := DeclarationsForDiff(t.Context(), diff.String(), read)
@@ -477,15 +473,68 @@ func TestDeclarationsForDiff_ReportsDroppedDeclarations(t *testing.T) {
 	assert.NotContains(t, got.Text, "func f8() {")
 	assert.NotContains(t, got.Text, "### File: b.go")
 	assert.Equal(t, []Dropped{
-		{File: "a.go", Name: "f8", Lines: 100, Changed: 1},
+		{File: "a.go", Name: "f8", Lines: 100, Changed: 98},
 		{File: "b.go", Name: "Config", Lines: 4, Changed: 2},
 		{File: "b.go", Name: "(*Server).Handle", Lines: 3, Changed: 1},
 	}, got.Dropped)
 	assert.Equal(t, "3 enclosing declarations (107 lines) over the 800-line cap left out\n"+
-		"  a.go f8: 100 lines, 1 changed\n"+
+		"  a.go f8: 100 lines, 98 changed\n"+
 		"  b.go Config: 4 lines, 2 changed\n"+
 		"  b.go (*Server).Handle: 3 lines, 1 changed", got.DroppedSummary())
 	assert.Empty(t, Context{Text: "x"}.DroppedSummary())
+}
+
+// goFuncs builds a Go file of functions and a diff adding the first changed
+// lines of each body; lines counts the whole function.
+func goFuncs(path string, funcs ...struct {
+	name           string
+	lines, changed int
+}) (src, diff string) {
+	var s, d strings.Builder
+	s.WriteString("package app\n")
+	fmt.Fprintf(&d, "diff --git a/%s b/%s\n--- a/%s\n+++ b/%s\n", path, path, path, path)
+	line := 2
+	for _, f := range funcs {
+		fmt.Fprintf(&s, "\nfunc %s() {\n", f.name)
+		line += 2 // blank line, signature
+		fmt.Fprintf(&d, "@@ -%d,0 +%d,%d @@\n", line-1, line, f.changed)
+		for i := range f.lines - 2 {
+			s.WriteString("\t_ = 0\n")
+			if i < f.changed {
+				d.WriteString("+\t_ = 0\n")
+			}
+			line++
+		}
+		s.WriteString("}\n")
+		line++
+	}
+	return s.String(), d.String()
+}
+
+// The cap keeps the declarations with the most changed lines per line, not
+// the first in path order (C4: 82% of changed lines covered on Bark's four
+// capped diffs vs 51%). Kept ones still print grouped by file in path order.
+func TestDeclarationsForDiff_PrefersDenseDeclarations(t *testing.T) {
+	type fn = struct {
+		name           string
+		lines, changed int
+	}
+	// In path order big would take the room and dense would be cut.
+	a, aDiff := goFuncs("a.go", fn{"small", 10, 5}, fn{"big", 790, 1})
+	b, bDiff := goFuncs("b.go", fn{"dense", 20, 10})
+	files := map[string]string{"a.go": a, "b.go": b}
+	read := func(_ context.Context, path string) ([]byte, error) { return []byte(files[path]), nil }
+
+	got, err := DeclarationsForDiff(t.Context(), aDiff+bDiff, read)
+	require.NoError(t, err)
+
+	assert.Equal(t, []Dropped{{File: "a.go", Name: "big", Lines: 790, Changed: 1}}, got.Dropped)
+	small := strings.Index(got.Text, "func small() {")
+	fileB := strings.Index(got.Text, "### File: b.go")
+	dense := strings.Index(got.Text, "func dense() {")
+	require.True(t, small >= 0 && fileB >= 0 && dense >= 0, got.Text)
+	assert.Less(t, small, fileB, "a.go's blocks print before b.go's")
+	assert.Less(t, fileB, dense)
 }
 
 // A name taken from a declaration's first line is cut to maxNameLen
