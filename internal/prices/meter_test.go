@@ -107,7 +107,44 @@ func TestNilMeter(t *testing.T) {
 	m.Mark("review")
 	assert.Empty(t, m.Summary())
 	assert.Nil(t, m.Pricing())
+	assert.Nil(t, m.Cost())
 	usd, calls := m.Total()
 	assert.Zero(t, usd)
 	assert.Zero(t, calls)
+}
+
+// Cost is Summary's figures as data: the total, each marked step's part
+// (and "other" for calls after the last mark), and the prices' date.
+func TestMeterCost(t *testing.T) {
+	t.Parallel()
+
+	usage := &llm.Usage{InputTokens: 1_000, OutputTokens: 500, TotalTokens: 1_500}
+	m := NewMeter(fakeLLM{usage: usage}, testPricing)
+	assert.Nil(t, m.Cost(), "no calls, no cost")
+
+	_, _ = m.Generate(context.Background(), "s", "p")
+	m.Mark("review")
+	_, _ = m.Generate(context.Background(), "s", "p")
+	m.Mark("check")
+	_, _ = m.Generate(context.Background(), "s", "p")
+
+	assert.Equal(t, &Cost{USD: 0.006, Calls: 3, Steps: []Step{
+		{Name: "review", USD: 0.002}, {Name: "check", USD: 0.002}, {Name: "other", USD: 0.002},
+	}, PricesDate: "2026-11-09"}, m.Cost())
+}
+
+// Sums of float prices are rounded to a millionth of a dollar, so JSON
+// shows 0.3, not 0.30000000000000004.
+func TestMeterCostRounds(t *testing.T) {
+	t.Parallel()
+
+	m := NewMeter(fakeLLM{usage: &llm.Usage{InputTokens: 100_000, TotalTokens: 100_000}}, testPricing)
+	for range 3 {
+		_, _ = m.Generate(context.Background(), "s", "p")
+	}
+	m.Mark("review")
+	c := m.Cost()
+	require.NotNil(t, c)
+	assert.Equal(t, 0.3, c.USD, "exact: it is rounded")
+	assert.Equal(t, 0.3, c.Steps[0].USD)
 }

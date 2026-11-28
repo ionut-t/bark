@@ -34,7 +34,15 @@ To review the changes, run `bark review`:
 bark review
 ```
 
-By default, `bark review` will analyse all uncommitted changes, including new files (gitignored files are skipped). To review only the staged changes, use the `--staged` or `-s` flag:
+Without a flag naming what to review, `bark review` asks in the TUI. To review all uncommitted changes, including new files (gitignored files are skipped), use the `--changes` or `-c` flag:
+
+```bash
+bark review --changes
+```
+
+In plain mode (`--plain`, `--format json`, or when the output is piped) there's no menu to ask in, so Bark needs one of these flags or a piped diff, and otherwise fails saying so. `--commit` picks from a menu, so it works only in the TUI; in plain mode, pass `--hash <commit>`.
+
+To review only the staged changes, use the `--staged` or `-s` flag:
 
 ```bash
 bark review --staged
@@ -114,7 +122,7 @@ A full review of a pull request whose head hasn't changed since the last review 
 To see what a review would send to the model without calling it, add `--dry-run`. Bark builds the diff and its context exactly as the review would, with the same flags and config (`--pr`, `--branch`, `--with-context`, `.barkignore`, house rules, `max_diff_tokens`), and masks secrets the same way. It prints the system prompt and the prompt on stdout, then exits without calling the model or posting anything:
 
 ```bash
-bark review --with-context --as linus --dry-run | peek
+bark review --changes --with-context --as linus --dry-run |& peek
 ```
 
 On stderr, it estimates how many input tokens the prompts are and, with a [prices file](#costs), what that input would cost. It needs no API key. Output, thinking and the check's call can't be known before the review runs, so they aren't counted. With `--pr` and `--comment`, the diff is the one the review would see (only the changes since Bark's last review, unless `--full`).
@@ -197,6 +205,57 @@ A finding that repeats a point raised in an earlier review of the same pull requ
 In GitHub Actions, set the `fail-on` input of the `bark-review` action. It posts the review and adds the label, then fails the job.
 
 With `--comment`, a pull request Bark reviewed before is reviewed only from the commits since its last review. A later push that doesn't touch the code an earlier finding is about won't find it again, so it can pass while the issue is still there. Pass `--full` (or set `full-review`) to review the whole pull request each time, so every unfixed finding fails the run again. To get past a finding you won't fix, [dismiss it](#dismissing-a-finding).
+
+#### JSON output
+
+For scripts and coding agents, `--format json` prints the review on stdout as one JSON object instead of Markdown. It turns on structured findings and plain output, and can't be used with `--stream` or `--dry-run`. Bark's own messages (check counts, cost, warnings) stay on stderr.
+
+```bash
+bark review --branch main --format json | jq '.findings[] | select(.setAside | not)'
+```
+
+```json
+{
+  "version": 1,
+  "intro": "Let's see what you broke.",
+  "findings": [
+    {
+      "file": "a.go",
+      "line": 2,
+      "endLine": 3,
+      "severity": "high",
+      "category": "bug",
+      "title": "Nil map",
+      "body": "m is nil, so the write panics.",
+      "original": "var m map[string]int",
+      "suggestion": "m := map[string]int{}",
+      "setAside": false
+    }
+  ],
+  "verdict": "Fix the map.",
+  "checked": 1,
+  "cost": {
+    "usd": 0.0812,
+    "calls": 3,
+    "steps": [
+      { "name": "review", "usd": 0.0434 },
+      { "name": "check", "usd": 0.0352 },
+      { "name": "verdict rewrite", "usd": 0.0026 }
+    ],
+    "pricesDate": "2026-11-09"
+  }
+}
+```
+
+- Every finding is listed, including the ones Bark's check set aside. Those have `setAside: true` and one of `doubt`, `raisedBefore` or `dismissed` saying why. A set-aside finding isn't posted and doesn't count for `--fail-on`.
+- `unchecked` says why the check didn't give a verdict on a finding. That finding still counts. `repaired` means Bark had to fix the model's JSON for the finding, so some of its fields may be cut short.
+- `checked` is how many findings the check gave a verdict on: 0 when the check is off or fails.
+- `text` holds any model output that wasn't in the findings format. `truncated` means the model hit its output limit. `partial` says how much of a diff cut to fit [its limit](#large-diffs) was reviewed.
+- `cost` is what the review's model calls cost in US dollars, with each step's share, counted the way the [`cost` line on stderr](#costs) is. It's left out when there are no prices for the model (no prices file, or Ollama).
+- When there's nothing to review (only [ignored files](#ignoring-files) changed, or nothing changed since the last review with `--comment`), Bark exits 0 and prints an empty `findings` list, with `note` saying why.
+- `version` goes up only when a field is renamed or removed or changes meaning. New fields can be added without a bump.
+
+It works with `--comment` and `--fail-on`. The JSON is printed before the review is posted and before the exit status is set, so it's there even when `--fail-on` exits 3.
 
 #### Approving pull requests
 
