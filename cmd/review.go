@@ -54,6 +54,7 @@ func reviewCmd(getCfg configFunc) *cobra.Command {
 	cmd.Flags().String("approve-below", "", "With --approve, approve only when every finding is below this severity: "+strings.Join(config.Severities(), ", ")+" (default medium, so low findings are left as comments on the approval; a lower --fail-on wins)")
 	cmd.Flags().Bool("no-resolve", false, "With --comment, leave open the threads of Bark's earlier inline comments that its check finds fixed (by default Bark replies on each with the reason and resolves it)")
 	cmd.Flags().Bool("full", false, "Review the whole pull request, not only the changes since Bark's last posted review of it (requires --pr; matters with --comment)")
+	cmd.Flags().String("format", formatText, "Output format of a plain review: text (Markdown), or json, one object with every finding and what Bark's check made of it, for scripts and agents (json implies --structured and plain output; not with --stream or --dry-run)")
 	cmd.Flags().Bool("dry-run", false, "Print the system prompt and prompt the review would send (diff, related code, house rules, secrets masked) with an estimate of their tokens and cost, then exit without calling the model or posting (implies plain output)")
 	addPlainFlag(cmd)
 
@@ -87,6 +88,12 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 	approveBelow, _ := cmd.Flags().GetString("approve-below")
 	noResolve, _ := cmd.Flags().GetBool("no-resolve")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	format, _ := cmd.Flags().GetString("format")
+
+	asJSON, err := jsonFormat(format, stream, dryRun)
+	if err != nil {
+		return err
+	}
 
 	if withDescription && pr == "" {
 		return fmt.Errorf("--with-description requires --pr")
@@ -116,7 +123,8 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		return fmt.Errorf("--full requires --pr")
 	}
 
-	stdinDiff, err := readStdinIfPiped(changes || commit || branch != "" || staged || hash != "" || pr != "")
+	source := changes || commit || branch != "" || staged || hash != "" || pr != ""
+	stdinDiff, err := readStdinIfPiped(source)
 	if err != nil {
 		return err
 	}
@@ -188,8 +196,11 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 
 	// Posting and failing on findings run in plain mode: the TUI has no
 	// step for posting, and its exit status means nothing. A dry run prints
-	// prompts, which the TUI has no view for.
-	if stdinDiff != nil || comment || failOn != "" || dryRun || isPlainMode(cmd) {
+	// prompts, and JSON is for programs, neither of which the TUI shows.
+	if stdinDiff != nil || comment || failOn != "" || dryRun || asJSON || isPlainMode(cmd) {
+		if err := plainSourceError(commit, source, stdinDiff); err != nil {
+			return err
+		}
 		if pickedReviewer {
 			// The Action reads this line for its "Reviewed by" label.
 			fmt.Fprintf(os.Stderr, "%s%s\n", pickedReviewerPrefix, reviewerName)
@@ -216,6 +227,7 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 			ApproveBelow:      findings.Severity(approveBelow),
 			NoResolve:         noResolve,
 			DryRun:            dryRun,
+			JSON:              asJSON,
 		})
 	}
 
@@ -247,6 +259,47 @@ func runReviewCmd(cmd *cobra.Command, cfg config.Config) error {
 		PR:                pr,
 		WithPRDescription: withDescription,
 	})
+}
+
+// plainSourceError is why a plain review can't tell what to review, or nil
+// if it can: source is whether a source flag was passed (commit, the
+// --commit picker, among them), stdin the diff piped in, if any. The TUI
+// asks when nothing says; a plain review has no one to ask, and guessing
+// the uncommitted changes would review something else than meant when
+// stdout is merely piped.
+func plainSourceError(commit, source bool, stdin *string) error {
+	switch {
+	case commit:
+		return errors.New("--commit picks a commit in the TUI; to review one in plain mode, pass --hash <commit>")
+	case !source && stdin == nil:
+		return errors.New("say what to review: -c (uncommitted changes), -s (staged), -b <branch>, --hash <commit> or --pr <number>, or pipe a diff")
+	}
+	return nil
+}
+
+// The values of review's --format flag.
+const (
+	formatText = "text"
+	formatJSON = "json"
+)
+
+// jsonFormat reports whether format, the --format flag, asks for JSON, and
+// fails on a format Bark doesn't know or one stream or dryRun rules out.
+func jsonFormat(format string, stream, dryRun bool) (bool, error) {
+	switch format {
+	case formatText:
+		return false, nil
+	case formatJSON:
+	default:
+		return false, fmt.Errorf("unknown --format %q: use %s or %s", format, formatText, formatJSON)
+	}
+	if stream {
+		return false, plain.ErrJSONStream
+	}
+	if dryRun {
+		return false, plain.ErrJSONDryRun
+	}
+	return true, nil
 }
 
 // pickedReviewerPrefix starts the message naming the reviewer picked from

@@ -1048,6 +1048,18 @@ func TestRunReviewIgnoredOnlyChange(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "bark: commit HEAD changes only files Bark ignores (CHANGELOG.md), so there's nothing to review\n", stderr)
+
+	// With JSON output, stdout still holds a report, so a reader always
+	// gets one when the review succeeds.
+	stdout = capture(t, &os.Stdout, func() {
+		stderr = captureStderr(t, func() {
+			err = RunReview(ReviewOptions{Config: cfg, SkipInstruction: true, Hash: "HEAD", JSON: true})
+		})
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"version":1,"findings":[],"checked":0,
+		"note":"commit HEAD changes only files Bark ignores (CHANGELOG.md), so there's nothing to review"}`, stdout)
+	assert.Contains(t, stderr, "nothing to review")
 }
 
 func TestIgnoredOnlyNote(t *testing.T) {
@@ -1104,4 +1116,44 @@ func TestEmptyDiffError(t *testing.T) {
 			}
 		})
 	}
+}
+
+// JSON is one object on stdout, so it can't be streamed, and a dry run
+// prints prompts instead of a review.
+func TestRunReviewJSONConflicts(t *testing.T) {
+	diff := "diff --git a/a.go b/a.go\n"
+	cfg := config.New("", config.Data{})
+
+	err := RunReview(ReviewOptions{Diff: &diff, Config: cfg, JSON: true, Stream: true})
+	assert.ErrorContains(t, err, "can't be streamed")
+
+	err = RunReview(ReviewOptions{Diff: &diff, Config: cfg, JSON: true, DryRun: true})
+	assert.ErrorContains(t, err, "dry run")
+}
+
+// The report is one line of JSON, with how much of a cut diff was
+// reviewed.
+func TestWriteReport(t *testing.T) {
+	t.Parallel()
+
+	var out strings.Builder
+	events := findings.Parse(structuredOutput)
+	writeReport(&out, findings.NewReport(events, 1), &git.DiffCut{Files: 3, Kept: 2, Setting: "max_diff_tokens", Dropped: []string{"c.md"}})
+
+	got := out.String()
+	assert.Equal(t, 1, strings.Count(got, "\n"))
+	assert.True(t, strings.HasSuffix(got, "}\n"))
+	assert.JSONEq(t, `{"version":1,"findings":[{"file":"a.go","line":2,"severity":"high","category":"bug","title":"Nil map","body":"m is nil.",
+		"remark":"Illogical.","setAside":false}],"verdict":"Fix the map.","checked":1,
+		"partial":"Bark reviewed only 2 of 3 changed files: the diff was cut to fit max_diff_tokens, code first and tests, docs, fixtures and generated files last. Left out: `+"`c.md`"+`."}`, got)
+}
+
+// Code in a report reads as written, not with <, > and & escaped.
+func TestWriteReportKeepsCode(t *testing.T) {
+	t.Parallel()
+
+	var out strings.Builder
+	f := findings.Finding{File: "a.go", Severity: findings.Low, Title: "Recv", Suggestion: "if v := <-ch; v > 0 && ok {"}
+	writeReport(&out, findings.NewReport([]findings.Event{{Finding: &f}}, 0), nil)
+	assert.Contains(t, out.String(), `"suggestion":"if v := <-ch; v > 0 && ok {"`)
 }

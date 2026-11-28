@@ -2,7 +2,7 @@ package prices
 
 import (
 	"context"
-	"slices"
+	"math"
 	"strings"
 	"sync"
 
@@ -114,25 +114,65 @@ func (m *Meter) Total() (usd float64, calls int) {
 //
 // It is empty without calls, or for a nil Meter.
 func (m *Meter) Summary() string {
-	if m == nil {
+	c := m.Cost()
+	if c == nil {
 		return ""
+	}
+	s := "cost " + FormatUSD(c.USD)
+	if len(c.Steps) > 1 {
+		items := make([]string, len(c.Steps))
+		for i, p := range c.Steps {
+			items[i] = p.Name + " " + FormatUSD(p.USD)
+		}
+		s += ": " + strings.Join(items, ", ")
+	}
+	return s + " (prices from " + c.PricesDate + ")"
+}
+
+// Cost is what a command's model calls cost, as `bark review --format json`
+// reports it.
+type Cost struct {
+	// USD is the cost of every call, in US dollars.
+	USD   float64 `json:"usd"`
+	Calls int     `json:"calls"`
+	// Steps are the parts of USD each step of the command cost, in order:
+	// "review", "check", "verdict rewrite", and "other" for calls no step
+	// was marked for.
+	Steps []Step `json:"steps"`
+	// PricesDate is the date of the prices the cost was counted with.
+	PricesDate string `json:"pricesDate"`
+}
+
+// Step is what one step of a command cost.
+type Step struct {
+	Name string  `json:"name"`
+	USD  float64 `json:"usd"`
+}
+
+// Cost returns what the calls cost so far, with each marked step's part
+// (see Mark), rounded to a millionth of a dollar. It is nil without calls,
+// or for a nil Meter.
+func (m *Meter) Cost() *Cost {
+	if m == nil {
+		return nil
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.calls == 0 {
-		return ""
+		return nil
 	}
-	parts := m.parts
+	steps := make([]Step, 0, len(m.parts)+1)
+	for _, p := range m.parts {
+		steps = append(steps, Step{Name: p.label, USD: roundUSD(p.usd)})
+	}
 	if m.calls > m.marked {
-		parts = append(slices.Clip(parts), part{label: "other", usd: m.total - m.markedUSD})
+		steps = append(steps, Step{Name: "other", USD: roundUSD(m.total - m.markedUSD)})
 	}
-	s := "cost " + FormatUSD(m.total)
-	if len(parts) > 1 {
-		items := make([]string, len(parts))
-		for i, p := range parts {
-			items[i] = p.label + " " + FormatUSD(p.usd)
-		}
-		s += ": " + strings.Join(items, ", ")
-	}
-	return s + " (prices from " + m.pricing.Date + ")"
+	return &Cost{USD: roundUSD(m.total), Calls: m.calls, Steps: steps, PricesDate: m.pricing.Date}
+}
+
+// roundUSD rounds usd to a millionth of a dollar, so sums of float prices
+// don't show as 0.30000000000000004.
+func roundUSD(usd float64) float64 {
+	return math.Round(usd*1e6) / 1e6
 }

@@ -2,6 +2,7 @@ package plain
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -76,6 +77,9 @@ type ReviewOptions struct {
 	// DryRun prints the prompts the review would send, with an estimate of
 	// their size and cost, and returns before calling the model or posting.
 	DryRun bool
+	// JSON prints the review as one findings.Report object on stdout
+	// instead of Markdown. It needs a structured review, and turns one on.
+	JSON bool
 
 	// Diff source flags (used when Diff is empty)
 	Staged bool
@@ -102,6 +106,12 @@ type PROptions struct {
 	Config       config.Config
 }
 
+// The errors of a JSON review asked to do what it can't.
+var (
+	ErrJSONStream = errors.New("a JSON review (--format json) is one object, so it can't be streamed (--stream)")
+	ErrJSONDryRun = errors.New("a dry run (--dry-run) prints prompts, not a review, so it has no JSON output (--format json)")
+)
+
 // RunReview runs a code review and writes the output to stdout.
 func RunReview(opts ReviewOptions) error {
 	if opts.Comment && (opts.PR == "" || opts.Diff != nil) {
@@ -116,11 +126,17 @@ func RunReview(opts ReviewOptions) error {
 	if opts.NoResolve && !opts.Comment {
 		return fmt.Errorf("leaving fixed threads open (--no-resolve) needs the review to be posted (--comment)")
 	}
+	if opts.JSON && opts.Stream {
+		return ErrJSONStream
+	}
+	if opts.JSON && opts.DryRun {
+		return ErrJSONDryRun
+	}
 
 	// fail_on needs findings to count, so it turns on structured findings
-	// as --comment does.
+	// as --comment and JSON output do.
 	failOn := findings.Severity(opts.Config.GetFailOn())
-	structured := opts.Config.GetStructuredFindings() || opts.Comment || failOn != ""
+	structured := opts.Config.GetStructuredFindings() || opts.Comment || failOn != "" || opts.JSON
 	checking := structured && opts.Config.GetCheckFindings()
 
 	// What Bark's earlier reviews of the pull request recorded: the
@@ -170,13 +186,23 @@ func RunReview(opts ReviewOptions) error {
 		if reviewDiff.Since != "" && reviewDiff.Diff == "" {
 			// On stdout too, so CI can tell it from a review that failed
 			// to produce anything.
-			fmt.Println(nothingToReview(reviewDiff))
+			if opts.JSON {
+				writeReport(os.Stdout, findings.Report{Version: findings.ReportVersion, Findings: []findings.ReportFinding{},
+					Note: nothingToReview(reviewDiff)}, nil)
+			} else {
+				fmt.Println(nothingToReview(reviewDiff))
+			}
 			return nil
 		}
 		if reviewDiff.Diff == "" && len(reviewDiff.Ignored) > 0 {
 			// Nothing to review isn't a failure: CI shouldn't fail a
 			// release that only edits CHANGELOG.md.
-			fmt.Fprintln(os.Stderr, ignoredOnlyNote(opts, reviewDiff))
+			note := ignoredOnlyNote(opts, reviewDiff)
+			fmt.Fprintln(os.Stderr, note)
+			if opts.JSON {
+				writeReport(os.Stdout, findings.Report{Version: findings.ReportVersion, Findings: []findings.ReportFinding{},
+					Note: strings.TrimPrefix(note, "bark: ")}, nil)
+			}
 			return nil
 		}
 	} else {
@@ -293,6 +319,11 @@ func RunReview(opts ReviewOptions) error {
 	}
 
 	out := io.Writer(os.Stdout)
+	if opts.JSON {
+		// The Markdown goes nowhere; the report is written once the
+		// review is done.
+		out = io.Discard
+	}
 	// Before the review, so a streamed one starts with it too.
 	if note := partialReviewNote(reviewDiff.Cut); note != "" {
 		fmt.Fprintf(os.Stderr, "bark: warning: %s\n", reviewDiff.Cut.Summary())
@@ -326,6 +357,7 @@ func RunReview(opts ReviewOptions) error {
 		threads, toCheck = threadsToCheck(os.Stderr, hist, checking, reviewDiff.PRHead(), maps)
 	}
 	var fixed map[int]string
+	checked := 0
 
 	var checkFn func([]findings.Event) ([]findings.Event, int)
 	if checking {
@@ -339,12 +371,19 @@ func RunReview(opts ReviewOptions) error {
 		r.SameLines = sameLinesHint(os.Stderr, hist.Findings, lineMapper(maps))
 		r.Threads = toCheck
 		checkFn = func(events []findings.Event) ([]findings.Event, int) {
-			var checked int
 			events, checked, fixed = checkFindings(r, events, meter, opts.Config.GetLLMTimeout(defaultReviewTimeout))
 			return events, checked
 		}
 	}
 	events := finishReview(out, output, truncated, opts.Stream, structured, minSeverity, checkFn, secrets)
+	if opts.JSON {
+		// Before posting and fail_on, so the report is there whatever
+		// they make of it. Every model call is made by now: posting makes
+		// none.
+		report := findings.NewReport(events, checked)
+		report.Cost = meter.Cost()
+		writeReport(os.Stdout, report, reviewDiff.Cut)
+	}
 
 	var post func() error
 	if opts.Comment {
@@ -1209,6 +1248,20 @@ func partialReviewNote(cut *git.DiffCut) string {
 		return ""
 	}
 	return findings.PartialReviewNote(cut.Summary())
+}
+
+// writeReport writes r to w as one line of JSON, with how much of the diff
+// was reviewed if cut isn't nil.
+func writeReport(w io.Writer, r findings.Report, cut *git.DiffCut) {
+	if cut != nil {
+		r.Partial = cut.Summary()
+	}
+	enc := json.NewEncoder(w)
+	// Code reads as written: `<-ch`, not `\u003c-ch`.
+	enc.SetEscapeHTML(false)
+	// A Report has nothing to fail on but w, which Bark writes to as best
+	// it can everywhere.
+	_ = enc.Encode(r)
 }
 
 // withPartialNote returns events with the note about the cut diff first, or
