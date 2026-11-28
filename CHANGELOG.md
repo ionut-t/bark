@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.41.0](https://github.com/ionut-t/bark/compare/v2.40.1...v2.41.0) (2026-11-28)
+
+
+### Features
+
+* **review:** add json output format ([#209](https://github.com/ionut-t/bark/issues/209)) ([03934ba](https://github.com/ionut-t/bark/commit/03934baef9a33a81122dc134cfc1bc7ce493fc2d))
+
 ## [2.40.1](https://github.com/ionut-t/bark/compare/v2.40.0...v2.40.1) (2026-11-27)
 
 
